@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Build responsive PWA
+        working-directory: apps/web
+        run: npm run build
+      - name: Frontend unit tests
+        working-directory: apps/web
+        run: npm test -- --run
+      - name: End-to-end typecheck
+        working-directory: apps/web
+        run: npm run typecheck:e2e
+      - name: Go tests
+        run: go test ./...
+      - name: Go race tests
+        run: go test -race ./internal/server ./internal/database ./internal/backup
+      - name: Go vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+      - name: npm security audit
+        working-directory: apps/web
+        run: npm audit --audit-level=high
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Mobile end-to-end flow
+        working-directory: apps/web
+        run: npm run test:e2e

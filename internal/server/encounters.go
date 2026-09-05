@@ -504,7 +504,7 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), now, now, user.ID)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), now, now, user.ID)
 		return err
 	})
 	if err != nil {

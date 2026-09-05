@@ -202,6 +202,10 @@ func TestFinalizedEncounterIsLockedAndAudited(t *testing.T) {
 	if diagnosis.Code != http.StatusCreated {
 		t.Fatalf("diagnosis: %d %s", diagnosis.Code, diagnosis.Body.String())
 	}
+	prescription := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{"patientId": patient.ID, "encounterId": encounterID, "type": "spectacle", "od": map[string]any{"sphere": "-1.00"}, "os": map[string]any{"sphere": "-0.75"}, "details": map[string]any{"pd": "62"}, "notes": "Distance wear", "expiresAt": ""}, a.doctor)
+	if prescription.Code != http.StatusCreated {
+		t.Fatalf("prescription: %d %s", prescription.Code, prescription.Body.String())
+	}
 	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
 	if finalized.Code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())

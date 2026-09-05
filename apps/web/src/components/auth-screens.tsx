@@ -30,7 +30,7 @@ export function LoginScreen() {
       <div className="mt-12"><h1 className="text-3xl font-bold tracking-tight">Welcome back</h1><p className="mt-2 text-sm text-zinc-500">Sign in with your clinic account to continue.</p></div>
       <form className="mt-8 grid gap-5" onSubmit={submit}>
         <Field label="Email or username"><Input autoComplete="username" autoFocus value={identity} onChange={(event) => setIdentity(event.target.value)} required /></Field>
-        <Field label="Password"><div className="relative"><Input className="pr-11" type={visible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button type="button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide password" : "Show password"} className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded text-zinc-500 hover:bg-zinc-100">{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></Field>
+        <div className="grid gap-1.5 text-sm font-medium text-zinc-800"><label htmlFor="login-password">Password</label><div className="relative"><Input id="login-password" className="pr-11" type={visible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button type="button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible} className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded text-zinc-500 hover:bg-zinc-100">{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></div>
         {error && <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
         <Button type="submit" disabled={submitting || available === false}>{submitting ? "Signing in…" : "Sign in"}</Button>
       </form>
@@ -56,4 +56,3 @@ export function SetupScreen() {
     <div className="mt-8 flex justify-between"><Button variant="outline" disabled={step === 1} onClick={() => setStep(step - 1)}>Back</Button>{step < 3 ? <Button onClick={() => setStep(step + 1)}>Continue</Button> : <Button disabled={submitting} onClick={finish}>{submitting ? "Preparing clinic…" : "Finish setup"}</Button>}</div>
   </div></main>;
 }
-

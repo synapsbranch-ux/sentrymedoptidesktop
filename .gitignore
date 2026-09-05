@@ -1,0 +1,29 @@
+# Runtime data
+/data/
+/SentryMed/
+*.db
+*.db-shm
+*.db-wal
+
+# Frontend
+node_modules/
+dist/
+!apps/web/dist/
+apps/web/dist/*
+!apps/web/dist/.gitkeep
+coverage/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Go / Wails
+/build/bin/
+*.exe
+*.app
+*.deb
+*.msi
+
+# Local configuration
+.env
+.DS_Store
+*.log

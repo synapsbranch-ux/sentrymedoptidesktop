@@ -41,4 +41,4 @@ These areas have UI, API, persistence, authorization, validation/error handling 
 - perform threat modeling, dependency/security review, data-retention review and jurisdiction-specific clinical/legal validation;
 - build and sign installers for each target OS and test upgrades/restores using real packaged builds.
 
-The checked-in CI runs the mobile acceptance flow. In the authoring environment, Go tests, frontend tests, strict builds and E2E typecheck passed; the local Chromium binary download timed out, so the Playwright runtime result must be confirmed by CI.
+The checked-in CI runs the mobile acceptance flow. Go tests, frontend tests, strict builds and E2E typecheck passed in the authoring environment; its local Chromium download timed out, and the complete Playwright runtime flow was subsequently validated by the green GitHub Actions pipeline.

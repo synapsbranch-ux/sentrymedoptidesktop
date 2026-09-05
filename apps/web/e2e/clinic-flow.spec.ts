@@ -23,7 +23,7 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
 
   await page.goto("/");
   await page.getByLabel("Email or username").fill("doctor.dev");
-  await page.getByLabel("Password").fill("Doctor-Development-Only-2026");
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill("Doctor-Development-Only-2026");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good day/ })).toBeVisible();
 

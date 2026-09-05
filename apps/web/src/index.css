@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@font-face { font-family: "Plus Jakarta Sans"; src: local("Plus Jakarta Sans"); font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: local("JetBrains Mono"); font-display: swap; }
+
+:root { color: #09090b; background: #fff; font-family: "Plus Jakarta Sans", Inter, ui-sans-serif, system-ui, sans-serif; font-synthesis: none; }
+* { box-sizing: border-box; }
+html { min-height: 100%; -webkit-text-size-adjust: 100%; }
+body, #root { min-height: 100%; min-height: 100dvh; margin: 0; }
+body { overscroll-behavior-y: none; }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+.font-mono, [data-numeric] { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace; font-variant-numeric: tabular-nums; }
+.page { margin-inline: auto; width: 100%; max-width: 1600px; padding: 1rem max(1rem, env(safe-area-inset-right)) 1rem max(1rem, env(safe-area-inset-left)); }
+@media (min-width: 768px) { .page { padding: 1.5rem 2rem 3rem; } }
+.page-title { font-size: 1.5rem; line-height: 2rem; font-weight: 750; letter-spacing: -0.035em; }
+.page-description { margin-top: .25rem; color: #71717a; font-size: .875rem; }
+.section-title { font-size: .7rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #71717a; }
+.stat-value { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 1.65rem; font-weight: 700; letter-spacing: -.04em; }
+.safe-bottom { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
+@media print { .no-print { display: none !important; } .print-page { border: 0 !important; box-shadow: none !important; margin: 0 !important; padding: 12mm !important; } body { background: white; } }

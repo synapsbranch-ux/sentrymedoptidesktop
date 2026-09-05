@@ -1,0 +1,128 @@
+package server
+
+import (
+	"context"
+	"database/sql"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const sessionCookie = "sentrymed_session"
+
+type loginRequest struct {
+	Identity string `json:"identity"`
+	Password string `json:"password"`
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var input loginRequest
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+	input.Identity = strings.TrimSpace(input.Identity)
+	ip := requestIP(r)
+	cutoff := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339Nano)
+	var failures int
+	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM login_attempts
+		WHERE ip_address = ? AND successful = 0 AND attempted_at > ?`, ip, cutoff).Scan(&failures)
+	if failures >= 8 {
+		writeError(w, http.StatusTooManyRequests, "LOGIN_RATE_LIMITED", "Too many failed sign-in attempts. Try again later.")
+		return
+	}
+	var user AuthUser
+	var passwordHash string
+	err := s.db.QueryRowContext(r.Context(), `SELECT id, username, COALESCE(email,''), display_name, role, password_hash
+		FROM users WHERE active = 1 AND archived_at IS NULL AND (username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE)`, input.Identity, input.Identity).
+		Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &user.Role, &passwordHash)
+	success := err == nil && verifyPassword(input.Password, passwordHash)
+	now := time.Now().UTC()
+	_, _ = s.db.ExecContext(r.Context(), "INSERT INTO login_attempts(identity, ip_address, successful, attempted_at) VALUES(?, ?, ?, ?)", input.Identity, ip, boolInt(success), now.Format(time.RFC3339Nano))
+	if !success {
+		if err != nil && err != sql.ErrNoRows {
+			s.logger.Error("login query failed", "error", err)
+		}
+		s.audit(r.Context(), nil, "login_failed", "session", "", "Failed sign-in for "+input.Identity, "", "", r)
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "The username/email or password is incorrect.")
+		return
+	}
+	token, err := randomToken(32)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SESSION_CREATE_FAILED", "Could not create a secure session.")
+		return
+	}
+	expires := now.Add(12 * time.Hour)
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO sessions(id, user_id, token_hash, ip_address, user_agent, expires_at, created_at, last_seen_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, uuid.NewString(), user.ID, tokenHash(token), ip, r.UserAgent(), expires.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SESSION_CREATE_FAILED", "Could not create a secure session.")
+		return
+	}
+	_, _ = s.db.ExecContext(r.Context(), "UPDATE users SET last_login_at = ? WHERE id = ?", now.Format(time.RFC3339Nano), user.ID)
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int((12 * time.Hour).Seconds())})
+	s.audit(r.Context(), &user, "login", "session", "", "User signed in", "", "", r)
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "expiresAt": expires})
+}
+
+func (s *Server) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookie)
+		if err != nil || cookie.Value == "" {
+			writeError(w, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Sign in to continue.")
+			return
+		}
+		var user AuthUser
+		var expires, lastSeen string
+		err = s.db.QueryRowContext(r.Context(), `SELECT u.id, u.username, COALESCE(u.email,''), u.display_name, u.role, s.expires_at, s.last_seen_at
+			FROM sessions s JOIN users u ON u.id = s.user_id
+			WHERE s.token_hash = ? AND s.invalidated_at IS NULL AND u.active = 1 AND u.archived_at IS NULL`, tokenHash(cookie.Value)).
+			Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &user.Role, &expires, &lastSeen)
+		expiresAt, parseErr := time.Parse(time.RFC3339Nano, expires)
+		if err != nil || parseErr != nil || time.Now().UTC().After(expiresAt) {
+			http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+			writeError(w, http.StatusUnauthorized, "SESSION_EXPIRED", "Your session has expired. Sign in again.")
+			return
+		}
+		seenAt, _ := time.Parse(time.RFC3339Nano, lastSeen)
+		if time.Since(seenAt) >= 5*time.Minute {
+			_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(cookie.Value))
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
+	})
+}
+
+func (s *Server) requireDoctor(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := userFromContext(r.Context())
+		if !ok || user.Role != "doctor" {
+			writeError(w, http.StatusForbidden, "DOCTOR_ACCESS_REQUIRED", "This action requires doctor access.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	if cookie, err := r.Cookie(sessionCookie); err == nil {
+		_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(cookie.Value))
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
+	s.audit(r.Context(), &user, "logout", "session", "", "User signed out", "", "", r)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	user, _ := userFromContext(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}

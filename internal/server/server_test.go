@@ -1,0 +1,294 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/app"
+	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/database"
+)
+
+type testApp struct {
+	t       *testing.T
+	server  *Server
+	handler http.Handler
+	doctor  *http.Cookie
+	nurse   *http.Cookie
+}
+
+func newTestApp(t *testing.T) *testApp {
+	t.Helper()
+	dataDir := t.TempDir()
+	for _, directory := range []string{"database", "documents", "backups", "logs"} {
+		if err := os.MkdirAll(filepath.Join(dataDir, directory), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := database.Open(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := SeedDevelopment(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server := New(db, app.Config{DataDir: dataDir, Address: "127.0.0.1:0", Dev: true}, logger)
+	result := &testApp{t: t, server: server, handler: server.Handler()}
+	result.doctor = result.login("doctor.dev", "Doctor-Development-Only-2026")
+	result.nurse = result.login("nurse.dev", "Nurse-Development-Only-2026")
+	return result
+}
+
+func (a *testApp) login(identity, password string) *http.Cookie {
+	a.t.Helper()
+	response := a.request(http.MethodPost, "/api/v1/auth/login", map[string]any{"identity": identity, "password": password}, nil)
+	if response.Code != http.StatusOK {
+		a.t.Fatalf("login failed: %d %s", response.Code, response.Body.String())
+	}
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == sessionCookie {
+			return cookie
+		}
+	}
+	a.t.Fatal("login did not return session cookie")
+	return nil
+}
+
+func (a *testApp) request(method, path string, body any, cookie *http.Cookie) *httptest.ResponseRecorder {
+	a.t.Helper()
+	var encoded io.Reader
+	if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			a.t.Fatal(err)
+		}
+		encoded = bytes.NewReader(data)
+	}
+	request := httptest.NewRequest(method, path, encoded)
+	request.RemoteAddr = "127.0.0.1:1234"
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	a.handler.ServeHTTP(response, request)
+	return response
+}
+
+func decodeResponse[T any](t *testing.T, response *httptest.ResponseRecorder) T {
+	t.Helper()
+	var result T
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v (%s)", err, response.Body.String())
+	}
+	return result
+}
+
+func (a *testApp) createPatient(cookie *http.Cookie, first, last string) patientRecord {
+	a.t.Helper()
+	response := a.request(http.MethodPost, "/api/v1/patients", map[string]any{
+		"firstName": first, "middleName": "", "lastName": last, "preferredName": "", "sex": "", "dateOfBirth": "", "phone": "", "alternatePhone": "", "email": "", "address": "", "city": "", "occupation": "", "employer": "", "preferredLanguage": "", "communicationPreference": "", "referralSource": "", "referringProvider": "", "notes": "", "tags": []string{},
+	}, cookie)
+	if response.Code != http.StatusCreated {
+		a.t.Fatalf("create patient: %d %s", response.Code, response.Body.String())
+	}
+	return decodeResponse[patientRecord](a.t, response)
+}
+
+func patientUpdateBody(patient patientRecord, notes string) map[string]any {
+	return map[string]any{
+		"firstName": patient.FirstName, "middleName": patient.MiddleName, "lastName": patient.LastName, "preferredName": patient.PreferredName,
+		"sex": patient.Sex, "dateOfBirth": patient.DateOfBirth, "phone": patient.Phone, "alternatePhone": patient.AlternatePhone, "email": patient.Email,
+		"address": patient.Address, "city": patient.City, "occupation": patient.Occupation, "employer": patient.Employer, "preferredLanguage": patient.PreferredLanguage,
+		"communicationPreference": patient.CommunicationPreference, "referralSource": patient.ReferralSource, "referringProvider": patient.ReferringProvider,
+		"notes": notes, "tags": patient.Tags, "version": patient.Version,
+	}
+}
+
+func TestAuthenticationAndRBAC(t *testing.T) {
+	a := newTestApp(t)
+	unauthenticated := a.request(http.MethodGet, "/api/v1/patients", nil, nil)
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d", unauthenticated.Code)
+	}
+	nurseUsers := a.request(http.MethodGet, "/api/v1/users", nil, a.nurse)
+	if nurseUsers.Code != http.StatusForbidden {
+		t.Fatalf("nurse users status = %d, want 403", nurseUsers.Code)
+	}
+	nurseDiagnosis := a.request(http.MethodPost, "/api/v1/encounters/not-real/diagnoses", map[string]any{"diagnosis": "Forbidden"}, a.nurse)
+	if nurseDiagnosis.Code != http.StatusForbidden {
+		t.Fatalf("nurse diagnosis status = %d, want 403", nurseDiagnosis.Code)
+	}
+	doctorUsers := a.request(http.MethodGet, "/api/v1/users", nil, a.doctor)
+	if doctorUsers.Code != http.StatusOK || bytes.Contains(doctorUsers.Body.Bytes(), []byte("password_hash")) {
+		t.Fatalf("doctor users response invalid or leaked hash: %d %s", doctorUsers.Code, doctorUsers.Body.String())
+	}
+}
+
+func TestPatientOptimisticConcurrency(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Marie", "Joseph")
+	first := a.request(http.MethodPut, "/api/v1/patients/"+patient.ID, patientUpdateBody(patient, "Doctor update"), a.doctor)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first update: %d %s", first.Code, first.Body.String())
+	}
+	second := a.request(http.MethodPut, "/api/v1/patients/"+patient.ID, patientUpdateBody(patient, "Nurse stale update"), a.nurse)
+	if second.Code != http.StatusConflict {
+		t.Fatalf("stale update: %d %s", second.Code, second.Body.String())
+	}
+	errorBody := decodeResponse[APIError](t, second)
+	if errorBody.Code != "CONCURRENT_MODIFICATION" {
+		t.Fatalf("error code = %s", errorBody.Code)
+	}
+}
+
+func TestDoctorAndNurseConcurrentIndependentWrites(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Patient", "Concurrent")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Blurred vision", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create encounter: %d %s", created.Code, created.Body.String())
+	}
+	encounter := decodeResponse[map[string]any](t, created)
+	encounterID := encounter["id"].(string)
+	start := make(chan struct{})
+	results := make(chan int, 2)
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() {
+		defer wait.Done()
+		<-start
+		response := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID, map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Blurred vision", "hpi": "Progressive", "assessment": "Myopia", "treatmentPlan": "Spectacles", "followUp": "1 year", "version": 1}, a.doctor)
+		results <- response.Code
+	}()
+	go func() {
+		defer wait.Done()
+		<-start
+		response := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/pretest", map[string]any{"chiefComplaint": "Blurred vision", "vitals": map[string]any{}, "visualAcuity": map[string]any{"odDistanceVA": "20/40", "osDistanceVA": "20/30"}, "autorefraction": map[string]any{"odSphere": "-1.50"}, "keratometry": map[string]any{}, "iop": map[string]any{"odIOP": "17", "osIOP": "16"}, "pupils": "PERRLA", "eom": "Full", "coverTest": "Ortho", "confrontationFields": "Full", "colorVision": "Normal", "stereopsis": "", "pachymetry": map[string]any{}, "lensometry": map[string]any{}, "complete": true, "version": 1}, a.nurse)
+		results <- response.Code
+	}()
+	close(start)
+	wait.Wait()
+	close(results)
+	for status := range results {
+		if status != http.StatusOK {
+			t.Fatalf("concurrent independent write status = %d", status)
+		}
+	}
+	detail := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID, nil, a.doctor)
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte("Progressive")) || !bytes.Contains(detail.Body.Bytes(), []byte("20/40")) {
+		t.Fatalf("independent changes did not both persist: %d %s", detail.Code, detail.Body.String())
+	}
+}
+
+func TestFinalizedEncounterIsLockedAndAudited(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Lock", "Test")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Pain", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+	diagnosis := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/diagnoses", map[string]any{"diagnosis": "Dry eye", "code": "H04.129", "laterality": "OU", "notes": "", "primary": true}, a.doctor)
+	if diagnosis.Code != http.StatusCreated {
+		t.Fatalf("diagnosis: %d %s", diagnosis.Code, diagnosis.Body.String())
+	}
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	if finalized.Code != http.StatusOK {
+		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
+	}
+	edit := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID, map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Changed", "chiefComplaint": "", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": "", "version": 2}, a.doctor)
+	if edit.Code != http.StatusLocked {
+		t.Fatalf("finalized edit status = %d, want 423: %s", edit.Code, edit.Body.String())
+	}
+	var auditCount int
+	if err := a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM audit_logs WHERE action='finalize' AND entity_id=?", encounterID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("finalize audit count = %d, error %v", auditCount, err)
+	}
+}
+
+func TestPOSIsAtomicAndSupportsPartialPayment(t *testing.T) {
+	a := newTestApp(t)
+	itemResponse := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "FRM-TEST", "barcode": "", "category": "frame", "name": "Test Frame", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 5000, "salePriceMinor": 10000, "currency": "HTG", "quantity": 2, "reorderLevel": 1, "trackStock": true}, a.nurse)
+	if itemResponse.Code != http.StatusCreated {
+		t.Fatalf("inventory item: %d %s", itemResponse.Code, itemResponse.Body.String())
+	}
+	itemID := decodeResponse[map[string]any](t, itemResponse)["id"].(string)
+	checkout := a.request(http.MethodPost, "/api/v1/pos/checkout", map[string]any{
+		"invoice": map[string]any{"patientId": "", "currency": "HTG", "exchangeRate": "1", "discountMinor": 0, "taxMinor": 0, "dueAt": "", "notes": "", "items": []map[string]any{{"inventoryItemId": itemID, "description": "Test Frame", "quantity": 1, "unitPriceMinor": 10000, "discountMinor": 0, "taxMinor": 0}}},
+		"payment": map[string]any{"paymentMethodId": "pm_cash", "registerSessionId": "", "amountMinor": 4000, "currency": "HTG", "exchangeRate": "1", "reference": "", "notes": ""},
+	}, a.nurse)
+	if checkout.Code != http.StatusCreated {
+		t.Fatalf("checkout: %d %s", checkout.Code, checkout.Body.String())
+	}
+	result := decodeResponse[map[string]any](t, checkout)
+	if result["balanceMinor"].(float64) != 6000 {
+		t.Fatalf("balance = %v", result["balanceMinor"])
+	}
+	currencyMismatch := a.request(http.MethodPost, "/api/v1/invoices/"+result["invoiceId"].(string)+"/payments", map[string]any{"paymentMethodId": "pm_cash", "registerSessionId": "", "amountMinor": 1000, "currency": "USD", "exchangeRate": "132.50", "reference": "", "notes": ""}, a.nurse)
+	if currencyMismatch.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("cross-currency payment status = %d, want 422: %s", currencyMismatch.Code, currencyMismatch.Body.String())
+	}
+	var quantity int
+	var movementCount int
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT quantity FROM inventory_items WHERE id=?", itemID).Scan(&quantity)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM stock_movements WHERE item_id=? AND movement_type='sale'", itemID).Scan(&movementCount)
+	if quantity != 1 || movementCount != 1 {
+		t.Fatalf("stock quantity=%d movementCount=%d", quantity, movementCount)
+	}
+	finance := a.request(http.MethodGet, "/api/v1/finance/summary", nil, a.doctor)
+	if finance.Code != http.StatusOK || !bytes.Contains(finance.Body.Bytes(), []byte(`"baseCurrency":"HTG"`)) {
+		t.Fatalf("finance summary invalid: %d %s", finance.Code, finance.Body.String())
+	}
+}
+
+func TestBackupCreatesVerifiedSQLiteSnapshot(t *testing.T) {
+	a := newTestApp(t)
+	response := a.request(http.MethodPost, "/api/v1/backups", map[string]any{}, a.doctor)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("backup: %d %s", response.Code, response.Body.String())
+	}
+	record := decodeResponse[map[string]any](t, response)
+	if record["verified"] != true {
+		t.Fatalf("backup not verified: %v", record)
+	}
+	path := record["path"].(string)
+	if stat, err := os.Stat(path); err != nil || stat.Size() == 0 {
+		t.Fatalf("backup file invalid: %v", err)
+	}
+}
+
+func TestRestoreReplacesDatabaseAndPreservesSafetySnapshot(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Restore", "Patient")
+	backupResponse := a.request(http.MethodPost, "/api/v1/backups", map[string]any{}, a.doctor)
+	if backupResponse.Code != http.StatusCreated {
+		t.Fatalf("backup: %d %s", backupResponse.Code, backupResponse.Body.String())
+	}
+	backupID := decodeResponse[map[string]any](t, backupResponse)["id"].(string)
+	update := a.request(http.MethodPut, "/api/v1/patients/"+patient.ID, patientUpdateBody(patient, "change after snapshot"), a.doctor)
+	if update.Code != http.StatusOK {
+		t.Fatalf("update after backup: %d %s", update.Code, update.Body.String())
+	}
+	restore := a.request(http.MethodPost, "/api/v1/backups/restore", map[string]any{"backupId": backupID}, a.doctor)
+	if restore.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", restore.Code, restore.Body.String())
+	}
+	reloaded := a.request(http.MethodGet, "/api/v1/patients/"+patient.ID, nil, a.doctor)
+	if reloaded.Code != http.StatusOK || bytes.Contains(reloaded.Body.Bytes(), []byte("change after snapshot")) {
+		t.Fatalf("restored patient did not match snapshot: %d %s", reloaded.Code, reloaded.Body.String())
+	}
+	backups, err := filepath.Glob(filepath.Join(a.server.config.DataDir, "backups", "sentrymed-pre_restore-*.db"))
+	if err != nil || len(backups) == 0 {
+		t.Fatalf("pre-restore safety snapshot missing: %v", err)
+	}
+}

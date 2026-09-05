@@ -27,7 +27,7 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good day/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "Patients" }).click();
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Patients" }).click();
   await page.getByRole("button", { name: "New patient" }).click();
   await page.getByLabel("First name").fill("Marie");
   await page.getByLabel("Last name").fill(`Joseph ${suffix}`);
@@ -67,7 +67,8 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
   await page.getByPlaceholder("Name, medical record number, phone, email…").fill(suffix);
   await page.getByRole("button", { name: new RegExp(patientName) }).click();
   await expect(page.getByRole("heading", { name: patientName })).toBeVisible();
+  const patientRecord = page.getByRole("complementary", { name: "Patient record" });
   for (const label of ["Appointment", "Consultation", "Prescription", "Invoice", "Payment", "Lab order"]) {
-    await expect(page.getByText(new RegExp(`^${label}`)).first()).toBeVisible();
+    await expect(patientRecord.getByText(new RegExp(`^${label}`)).first()).toBeVisible();
   }
 });

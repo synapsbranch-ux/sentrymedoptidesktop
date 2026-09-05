@@ -31,7 +31,7 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
   await page.getByRole("button", { name: "New patient" }).click();
   await page.getByLabel("First name").fill("Marie");
   await page.getByLabel("Last name").fill(`Joseph ${suffix}`);
-  await page.getByLabel("Phone").fill(`509${suffix.slice(-8)}`);
+  await page.getByRole("textbox", { name: "Phone", exact: true }).fill(`509${suffix.slice(-8)}`);
   await page.getByRole("button", { name: "Create patient" }).click();
   await expect(page.getByRole("heading", { name: patientName })).toBeVisible();
 

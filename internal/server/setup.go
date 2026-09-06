@@ -3,7 +3,6 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -36,8 +35,7 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
-	ip := net.ParseIP(requestIP(r))
-	if requestIP(r) != "" && (ip == nil || !ip.IsLoopback()) {
+	if !setupRequestAllowed(r) {
 		writeError(w, http.StatusForbidden, "LOCAL_SETUP_REQUIRED", "Initial setup must be completed on the server computer.")
 		return
 	}

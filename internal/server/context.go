@@ -8,7 +8,10 @@ import (
 
 type contextKey string
 
-const userContextKey contextKey = "user"
+const (
+	userContextKey           contextKey = "user"
+	desktopRequestContextKey contextKey = "desktop-request"
+)
 
 type AuthUser struct {
 	ID          string `json:"id"`
@@ -29,4 +32,27 @@ func requestIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// DesktopHandler marks requests that originate from Wails' in-process asset
+// server. The LAN HTTP server deliberately uses Handler directly, so remote
+// clients cannot manufacture this marker with an HTTP header.
+func DesktopHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), desktopRequestContextKey, true)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func isDesktopRequest(r *http.Request) bool {
+	desktop, _ := r.Context().Value(desktopRequestContextKey).(bool)
+	return desktop
+}
+
+func setupRequestAllowed(r *http.Request) bool {
+	if isDesktopRequest(r) {
+		return true
+	}
+	ip := net.ParseIP(requestIP(r))
+	return ip != nil && ip.IsLoopback()
 }

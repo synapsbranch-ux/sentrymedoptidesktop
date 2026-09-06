@@ -123,7 +123,7 @@ func main() {
 		MinWidth:         1024,
 		MinHeight:        700,
 		BackgroundColour: &options.RGBA{R: 255, G: 255, B: 255, A: 1},
-		AssetServer:      &assetserver.Options{Assets: webAssets, Handler: server.Handler()},
+		AssetServer:      &assetserver.Options{Assets: webAssets, Handler: clinicserver.DesktopHandler(server.Handler())},
 		OnStartup:        bridge.startup,
 		OnBeforeClose: func(ctx context.Context) bool {
 			if bridge.closing {

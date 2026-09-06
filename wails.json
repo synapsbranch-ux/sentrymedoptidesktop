@@ -2,6 +2,7 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "sentrymed-opti",
   "outputfilename": "SentryMed-Opti",
+  "nsisType": "multiple",
   "frontend:install": "npm --prefix apps/web install",
   "frontend:build": "npm --prefix apps/web run build",
   "frontend:dev:watcher": "npm --prefix apps/web run dev",
@@ -9,6 +10,12 @@
   "author": {
     "name": "SentryMed Opti",
     "email": ""
+  },
+  "info": {
+    "companyName": "SentryMed",
+    "productName": "SentryMed Opti",
+    "productVersion": "0.2.0",
+    "copyright": "Copyright 2026 SentryMed",
+    "comments": "Local-first Optical Clinic Management System"
   }
 }
-

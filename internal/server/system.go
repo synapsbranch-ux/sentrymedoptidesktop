@@ -1,11 +1,16 @@
 package server
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,14 +25,19 @@ func (s *Server) registerSystemRoutes(r chi.Router) {
 	r.Get("/dashboard", s.handleDashboard)
 	r.Get("/search", s.handleSearch)
 	r.Get("/network", s.handleNetwork)
+	r.Get("/network/local-ca", s.handleLocalCADownload)
 	r.Get("/settings", s.handleSettingsList)
 	r.With(s.requireDoctor).Put("/settings/{key}", s.handleSettingsUpdate)
+	r.Get("/branding/logo", s.handleClinicLogoGet)
+	r.With(s.requireDoctor).Post("/branding/logo", s.handleClinicLogoUpload)
 	r.With(s.requireDoctor).Get("/users", s.handleUsersList)
 	r.With(s.requireDoctor).Post("/users", s.handleUsersCreate)
 	r.With(s.requireDoctor).Patch("/users/{id}", s.handleUsersUpdate)
+	r.With(s.requireDoctor).Post("/users/{id}/password", s.handleUserPasswordReset)
 	r.With(s.requireDoctor).Get("/audit", s.handleAuditList)
 	r.With(s.requireDoctor).Get("/backups", s.handleBackupsList)
 	r.With(s.requireDoctor).Post("/backups", s.handleBackupCreate)
+	r.With(s.requireDoctor).Post("/backups/validate-destination", s.handleBackupDestinationValidate)
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +105,27 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		metrics[key] = count
 	}
 	user, _ := userFromContext(r.Context())
-	response := map[string]any{"today": metrics, "role": user.Role}
+	visits := []map[string]any{}
+	for offset := 6; offset >= 0; offset-- {
+		day := time.Now().UTC().AddDate(0, 0, -offset).Format("2006-01-02")
+		var count int64
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM encounters WHERE substr(created_at,1,10)=? AND archived_at IS NULL", day).Scan(&count)
+		visits = append(visits, map[string]any{"label": day, "value": count})
+	}
+	appointmentStatuses := []map[string]any{}
+	statusRows, _ := s.db.QueryContext(r.Context(), "SELECT status,COUNT(*) FROM appointments WHERE substr(starts_at,1,10)=? AND archived_at IS NULL GROUP BY status ORDER BY status", today)
+	if statusRows != nil {
+		for statusRows.Next() {
+			var label string
+			var value int64
+			if statusRows.Scan(&label, &value) == nil {
+				appointmentStatuses = append(appointmentStatuses, map[string]any{"label": label, "value": value})
+			}
+		}
+		_ = statusRows.Close()
+	}
+	charts := map[string]any{"visits": visits, "appointmentStatus": appointmentStatuses}
+	response := map[string]any{"today": metrics, "role": user.Role, "charts": charts}
 	if user.Role == "doctor" {
 		var baseCurrency string
 		_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(json_extract(value_json,'$.currency'),'HTG') FROM settings WHERE key='clinic'`).Scan(&baseCurrency)
@@ -110,6 +140,35 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding)
 		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM expenses WHERE substr(expense_date,1,7)=?", month).Scan(&expenses)
 		response["finance"] = map[string]any{"baseCurrency": baseCurrency, "todayRevenueMinor": todayRevenue, "monthRevenueMinor": monthRevenue, "outstandingMinor": outstanding, "monthExpensesMinor": expenses}
+		dailyRevenue := []map[string]any{}
+		for offset := 6; offset >= 0; offset-- {
+			day := time.Now().UTC().AddDate(0, 0, -offset).Format("2006-01-02")
+			var value int64
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)=?", day).Scan(&value)
+			dailyRevenue = append(dailyRevenue, map[string]any{"label": day, "value": value})
+		}
+		monthlyRevenue := []map[string]any{}
+		for offset := 5; offset >= 0; offset-- {
+			period := time.Now().UTC().AddDate(0, -offset, 0).Format("2006-01")
+			var value int64
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,7)=?", period).Scan(&value)
+			monthlyRevenue = append(monthlyRevenue, map[string]any{"label": period, "value": value})
+		}
+		salesDistribution := []map[string]any{}
+		salesRows, _ := s.db.QueryContext(r.Context(), `SELECT COALESCE(ii.category,'service'),COALESCE(SUM(li.line_total_minor),0) FROM invoice_items li JOIN invoices inv ON inv.id=li.invoice_id LEFT JOIN inventory_items ii ON ii.id=li.inventory_item_id WHERE inv.status NOT IN ('cancelled','refunded') AND substr(inv.created_at,1,7)=? GROUP BY COALESCE(ii.category,'service') ORDER BY 2 DESC`, month)
+		if salesRows != nil {
+			for salesRows.Next() {
+				var label string
+				var value int64
+				if salesRows.Scan(&label, &value) == nil {
+					salesDistribution = append(salesDistribution, map[string]any{"label": label, "value": value})
+				}
+			}
+			_ = salesRows.Close()
+		}
+		charts["dailyRevenue"] = dailyRevenue
+		charts["monthlyRevenue"] = monthlyRevenue
+		charts["salesDistribution"] = salesDistribution
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -166,7 +225,22 @@ func (s *Server) handleNetwork(w http.ResponseWriter, r *http.Request) {
 	if host, _, err := net.SplitHostPort(s.config.Address); err == nil && host != "" && host != "0.0.0.0" && host != "::" {
 		primary = host
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"running": true, "addresses": addresses, "url": s.config.MobileURL(primary), "tls": s.config.TLSCert != "", "connectedDevices": s.broker.Connected()})
+	writeJSON(w, http.StatusOK, map[string]any{"running": true, "addresses": addresses, "url": s.config.MobileURL(primary), "tls": s.config.TLSCert != "", "localCAAvailable": s.config.TLSCA != "", "connectedDevices": s.broker.Connected()})
+}
+
+func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {
+	if s.config.TLSCA == "" {
+		writeError(w, http.StatusNotFound, "LOCAL_CA_NOT_AVAILABLE", "This server uses an externally managed certificate.")
+		return
+	}
+	if _, err := os.Stat(s.config.TLSCA); err != nil {
+		writeError(w, http.StatusNotFound, "LOCAL_CA_NOT_AVAILABLE", "Local certificate authority file was not found.")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Content-Disposition", `attachment; filename="sentrymed-local-ca.crt"`)
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, s.config.TLSCA)
 }
 
 func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +285,19 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(raw) > 256*1024 {
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_SETTING", "The setting value is invalid or too large.")
 		return
+	}
+	if key == "backup" {
+		var value struct {
+			Directory string `json:"directory"`
+		}
+		if json.Unmarshal(raw, &value) != nil {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_BACKUP_SETTING", "Backup settings are invalid.")
+			return
+		}
+		if _, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), value.Directory); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+			return
+		}
 	}
 	user, _ := userFromContext(r.Context())
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -312,6 +399,25 @@ func (s *Server) handleUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, _ := userFromContext(r.Context())
 	id := chi.URLParam(r, "id")
+	if id == actor.ID && !input.Active {
+		writeError(w, http.StatusUnprocessableEntity, "CANNOT_DISABLE_SELF", "You cannot disable your own active session.")
+		return
+	}
+	if !input.Active {
+		var role string
+		var activeDoctors int
+		if err := s.db.QueryRowContext(r.Context(), "SELECT role FROM users WHERE id=? AND archived_at IS NULL", id).Scan(&role); err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User was not found.")
+			return
+		}
+		if role == "doctor" {
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM users WHERE role='doctor' AND active=1 AND archived_at IS NULL").Scan(&activeDoctors)
+			if activeDoctors <= 1 {
+				writeError(w, http.StatusUnprocessableEntity, "LAST_DOCTOR_REQUIRED", "The clinic must retain at least one active doctor account.")
+				return
+			}
+		}
+	}
 	result, err := s.db.ExecContext(r.Context(), `UPDATE users SET display_name=?, active=?, version=version+1, updated_at=?, updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, strings.TrimSpace(input.DisplayName), boolInt(input.Active), time.Now().UTC().Format(time.RFC3339Nano), actor.ID, id, input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "USER_UPDATE_FAILED", "Could not update the user.")
@@ -327,6 +433,125 @@ func (s *Server) handleUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r.Context(), &actor, "update", "user", id, "Updated user account", "", "", r)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type resetPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+func (s *Server) handleUserPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var input resetPasswordRequest
+	if err := decodeJSON(r, &input); err != nil || !validPassword(input.Password) {
+		writeError(w, http.StatusUnprocessableEntity, "WEAK_PASSWORD", "Use a password of at least 12 characters.")
+		return
+	}
+	hash, err := hashPassword(input.Password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PASSWORD_HASH_FAILED", "Could not secure the password.")
+		return
+	}
+	actor, _ := userFromContext(r.Context())
+	id, now := chi.URLParam(r, "id"), time.Now().UTC().Format(time.RFC3339Nano)
+	err = s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(r.Context(), "UPDATE users SET password_hash=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND archived_at IS NULL", hash, now, actor.ID, id)
+		if err != nil {
+			return err
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return sql.ErrNoRows
+		}
+		_, err = tx.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at=? WHERE user_id=? AND invalidated_at IS NULL", now, id)
+		return err
+	})
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "User was not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PASSWORD_RESET_FAILED", "Could not reset the password.")
+		return
+	}
+	s.audit(r.Context(), &actor, "password_reset", "user", id, "Reset clinic user password and invalidated sessions", "", "", r)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password_reset"})
+}
+
+func (s *Server) handleClinicLogoUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, (3<<20)+1024)
+	if err := r.ParseMultipartForm(3 << 20); err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "LOGO_TOO_LARGE", "Clinic logo must be 3 MB or smaller.")
+		return
+	}
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "LOGO_REQUIRED", "Choose a PNG or JPEG logo.")
+		return
+	}
+	defer file.Close()
+	prefix := make([]byte, 512)
+	count, readErr := io.ReadFull(file, prefix)
+	if readErr != nil && readErr != io.ErrUnexpectedEOF {
+		writeError(w, http.StatusBadRequest, "INVALID_LOGO", "Logo file could not be read.")
+		return
+	}
+	prefix = prefix[:count]
+	mediaType := http.DetectContentType(prefix)
+	extensions := map[string]string{"image/png": ".png", "image/jpeg": ".jpg"}
+	extension, allowed := extensions[mediaType]
+	if !allowed {
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_LOGO_TYPE", "Clinic logo must be PNG or JPEG.")
+		return
+	}
+	directory := filepath.Join(s.config.DataDir, "branding")
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		writeError(w, http.StatusInternalServerError, "LOGO_STORE_FAILED", "Could not prepare branding storage.")
+		return
+	}
+	filename := "clinic-logo-" + uuid.NewString() + extension
+	path := filepath.Join(directory, filename)
+	output, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LOGO_STORE_FAILED", "Could not store clinic logo.")
+		return
+	}
+	hash := sha256.New()
+	size, copyErr := io.Copy(io.MultiWriter(output, hash), io.LimitReader(io.MultiReader(strings.NewReader(string(prefix)), file), (3<<20)+1))
+	closeErr := output.Close()
+	if copyErr != nil || closeErr != nil || size > 3<<20 {
+		_ = os.Remove(path)
+		writeError(w, http.StatusRequestEntityTooLarge, "LOGO_STORE_FAILED", "Could not store logo or it exceeds 3 MB.")
+		return
+	}
+	actor, _ := userFromContext(r.Context())
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	var previous string
+	_ = s.db.QueryRowContext(r.Context(), "SELECT filename FROM branding_assets WHERE key='clinic_logo'").Scan(&previous)
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO branding_assets(key,filename,media_type,size_bytes,checksum_sha256,updated_at,updated_by) VALUES('clinic_logo',?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET filename=excluded.filename,media_type=excluded.media_type,size_bytes=excluded.size_bytes,checksum_sha256=excluded.checksum_sha256,version=branding_assets.version+1,updated_at=excluded.updated_at,updated_by=excluded.updated_by`, filename, mediaType, size, hex.EncodeToString(hash.Sum(nil)), now, actor.ID)
+	if err != nil {
+		_ = os.Remove(path)
+		writeError(w, http.StatusInternalServerError, "LOGO_METADATA_FAILED", "Logo was not saved to clinic settings.")
+		return
+	}
+	if previous != "" && previous != filename {
+		_ = os.Remove(filepath.Join(directory, filepath.Base(previous)))
+	}
+	s.audit(r.Context(), &actor, "update", "branding", "clinic_logo", "Updated clinic logo", "", header.Filename, r)
+	s.broker.Publish(realtime.Event{Type: "settings.updated", EntityType: "branding", EntityID: "clinic_logo"})
+	writeJSON(w, http.StatusOK, map[string]any{"url": "/api/v1/branding/logo?v=" + now, "mediaType": mediaType, "sizeBytes": size})
+}
+
+func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
+	var filename, mediaType string
+	if err := s.db.QueryRowContext(r.Context(), "SELECT filename,media_type FROM branding_assets WHERE key='clinic_logo'").Scan(&filename, &mediaType); err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "LOGO_NOT_FOUND", "No clinic logo has been uploaded.")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "LOGO_LOAD_FAILED", "Could not load clinic logo.")
+		return
+	}
+	path := filepath.Join(s.config.DataDir, "branding", filepath.Base(filename))
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	http.ServeFile(w, r, path)
 }
 
 func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request) {
@@ -372,6 +597,22 @@ func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r.Context(), &user, "create", "backup", record.ID, "Created and verified manual backup", "", "", r)
 	writeJSON(w, http.StatusCreated, record)
+}
+
+func (s *Server) handleBackupDestinationValidate(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Directory string `json:"directory"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+	directory, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), input.Directory)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"directory": directory, "writable": true})
 }
 
 type restoreRequest struct {

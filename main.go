@@ -36,8 +36,19 @@ func (d *DesktopBridge) OpenMobileAccess() {
 	runtime.BrowserOpenURL(d.ctx, d.config.LoopbackURL())
 }
 
-func (d *DesktopBridge) OpenBackupFolder() {
-	runtime.BrowserOpenURL(d.ctx, "file://"+filepath.ToSlash(filepath.Join(d.config.DataDir, "backups")))
+func (d *DesktopBridge) OpenBackupFolder(path string) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(d.config.DataDir, "backups")
+	}
+	runtime.BrowserOpenURL(d.ctx, "file://"+filepath.ToSlash(filepath.Clean(path)))
+}
+
+func (d *DesktopBridge) SelectBackupFolder() (string, error) {
+	return runtime.OpenDirectoryDialog(d.ctx, runtime.OpenDialogOptions{
+		Title:                "Choose SentryMed backup folder",
+		DefaultDirectory:     filepath.Join(d.config.DataDir, "backups"),
+		CanCreateDirectories: true,
+	})
 }
 
 func (d *DesktopBridge) MinimizeServer() { runtime.WindowMinimise(d.ctx) }

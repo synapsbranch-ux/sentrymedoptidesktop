@@ -32,12 +32,13 @@ Authentication is an opaque `HttpOnly`, `SameSite=Strict` session cookie. `Secur
 | GET, PUT | `/patients/{id}/history` | Doctor, nurse; versioned |
 | GET | `/patients/{id}/timeline` | Doctor, nurse |
 | GET, POST | `/appointments` | Doctor, nurse |
+| PUT | `/appointments/{id}` | Doctor, nurse; reschedule/versioned |
 | PATCH | `/appointments/{id}/status` | Doctor, nurse; versioned |
 | GET | `/queue` | Doctor, nurse |
 | POST | `/queue/check-in` | Doctor, nurse; appointment optional |
 | PATCH | `/queue/{id}` | Doctor, nurse; versioned |
 
-Patient listing accepts `q`, `page`, and `limit`. Appointments accept a `date=YYYY-MM-DD` filter.
+Patient listing accepts `q`, `page`, and `limit`. Appointments accept `date=YYYY-MM-DD` or `from`/`to` range filters.
 
 ## Encounters, prescriptions and documents
 
@@ -62,10 +63,16 @@ Patient listing accepts `q`, `page`, and `limit`. Appointments accept a `date=YY
 |---|---|---|
 | GET, POST | `/inventory` | Doctor, nurse |
 | GET, POST | `/inventory/{id}/movements` | Doctor, nurse; versioned stock write |
-| GET | `/suppliers` | Doctor, nurse |
-| POST | `/suppliers` | Doctor |
-| POST | `/purchase-orders` | Doctor |
+| GET, POST | `/suppliers` | Read both roles; write doctor |
+| PUT, DELETE | `/suppliers/{id}` | Doctor; delete archives |
+| GET, POST | `/purchase-orders` | Doctor |
+| GET | `/purchase-orders/{id}` | Doctor |
+| PATCH | `/purchase-orders/{id}/status` | Doctor; versioned |
 | POST | `/purchase-orders/{id}/receive` | Doctor |
+| GET, POST | `/stock-takes` | Read both roles; create doctor |
+| GET | `/stock-takes/{id}` | Doctor, nurse |
+| PUT | `/stock-takes/{id}/items/{itemId}` | Doctor, nurse; count/versioned |
+| POST | `/stock-takes/{id}/finalize` | Doctor; transactional adjustments |
 | GET, POST | `/lab-orders` | Doctor, nurse |
 | PATCH | `/lab-orders/{id}/status` | Doctor, nurse; versioned |
 | POST | `/lab-orders/{id}/quality-control` | Doctor, nurse |
@@ -98,12 +105,15 @@ Reports support `from`, `to`, and `format=csv`. Available report keys are `sales
 | GET | `/dashboard` | Doctor, nurse; role-shaped response |
 | GET | `/search?q=` | Doctor, nurse |
 | GET | `/network` | Doctor, nurse |
+| GET | `/network/local-ca` | Doctor, nurse; local trust certificate |
 | GET | `/settings` | Doctor, nurse |
 | PUT | `/settings/{key}` | Doctor; versioned |
 | GET, POST, PATCH | `/users[/{id}]` | Doctor |
+| POST | `/users/{id}/password` | Doctor; invalidates sessions |
 | GET | `/audit` | Doctor |
 | GET, POST | `/backups` | Doctor |
 | POST | `/backups/restore` | Doctor; maintenance lock |
+| POST | `/backups/validate-destination` | Doctor |
 
 ## Status and error semantics
 
@@ -116,4 +126,3 @@ Reports support `from`, `to`, and `format=csv`. Available report keys are `sales
 - `423`: finalized encounter is locked
 - `429`: authentication throttled
 - `500/503`: internal persistence or availability failure
-

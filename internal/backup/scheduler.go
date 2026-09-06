@@ -96,7 +96,11 @@ func (s Service) pruneAutomatic(ctx context.Context, before time.Time) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	root, err := filepath.Abs(filepath.Join(s.DataDir, "backups"))
+	destination, err := s.Destination(ctx)
+	if err != nil {
+		return err
+	}
+	root, err := filepath.Abs(destination)
 	if err != nil {
 		return err
 	}

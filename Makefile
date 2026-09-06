@@ -1,4 +1,4 @@
-.PHONY: dev web api test e2e audit icons build desktop seed
+.PHONY: dev web api test e2e audit icons build desktop installer-windows seed
 
 dev:
 	cd apps/web && npm run dev
@@ -29,6 +29,9 @@ build: web
 
 desktop: web
 	wails build
+
+installer-windows:
+	powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1
 
 seed:
 	go run ./cmd/sentrymed --seed

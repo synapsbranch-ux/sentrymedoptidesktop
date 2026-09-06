@@ -1,44 +1,44 @@
 # Implementation status
 
-This document prevents a rendered screen or schema-only table from being mistaken for a finished clinical feature.
+This file distinguishes persisted, authorized workflows from visual placeholders. It is updated whenever a workflow becomes operational.
 
-## Implemented end to end
+## Operational end-to-end
 
-These areas have UI, API, persistence, authorization, validation/error handling and tests or acceptance coverage:
+The following areas have a responsive UI, Go API, SQLite persistence, server-side authorization, validation/error handling, audit/realtime behavior where applicable, and automated coverage:
 
-- setup, login/logout, doctor/nurse RBAC and audit;
-- patient demographics, duplicate warning, archive, structured medical/ocular history and timeline;
-- appointments, conflict detection, walk-in/check-in and waiting queue;
-- encounter creation, independent pre-test, OD/OS refraction, diagnosis, prescription, finalization and addenda model;
-- local patient documents;
-- inventory catalog, quantity ledger, low stock and stock adjustment;
-- POS invoice/payment/stock transaction, partial payment, receipts and cash sessions;
-- lab order status board, fitting values, QC requirement and delivery;
-- expenses, finance summaries, reports and CSV;
-- clinic/users/network/QR/audit settings;
-- manual/automatic backup, retention and guarded restore;
-- SSE synchronization and responsive PWA shell.
+- first-run setup, doctor/nurse accounts, Argon2id authentication, sessions, rate limiting and RBAC;
+- clinic identity, uploaded logo, configurable currencies/payment methods/timezone and user/password administration;
+- patient registration, duplicate warning, demographics, structured history, archive, documents and longitudinal timeline;
+- day/week/month/agenda appointments, conflict detection, rescheduling, walk-ins, check-in and waiting-room stages;
+- independent nurse pre-test and doctor encounter sections, complete OD/OS examination fields, diagnoses, finalization, locking and addenda;
+- spectacle, contact-lens and medication prescriptions with dedicated branded print layouts;
+- suppliers, purchase orders, partial/full receipts and transactional inventory movements;
+- inventory catalogue and ledger, low-stock alerts and counted-versus-expected stock-take sessions;
+- POS, invoices, immutable partial payments, stock deduction, cash-register sessions and expenses;
+- optical laboratory orders, advanced fitting measurements, QC gate, delivery and branded printing;
+- live doctor/nurse dashboards, visit/revenue/status/sales charts, finance reports, CSV and branded browser PDF/print output;
+- audit log, manual and scheduled SQLite-safe backups, configurable backup folder, retention and guarded restore;
+- one responsive mobile-first PWA shared by desktop and LAN clients, SSE updates, QR access and persistent local certificate authority;
+- Windows per-user NSIS installer workflow and local installer build script.
 
-## Backend present; UI depth still limited
+## Deliberately deferred from the current delivery
 
-- suppliers and purchase-order receiving have transactional APIs but no dedicated purchasing workspace;
-- contact-lens and medication prescription types persist, but their specialty forms/print layouts need expansion;
-- anterior/posterior clinical data can be stored in versioned encounter sections, but the current doctor UI focuses on refraction and assessment;
-- refunds exist as doctor-only API behavior but do not yet have a guided UI;
-- stock-take can be represented by correction movements, but a counted-versus-expected batch screen is not present;
-- insurance/payer tables exist, but claims API/UI and receivable aging are not yet implemented;
-- reports provide live tables, CSV and browser print; server-generated branded PDF export is not implemented.
-- appointment scheduling currently provides a responsive agenda/work-queue view; dedicated day/week/month calendar grids are not yet implemented;
-- dashboard metrics and operational lists are live, but the full requested financial/visit chart suite is not yet implemented.
+These items are not represented as finished features:
 
-## Required before a production clinic release
+- insurance/third-party claim processing and payer receivable aging;
+- a guided refunds/credit-note workspace (the doctor-only refund API foundation remains available);
+- a true OS-native tray command menu; closing the Wails window currently keeps the local server available through the supported minimize behavior;
+- code-signed installers and OS notarization. The supplied installer is plug-and-play but unsigned until the publisher provides signing certificates;
+- formal regulatory certification, penetration testing and jurisdiction-specific clinical/legal approval.
 
-- complete the limited workspaces above and add their browser acceptance tests;
-- add a true native system-tray menu (current stable Wails 2 build minimizes and keeps the server running);
-- package a guided certificate/DNS enrollment flow (TLS certificate/key and public URL are currently environment-configured);
-- finish native print integrations and dedicated A4/A5 layouts for every required document;
-- run Playwright on all supported targets and validate touch behavior on physical iOS/Android devices;
-- perform threat modeling, dependency/security review, data-retention review and jurisdiction-specific clinical/legal validation;
-- build and sign installers for each target OS and test upgrades/restores using real packaged builds.
+## Release validation still required on target hardware
 
-The checked-in CI runs the mobile acceptance flow. Go tests, frontend tests, strict builds and E2E typecheck passed in the authoring environment; its local Chromium download timed out, and the complete Playwright runtime flow was subsequently validated by the green GitHub Actions pipeline.
+Before putting real patient data into service, the clinic or deployment partner must:
+
+1. build the installer in CI or on the target Windows toolchain and perform a clean install/upgrade test;
+2. approve the Windows firewall prompt, install the generated local CA on authorized LAN devices and verify the QR URL;
+3. test touch behavior and printing on the clinic's actual phones, tablets, printer and paper sizes;
+4. exercise backup and restore with the selected external destination;
+5. establish data-retention, device-security and incident-response procedures appropriate to the clinic's jurisdiction.
+
+The repository's automated suite covers database migrations, authentication/RBAC, optimistic concurrency, concurrent doctor/nurse writes, encounter locking, appointments, purchasing, stock takes, transactional POS/inventory, partial payments, backup/restore and the principal browser workflow.

@@ -10,7 +10,9 @@ The default bind address is `:8787`, which permits LAN clients. Use `SENTRYMED_A
 
 Connect devices to the same trusted private Wi-Fi. Open **System → Mobile & network** on desktop and scan the QR code. Do not expose port 8787 to the public Internet or configure consumer-router port forwarding.
 
-PWA installation and service-worker behavior require a secure context; browsers make a localhost exception that does not cover a phone connecting to a LAN IP. SentryMed can terminate TLS itself with a locally trusted certificate:
+PWA installation and service-worker behavior require a secure context. On production startup SentryMed generates a persistent clinic certificate authority under the application data directory and a server certificate containing localhost, `sentrymed.local` and detected LAN IP addresses. In **System → Mobile & network**, download the CA and install it once as trusted on each authorized clinic device before scanning the QR code.
+
+For a clinic-managed certificate, set:
 
 ```bash
 export SENTRYMED_TLS_CERT=/secure/path/sentrymed.crt
@@ -18,13 +20,17 @@ export SENTRYMED_TLS_KEY=/secure/path/sentrymed.key
 export SENTRYMED_PUBLIC_URL=https://sentrymed.clinic.local:8787
 ```
 
-The certificate must include the chosen DNS name/IP and be trusted by clinic phones. Alternatively, terminate TLS with a locally managed reverse proxy, bind SentryMed to `127.0.0.1:8787`, and set `SENTRYMED_PUBLIC_URL` to the proxy URL. The QR code uses that public URL.
+The managed certificate must include the chosen DNS name/IP and be trusted by clinic phones. Alternatively, terminate TLS with a locally managed reverse proxy, bind SentryMed to `127.0.0.1:8787`, and set `SENTRYMED_PUBLIC_URL` to the proxy URL. Set `SENTRYMED_AUTO_TLS=false` when TLS terminates elsewhere.
 
-Certificate issuance and trusted local DNS vary by clinic and are intentionally not hard-coded. Automatic local certificate enrollment and mDNS discovery remain deployment features.
+The application cannot silently grant operating-system firewall or certificate-trust permissions. Windows prompts must be approved by an administrator during deployment; the Network screen supplies the certificate and exact address to verify.
+
+## Windows installer
+
+Run `scripts/build-windows-installer.ps1` on Windows or trigger `.github/workflows/installer.yml`. The resulting per-user NSIS executable installs the desktop app with no database or password bundled. Code-sign it before public distribution when a publisher certificate becomes available.
 
 ## Data and backups
 
-Keep the live SQLite file on the server computer, not in a consumer sync folder. Configure periodic verified snapshots and copy them to a separate encrypted external disk or controlled network location. Regularly test restore on a non-production machine. Retention automatically removes expired **automatic** backups; manual and pre-restore snapshots are retained for deliberate review.
+Keep the live SQLite file on the server computer, not in a consumer sync folder. Select and test the backup destination in **System → Backups**; the setup wizard can establish it on first launch. Configure periodic verified snapshots and copy them to a separate encrypted external disk or controlled network location. Regularly test restore on a non-production machine. Retention automatically removes expired **automatic** backups; manual and pre-restore snapshots are retained for deliberate review.
 
 ## First launch
 

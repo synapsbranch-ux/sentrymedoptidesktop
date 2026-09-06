@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -252,6 +253,228 @@ func TestPOSIsAtomicAndSupportsPartialPayment(t *testing.T) {
 	finance := a.request(http.MethodGet, "/api/v1/finance/summary", nil, a.doctor)
 	if finance.Code != http.StatusOK || !bytes.Contains(finance.Body.Bytes(), []byte(`"baseCurrency":"HTG"`)) {
 		t.Fatalf("finance summary invalid: %d %s", finance.Code, finance.Body.String())
+	}
+}
+
+func TestPurchaseOrderPartialReceiptIsTransactionalAndVersioned(t *testing.T) {
+	a := newTestApp(t)
+	itemResponse := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "PO-FRAME", "barcode": "", "category": "frame", "name": "Purchase Frame", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 2500, "salePriceMinor": 6000, "currency": "HTG", "quantity": 2, "reorderLevel": 1, "trackStock": true}, a.nurse)
+	if itemResponse.Code != http.StatusCreated {
+		t.Fatalf("inventory item: %d %s", itemResponse.Code, itemResponse.Body.String())
+	}
+	itemID := decodeResponse[map[string]any](t, itemResponse)["id"].(string)
+	supplierResponse := a.request(http.MethodPost, "/api/v1/suppliers", map[string]any{"company": "Optical Supply", "contactPerson": "Jean", "phone": "", "email": "", "address": "", "notes": "", "version": 0}, a.doctor)
+	if supplierResponse.Code != http.StatusCreated {
+		t.Fatalf("supplier: %d %s", supplierResponse.Code, supplierResponse.Body.String())
+	}
+	supplierID := decodeResponse[map[string]any](t, supplierResponse)["id"].(string)
+	orderBody := map[string]any{"supplierId": supplierID, "currency": "HTG", "expectedAt": "", "notes": "", "items": []map[string]any{{"inventoryItemId": itemID, "quantity": 5, "unitCostMinor": 2500}}}
+	forbidden := a.request(http.MethodPost, "/api/v1/purchase-orders", orderBody, a.nurse)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("nurse purchase order status=%d, want 403", forbidden.Code)
+	}
+	created := a.request(http.MethodPost, "/api/v1/purchase-orders", orderBody, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("purchase order: %d %s", created.Code, created.Body.String())
+	}
+	orderID := decodeResponse[map[string]any](t, created)["id"].(string)
+	detail := a.request(http.MethodGet, "/api/v1/purchase-orders/"+orderID, nil, a.doctor)
+	if detail.Code != http.StatusOK {
+		t.Fatalf("purchase order detail: %d %s", detail.Code, detail.Body.String())
+	}
+	detailBody := decodeResponse[map[string]any](t, detail)
+	lineID := detailBody["items"].([]any)[0].(map[string]any)["id"].(string)
+	sent := a.request(http.MethodPatch, "/api/v1/purchase-orders/"+orderID+"/status", map[string]any{"status": "sent", "version": 1}, a.doctor)
+	if sent.Code != http.StatusOK {
+		t.Fatalf("send purchase order: %d %s", sent.Code, sent.Body.String())
+	}
+	partial := a.request(http.MethodPost, "/api/v1/purchase-orders/"+orderID+"/receive", map[string]any{"version": 2, "notes": "first box", "items": []map[string]any{{"itemId": lineID, "quantity": 3}}}, a.doctor)
+	if partial.Code != http.StatusOK || !bytes.Contains(partial.Body.Bytes(), []byte(`"status":"partial"`)) {
+		t.Fatalf("partial receipt: %d %s", partial.Code, partial.Body.String())
+	}
+	stale := a.request(http.MethodPost, "/api/v1/purchase-orders/"+orderID+"/receive", map[string]any{"version": 2, "notes": "stale", "items": []map[string]any{{"itemId": lineID, "quantity": 1}}}, a.doctor)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale receipt status=%d, want 409: %s", stale.Code, stale.Body.String())
+	}
+	complete := a.request(http.MethodPost, "/api/v1/purchase-orders/"+orderID+"/receive", map[string]any{"version": 3, "notes": "remainder", "items": []map[string]any{{"itemId": lineID, "quantity": 2}}}, a.doctor)
+	if complete.Code != http.StatusOK || !bytes.Contains(complete.Body.Bytes(), []byte(`"status":"received"`)) {
+		t.Fatalf("complete receipt: %d %s", complete.Code, complete.Body.String())
+	}
+	var quantity, movements, receipts int
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT quantity FROM inventory_items WHERE id=?", itemID).Scan(&quantity)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM stock_movements WHERE item_id=? AND movement_type='purchase'", itemID).Scan(&movements)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM purchase_order_receipts WHERE purchase_order_id=?", orderID).Scan(&receipts)
+	if quantity != 7 || movements != 2 || receipts != 2 {
+		t.Fatalf("receipt persistence quantity=%d movements=%d receipts=%d", quantity, movements, receipts)
+	}
+}
+
+func TestStockTakeCountsAndFinalizesAuditedCorrection(t *testing.T) {
+	a := newTestApp(t)
+	itemResponse := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "COUNT-CASE", "barcode": "", "category": "accessory", "name": "Counted Case", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 100, "salePriceMinor": 200, "currency": "HTG", "quantity": 8, "reorderLevel": 1, "trackStock": true}, a.nurse)
+	itemID := decodeResponse[map[string]any](t, itemResponse)["id"].(string)
+	forbidden := a.request(http.MethodPost, "/api/v1/stock-takes", map[string]any{"category": "accessory", "notes": ""}, a.nurse)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("nurse start stock take status=%d, want 403", forbidden.Code)
+	}
+	created := a.request(http.MethodPost, "/api/v1/stock-takes", map[string]any{"category": "accessory", "notes": "Monthly count"}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("start stock take: %d %s", created.Code, created.Body.String())
+	}
+	takeID := decodeResponse[map[string]any](t, created)["id"].(string)
+	detail := a.request(http.MethodGet, "/api/v1/stock-takes/"+takeID, nil, a.nurse)
+	detailBody := decodeResponse[map[string]any](t, detail)
+	line := detailBody["items"].([]any)[0].(map[string]any)
+	lineID := line["id"].(string)
+	counted := a.request(http.MethodPut, "/api/v1/stock-takes/"+takeID+"/items/"+lineID, map[string]any{"countedQuantity": 7, "reason": "Damaged case removed", "version": 1}, a.nurse)
+	if counted.Code != http.StatusOK {
+		t.Fatalf("nurse count: %d %s", counted.Code, counted.Body.String())
+	}
+	finalizeForbidden := a.request(http.MethodPost, "/api/v1/stock-takes/"+takeID+"/finalize", map[string]any{"version": 1}, a.nurse)
+	if finalizeForbidden.Code != http.StatusForbidden {
+		t.Fatalf("nurse finalize status=%d, want 403", finalizeForbidden.Code)
+	}
+	finalized := a.request(http.MethodPost, "/api/v1/stock-takes/"+takeID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	if finalized.Code != http.StatusOK {
+		t.Fatalf("finalize stock take: %d %s", finalized.Code, finalized.Body.String())
+	}
+	var quantity, corrections, auditCount int
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT quantity FROM inventory_items WHERE id=?", itemID).Scan(&quantity)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM stock_movements WHERE item_id=? AND movement_type='correction' AND reference_type='stock_take'", itemID).Scan(&corrections)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM audit_logs WHERE entity_type='stock_take' AND entity_id=? AND action='finalize'", takeID).Scan(&auditCount)
+	if quantity != 7 || corrections != 1 || auditCount != 1 {
+		t.Fatalf("stock take result quantity=%d corrections=%d audit=%d", quantity, corrections, auditCount)
+	}
+	locked := a.request(http.MethodPut, "/api/v1/stock-takes/"+takeID+"/items/"+lineID, map[string]any{"countedQuantity": 6, "reason": "late edit", "version": 2}, a.nurse)
+	if locked.Code != http.StatusLocked {
+		t.Fatalf("completed count edit status=%d, want 423", locked.Code)
+	}
+}
+
+func TestStockTakeRejectsInventoryChangedAfterSnapshot(t *testing.T) {
+	a := newTestApp(t)
+	itemResponse := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "COUNT-LENS", "barcode": "", "category": "contact_lens", "name": "Counted Lens", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 100, "salePriceMinor": 200, "currency": "HTG", "quantity": 4, "reorderLevel": 1, "trackStock": true}, a.nurse)
+	item := decodeResponse[map[string]any](t, itemResponse)
+	itemID := item["id"].(string)
+	created := a.request(http.MethodPost, "/api/v1/stock-takes", map[string]any{"category": "contact_lens", "notes": ""}, a.doctor)
+	takeID := decodeResponse[map[string]any](t, created)["id"].(string)
+	detail := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/stock-takes/"+takeID, nil, a.nurse))
+	lineID := detail["items"].([]any)[0].(map[string]any)["id"].(string)
+	counted := a.request(http.MethodPut, "/api/v1/stock-takes/"+takeID+"/items/"+lineID, map[string]any{"countedQuantity": 4, "reason": "", "version": 1}, a.nurse)
+	if counted.Code != http.StatusOK {
+		t.Fatalf("count: %d %s", counted.Code, counted.Body.String())
+	}
+	movement := a.request(http.MethodPost, "/api/v1/inventory/"+itemID+"/movements", map[string]any{"type": "sale", "quantity": -1, "reason": "Concurrent sale", "version": 1}, a.nurse)
+	if movement.Code != http.StatusCreated {
+		t.Fatalf("concurrent stock movement: %d %s", movement.Code, movement.Body.String())
+	}
+	finalized := a.request(http.MethodPost, "/api/v1/stock-takes/"+takeID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	if finalized.Code != http.StatusConflict || !bytes.Contains(finalized.Body.Bytes(), []byte("STOCK_CHANGED_DURING_COUNT")) {
+		t.Fatalf("changed stock finalize status=%d, want 409: %s", finalized.Code, finalized.Body.String())
+	}
+}
+
+func TestAppointmentRangeRescheduleAndConcurrency(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Calendar", "Patient")
+	created := a.request(http.MethodPost, "/api/v1/appointments", map[string]any{"patientId": patient.ID, "practitionerId": "", "startsAt": "2026-09-08T14:00:00Z", "durationMinutes": 30, "type": "eye_exam", "reason": "Annual exam", "notes": ""}, a.nurse)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("appointment create: %d %s", created.Code, created.Body.String())
+	}
+	id := decodeResponse[map[string]any](t, created)["id"].(string)
+	rangeResponse := a.request(http.MethodGet, "/api/v1/appointments?from=2026-09-07T00:00:00Z&to=2026-09-14T00:00:00Z", nil, a.nurse)
+	if rangeResponse.Code != http.StatusOK || !bytes.Contains(rangeResponse.Body.Bytes(), []byte(id)) {
+		t.Fatalf("appointment range: %d %s", rangeResponse.Code, rangeResponse.Body.String())
+	}
+	updatedBody := map[string]any{"patientId": patient.ID, "practitionerId": "", "startsAt": "2026-09-09T15:30:00Z", "durationMinutes": 45, "type": "follow_up", "reason": "Rescheduled", "notes": "", "version": 1}
+	updated := a.request(http.MethodPut, "/api/v1/appointments/"+id, updatedBody, a.nurse)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("appointment reschedule: %d %s", updated.Code, updated.Body.String())
+	}
+	stale := a.request(http.MethodPut, "/api/v1/appointments/"+id, updatedBody, a.doctor)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale appointment reschedule=%d, want 409: %s", stale.Code, stale.Body.String())
+	}
+}
+
+func TestUserPasswordResetInvalidatesSessions(t *testing.T) {
+	a := newTestApp(t)
+	users := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/users", nil, a.doctor))["items"].([]any)
+	var nurseID string
+	for _, raw := range users {
+		item := raw.(map[string]any)
+		if item["username"] == "nurse.dev" {
+			nurseID = item["id"].(string)
+		}
+	}
+	if nurseID == "" {
+		t.Fatal("development nurse not found")
+	}
+	reset := a.request(http.MethodPost, "/api/v1/users/"+nurseID+"/password", map[string]any{"password": "A-New-Secure-Nurse-Password-2026"}, a.doctor)
+	if reset.Code != http.StatusOK {
+		t.Fatalf("password reset: %d %s", reset.Code, reset.Body.String())
+	}
+	invalidated := a.request(http.MethodGet, "/api/v1/patients", nil, a.nurse)
+	if invalidated.Code != http.StatusUnauthorized {
+		t.Fatalf("old nurse session status=%d, want 401", invalidated.Code)
+	}
+	newCookie := a.login("nurse.dev", "A-New-Secure-Nurse-Password-2026")
+	if response := a.request(http.MethodGet, "/api/v1/patients", nil, newCookie); response.Code != http.StatusOK {
+		t.Fatalf("new nurse password login failed: %d", response.Code)
+	}
+}
+
+func TestExternalBackupDestinationIsValidatedAndUsed(t *testing.T) {
+	a := newTestApp(t)
+	destination := filepath.Join(a.t.TempDir(), "external-backups")
+	validated := a.request(http.MethodPost, "/api/v1/backups/validate-destination", map[string]any{"directory": destination}, a.doctor)
+	if validated.Code != http.StatusOK {
+		t.Fatalf("validate destination: %d %s", validated.Code, validated.Body.String())
+	}
+	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
+	version := int(settings["versions"].(map[string]any)["backup"].(float64))
+	update := a.request(http.MethodPut, "/api/v1/settings/backup", map[string]any{"value": map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": destination}, "version": version}, a.doctor)
+	if update.Code != http.StatusOK {
+		t.Fatalf("save destination: %d %s", update.Code, update.Body.String())
+	}
+	backupResponse := a.request(http.MethodPost, "/api/v1/backups", map[string]any{}, a.doctor)
+	if backupResponse.Code != http.StatusCreated {
+		t.Fatalf("external backup: %d %s", backupResponse.Code, backupResponse.Body.String())
+	}
+	path := decodeResponse[map[string]any](t, backupResponse)["path"].(string)
+	relative, err := filepath.Rel(destination, path)
+	if err != nil || relative == ".." || filepath.IsAbs(relative) {
+		t.Fatalf("backup path %q is not under %q", path, destination)
+	}
+}
+
+func TestClinicLogoUploadPersistsMetadataAndFile(t *testing.T) {
+	a := newTestApp(t)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("logo", "clinic.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = part.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0})
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/branding/logo", &body)
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.AddCookie(a.doctor)
+	response := httptest.NewRecorder()
+	a.handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("logo upload: %d %s", response.Code, response.Body.String())
+	}
+	logo := a.request(http.MethodGet, "/api/v1/branding/logo", nil, a.doctor)
+	if logo.Code != http.StatusOK || logo.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("logo load: %d %s", logo.Code, logo.Body.String())
+	}
+	var metadata int
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM branding_assets WHERE key='clinic_logo'").Scan(&metadata)
+	if metadata != 1 {
+		t.Fatalf("logo metadata count=%d", metadata)
 	}
 }
 

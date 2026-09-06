@@ -17,14 +17,16 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - spectacle/contact-lens/medication prescription records;
 - local document upload/download with SQLite metadata and filesystem content;
 - frames, lenses, contacts, accessories and services with immutable stock ledger;
-- supplier and purchase-order APIs with transactional receiving;
+- supplier and purchase-order workspaces with transactional partial/full receiving;
+- physical stock-take sessions with expected/count/difference reconciliation;
 - POS, invoices, immutable partial payments, receipts, refunds and cash sessions;
 - optical lab Kanban, advanced fitting values, QC gate and delivery status;
-- expenses, financial summaries, operational reports and CSV export;
+- expenses, financial summaries, live charts and branded report/CSV/PDF-print export;
 - clinic-wide search, audit logs and configurable clinic identity;
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
 - installable, touch-first PWA with compact header, drawer and bottom navigation;
-- Wails desktop host with the built PWA embedded in the binary.
+- automatic local HTTPS with a persistent clinic CA and downloadable trust certificate;
+- Wails desktop host with the built PWA embedded in the binary and a plug-and-play Windows installer workflow.
 
 ## Architecture
 
@@ -127,7 +129,7 @@ SentryMed/
 
 The Go process serves the production PWA from the same origin as `/api/v1`. In **System → Mobile & network**, scan the detected LAN URL QR code from a phone on the clinic Wi-Fi. The mobile UI uses a bottom navigation and full-screen touch forms; desktop uses the full sidebar and wider data layouts.
 
-Plain HTTP is intended only for development or a trusted isolated LAN. Configure `SENTRYMED_TLS_CERT` and `SENTRYMED_TLS_KEY` for native HTTPS, plus `SENTRYMED_PUBLIC_URL` for the QR address, or place a locally managed TLS reverse proxy in front of port 8787. Phones must trust the certificate for PWA installation. See [Deployment](docs/DEPLOYMENT.md).
+Production startup automatically creates a persistent clinic CA and serves HTTPS with a certificate valid for the detected LAN addresses. Download the CA from **System → Mobile & network**, install it once on each authorized device, then scan the QR code. Set `SENTRYMED_AUTO_TLS=false` only for development, or supply `SENTRYMED_TLS_CERT` and `SENTRYMED_TLS_KEY` to use a managed certificate. See [Deployment](docs/DEPLOYMENT.md).
 
 ## Tests
 
@@ -163,7 +165,7 @@ Desktop application:
 wails build
 ```
 
-`wails build` invokes the frontend build and embeds `apps/web/dist` in the desktop binary. Wails packages depend on the target OS; use the Wails packaging guidance for MSI, macOS bundle, or Linux package output.
+For a plug-and-play per-user Windows installer, run `./scripts/build-windows-installer.ps1` in PowerShell or trigger the **Windows installer** GitHub Actions workflow and download its NSIS artifact. It is unsigned until a publisher certificate is configured, so Windows may display an unknown-publisher warning.
 
 ## Migrations
 
@@ -198,5 +200,6 @@ make dev       # Vite client
 make web       # npm ci + production PWA build
 make test      # Go + frontend unit tests
 make build     # standalone server
+make installer-windows # NSIS installer on Windows
 make seed      # explicit development data
 ```

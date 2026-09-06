@@ -12,6 +12,7 @@ type Config struct {
 	Address   string
 	TLSCert   string
 	TLSKey    string
+	TLSCA     string
 	PublicURL string
 	Dev       bool
 }
@@ -77,5 +78,13 @@ func LoadConfig(dev bool) (Config, error) {
 	if (tlsCert == "") != (tlsKey == "") {
 		return Config{}, fmt.Errorf("SENTRYMED_TLS_CERT and SENTRYMED_TLS_KEY must be configured together")
 	}
-	return Config{DataDir: dataDir, Address: address, TLSCert: tlsCert, TLSKey: tlsKey, PublicURL: os.Getenv("SENTRYMED_PUBLIC_URL"), Dev: dev}, nil
+	tlsCA := os.Getenv("SENTRYMED_TLS_CA")
+	if tlsCert == "" && !dev && os.Getenv("SENTRYMED_AUTO_TLS") != "false" {
+		var err error
+		tlsCert, tlsKey, tlsCA, err = ensureLocalTLS(dataDir)
+		if err != nil {
+			return Config{}, fmt.Errorf("prepare local HTTPS: %w", err)
+		}
+	}
+	return Config{DataDir: dataDir, Address: address, TLSCert: tlsCert, TLSKey: tlsKey, TLSCA: tlsCA, PublicURL: os.Getenv("SENTRYMED_PUBLIC_URL"), Dev: dev}, nil
 }

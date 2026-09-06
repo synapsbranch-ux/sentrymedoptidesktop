@@ -9,19 +9,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/backup"
 )
 
 type setupRequest struct {
-	ClinicName     string `json:"clinicName"`
-	Address        string `json:"address"`
-	Phone          string `json:"phone"`
-	Email          string `json:"email"`
-	Timezone       string `json:"timezone"`
-	Currency       string `json:"currency"`
-	DoctorName     string `json:"doctorName"`
-	DoctorUsername string `json:"doctorUsername"`
-	DoctorEmail    string `json:"doctorEmail"`
-	Password       string `json:"password"`
+	ClinicName      string `json:"clinicName"`
+	Address         string `json:"address"`
+	Phone           string `json:"phone"`
+	Email           string `json:"email"`
+	Timezone        string `json:"timezone"`
+	Currency        string `json:"currency"`
+	DoctorName      string `json:"doctorName"`
+	DoctorUsername  string `json:"doctorUsername"`
+	DoctorEmail     string `json:"doctorEmail"`
+	Password        string `json:"password"`
+	BackupDirectory string `json:"backupDirectory"`
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +66,11 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "PASSWORD_HASH_FAILED", "Could not secure the password.")
 		return
 	}
+	backupDirectory, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), input.BackupDirectory)
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+		return
+	}
 	userID := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	clinic, _ := json.Marshal(map[string]any{"name": input.ClinicName, "address": input.Address, "phone": input.Phone, "email": input.Email, "timezone": input.Timezone, "currency": input.Currency})
@@ -76,7 +83,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 			"clinic":    string(clinic),
 			"financial": `{"currencies":["HTG","USD"],"baseCurrency":"` + strings.ToUpper(input.Currency) + `","exchangeRate":"1","taxRate":"0"}`,
 			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
-			"backup":    `{"intervalHours":4,"retentionDays":30}`,
+			"backup":    marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
 		}
 		for key, value := range defaults {
 			if _, err := tx.ExecContext(r.Context(), "INSERT INTO settings(key, value_json, updated_at, updated_by) VALUES(?, ?, ?, ?)", key, value, now, userID); err != nil {

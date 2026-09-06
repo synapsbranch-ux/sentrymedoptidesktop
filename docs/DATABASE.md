@@ -34,13 +34,13 @@ erDiagram
 | Concern | Principal tables |
 |---|---|
 | Identity | `users`, `sessions`, `login_attempts` |
-| Configuration | `settings`, `sequences`, `schema_migrations` |
+| Configuration | `settings`, `branding_assets`, `sequences`, `schema_migrations` |
 | Audit | `audit_logs` |
 | Patient chart | `patients`, `patient_histories`, `patient_allergies`, `patient_medications`, `patient_emergency_contacts`, `patient_insurance` |
 | Scheduling | `appointments`, `queue_entries` |
 | Clinical | `encounters`, `pretests`, `encounter_sections`, `diagnoses`, `encounter_addenda`, `prescriptions` |
 | Files | `documents` |
-| Supply | `suppliers`, `inventory_items`, `stock_movements`, `purchase_orders`, `purchase_order_items` |
+| Supply | `suppliers`, `inventory_items`, `stock_movements`, `purchase_orders`, `purchase_order_items`, `purchase_order_receipts`, `purchase_order_receipt_items`, `stock_take_sessions`, `stock_take_items` |
 | Billing | `invoices`, `invoice_items`, `payments`, `refunds`, `payment_methods` |
 | Cash/expense | `cash_register_sessions`, `expenses` |
 | Optical lab | `lab_orders`, `lab_status_history`, `lab_quality_control` |
@@ -69,7 +69,7 @@ No affected row means the client is stale. The API returns HTTP 409 and does not
 
 ## Inventory and billing invariants
 
-Inventory quantity may only change alongside a `stock_movements` row explaining previous, delta and resulting quantity. POS checkout creates the invoice, line items, optional payment/receipt and stock deductions inside one transaction. Purchase-order receiving similarly updates received quantities, on-hand inventory and purchase ledger movements atomically.
+Inventory quantity may only change alongside a `stock_movements` row explaining previous, delta and resulting quantity. POS checkout creates the invoice, line items, optional payment/receipt and stock deductions inside one transaction. Purchase-order receiving similarly updates receipt records, received quantities, on-hand inventory and purchase movements atomically. Stock-take finalization verifies that on-hand values still equal the captured snapshots before creating audited correction movements.
 
 ## Migrations and indexes
 

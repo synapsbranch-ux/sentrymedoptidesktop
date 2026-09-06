@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -33,12 +34,73 @@ type Service struct {
 	DataDir string
 }
 
+type destinationSettings struct {
+	Directory string `json:"directory"`
+}
+
+func (s Service) Destination(ctx context.Context) (string, error) {
+	directory := filepath.Join(s.DataDir, "backups")
+	var raw string
+	if err := s.DB.QueryRowContext(ctx, "SELECT value_json FROM settings WHERE key='backup'").Scan(&raw); err == nil {
+		var settings destinationSettings
+		if json.Unmarshal([]byte(raw), &settings) == nil && strings.TrimSpace(settings.Directory) != "" {
+			directory = strings.TrimSpace(settings.Directory)
+		}
+	} else if err != sql.ErrNoRows {
+		return "", err
+	}
+	if !filepath.IsAbs(directory) {
+		return "", fmt.Errorf("backup destination must be an absolute path")
+	}
+	return filepath.Clean(directory), nil
+}
+
+func (s Service) ValidateDestination(ctx context.Context, directory string) (string, error) {
+	directory = strings.TrimSpace(directory)
+	if directory == "" {
+		directory = filepath.Join(s.DataDir, "backups")
+	}
+	if !filepath.IsAbs(directory) {
+		return "", fmt.Errorf("backup destination must be an absolute path")
+	}
+	directory = filepath.Clean(directory)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return "", fmt.Errorf("create backup destination: %w", err)
+	}
+	probe, err := os.CreateTemp(directory, ".sentrymed-permission-*")
+	if err != nil {
+		return "", fmt.Errorf("backup destination is not writable: %w", err)
+	}
+	name := probe.Name()
+	if _, err := probe.WriteString("SentryMed backup permission check"); err != nil {
+		_ = probe.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("backup destination is not writable: %w", err)
+	}
+	if err := probe.Sync(); err != nil {
+		_ = probe.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("backup destination cannot be synchronized: %w", err)
+	}
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := os.Remove(name); err != nil {
+		return "", err
+	}
+	return directory, nil
+}
+
 func (s Service) Create(ctx context.Context, kind string, userID *string) (Record, error) {
 	if kind != "manual" && kind != "automatic" && kind != "pre_restore" {
 		return Record{}, fmt.Errorf("invalid backup kind")
 	}
-	backupDir := filepath.Join(s.DataDir, "backups")
-	if err := os.MkdirAll(backupDir, 0o750); err != nil {
+	backupDir, err := s.Destination(ctx)
+	if err != nil {
+		return Record{}, err
+	}
+	if _, err := s.ValidateDestination(ctx, backupDir); err != nil {
 		return Record{}, err
 	}
 	name := fmt.Sprintf("sentrymed-%s-%s.db", kind, time.Now().UTC().Format("20060102T150405.000000000Z"))

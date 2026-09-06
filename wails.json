@@ -3,6 +3,7 @@
   "name": "sentrymed-opti",
   "outputfilename": "SentryMed-Opti",
   "nsisType": "multiple",
+  "frontend:dir": ".",
   "frontend:install": "npm --prefix apps/web install",
   "frontend:build": "npm --prefix apps/web run build",
   "frontend:dev:watcher": "npm --prefix apps/web run dev",

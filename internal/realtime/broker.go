@@ -16,6 +16,7 @@ type Event struct {
 type Broker struct {
 	mu      sync.RWMutex
 	clients map[chan []byte]struct{}
+	revision uint64
 }
 
 func New() *Broker { return &Broker{clients: make(map[chan []byte]struct{})} }
@@ -43,6 +44,9 @@ func (b *Broker) Publish(event Event) {
 	if err != nil {
 		return
 	}
+	b.mu.Lock()
+	b.revision++
+	b.mu.Unlock()
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for ch := range b.clients {
@@ -52,6 +56,12 @@ func (b *Broker) Publish(event Event) {
 			// A slow client can refresh after reconnect; clinic writes never block on UI events.
 		}
 	}
+}
+
+func (b *Broker) Revision() uint64 {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.revision
 }
 
 func (b *Broker) Connected() int {

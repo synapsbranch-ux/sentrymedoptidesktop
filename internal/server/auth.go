@@ -64,21 +64,27 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.db.ExecContext(r.Context(), "UPDATE users SET last_login_at = ? WHERE id = ?", now.Format(time.RFC3339Nano), user.ID)
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int((12 * time.Hour).Seconds())})
 	s.audit(r.Context(), &user, "login", "session", "", "User signed in", "", "", r)
-	writeJSON(w, http.StatusOK, map[string]any{"user": user, "expiresAt": expires})
+	response := map[string]any{"user": user, "expiresAt": expires}
+	if isDesktopRequest(r) {
+		// WebKit custom URI schemes do not consistently persist Set-Cookie.
+		// This token is returned only through Wails' in-process handler.
+		response["desktopSessionToken"] = token
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(sessionCookie)
-		if err != nil || cookie.Value == "" {
+		token := sessionTokenFromRequest(r)
+		if token == "" {
 			writeError(w, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Sign in to continue.")
 			return
 		}
 		var user AuthUser
 		var expires, lastSeen string
-		err = s.db.QueryRowContext(r.Context(), `SELECT u.id, u.username, COALESCE(u.email,''), u.display_name, u.role, s.expires_at, s.last_seen_at
+		err := s.db.QueryRowContext(r.Context(), `SELECT u.id, u.username, COALESCE(u.email,''), u.display_name, u.role, s.expires_at, s.last_seen_at
 			FROM sessions s JOIN users u ON u.id = s.user_id
-			WHERE s.token_hash = ? AND s.invalidated_at IS NULL AND u.active = 1 AND u.archived_at IS NULL`, tokenHash(cookie.Value)).
+			WHERE s.token_hash = ? AND s.invalidated_at IS NULL AND u.active = 1 AND u.archived_at IS NULL`, tokenHash(token)).
 			Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &user.Role, &expires, &lastSeen)
 		expiresAt, parseErr := time.Parse(time.RFC3339Nano, expires)
 		if err != nil || parseErr != nil || time.Now().UTC().After(expiresAt) {
@@ -88,7 +94,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		seenAt, _ := time.Parse(time.RFC3339Nano, lastSeen)
 		if time.Since(seenAt) >= 5*time.Minute {
-			_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(cookie.Value))
+			_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(token))
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
 	})
@@ -107,12 +113,25 @@ func (s *Server) requireDoctor(next http.Handler) http.Handler {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
-	if cookie, err := r.Cookie(sessionCookie); err == nil {
-		_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(cookie.Value))
+	if token := sessionTokenFromRequest(r); token != "" {
+		_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(token))
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	s.audit(r.Context(), &user, "logout", "session", "", "User signed out", "", "", r)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func sessionTokenFromRequest(r *http.Request) string {
+	if cookie, err := r.Cookie(sessionCookie); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+	if isDesktopRequest(r) {
+		const scheme = "SentryMed "
+		if authorization := r.Header.Get("Authorization"); strings.HasPrefix(authorization, scheme) {
+			return strings.TrimSpace(strings.TrimPrefix(authorization, scheme))
+		}
+	}
+	return ""
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,8 @@ import {
   Glasses,
   LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Receipt,
   Search,
   Settings,
@@ -80,6 +82,7 @@ export function AppShell() {
   const realtime = useRealtime();
   const navigate = useNavigate();
   const [drawer, setDrawer] = React.useState(false);
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState(false);
   const logout = async () => {
     await signOut();
@@ -162,7 +165,7 @@ export function AppShell() {
   );
   return (
     <div className="isolate flex min-h-screen bg-white">
-      <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-zinc-200 bg-white lg:flex">
+      <aside className={cn("no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-zinc-200 bg-white transition-transform duration-200 lg:flex", !sidebarOpen && "lg:-translate-x-full")}>
         {sidebar}
       </aside>
       {drawer && (
@@ -184,7 +187,7 @@ export function AppShell() {
           </aside>
         </div>
       )}
-      <div className="relative z-0 min-w-0 flex-1 lg:pl-64">
+      <div className={cn("relative z-0 min-w-0 flex-1 transition-[padding] duration-200", sidebarOpen && "lg:pl-64")}>
         <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-zinc-200 bg-white/95 px-4 backdrop-blur lg:px-8">
           <Button
             className="lg:hidden"
@@ -193,6 +196,15 @@ export function AppShell() {
             onClick={() => setDrawer(true)}
           >
             <Menu className="h-5 w-5" />
+          </Button>
+          <Button
+            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            className="hidden lg:inline-flex"
+            size="icon"
+            variant="ghost"
+            onClick={() => setSidebarOpen((open) => !open)}
+          >
+            {sidebarOpen ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
           </Button>
           <button
             onClick={() => setSearch(true)}

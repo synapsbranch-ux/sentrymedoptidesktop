@@ -1,5 +1,5 @@
 import * as React from "react";
-import { api } from "./api";
+import { api, setDesktopSessionToken } from "./api";
 import type { User } from "./types";
 
 interface AuthValue {
@@ -28,10 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async (identity: string, password: string) => {
-    const result = await api.post<{ user: User }>("/auth/login", { identity, password });
+    const result = await api.post<{ user: User; desktopSessionToken?: string }>("/auth/login", { identity, password });
+    setDesktopSessionToken(result.desktopSessionToken ?? "");
     setUser(result.user);
   };
-  const signOut = async () => { await api.post<void>("/auth/logout"); setUser(null); };
+  const signOut = async () => { await api.post<void>("/auth/logout"); setDesktopSessionToken(""); setUser(null); };
   const completeSetup = async (input: Record<string, string>) => { await api.post("/setup/complete", input); setSetupRequired(false); };
 
   return <AuthContext.Provider value={{ user, setupRequired, loading, signIn, signOut, completeSetup }}>{children}</AuthContext.Provider>;
@@ -42,4 +43,3 @@ export function useAuth() {
   if (!value) throw new Error("useAuth must be used inside AuthProvider");
   return value;
 }
-

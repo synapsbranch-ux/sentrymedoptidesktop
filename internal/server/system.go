@@ -72,6 +72,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleEventRevision(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]uint64{"revision": s.broker.Revision()})
+}
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	today := time.Now().UTC().Format("2006-01-02")
 	month := today[:7]

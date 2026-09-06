@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { APIError } from "../api";
 import { useAuth } from "../auth";
 import { Button } from "./ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Field, Input, Select } from "./ui/input";
 import { desktopBridge } from "../native";
 
@@ -25,19 +26,23 @@ export function LoginScreen() {
     try { await signIn(identity, password); } catch (reason) { setError(reason instanceof APIError ? reason.body.message : "Could not contact the clinic server."); }
     finally { setSubmitting(false); }
   };
-  return <main className="grid min-h-screen bg-white lg:grid-cols-2">
-    <section className="flex items-center justify-center p-6 sm:p-10"><div className="w-full max-w-sm">
-      <Brand />
-      <div className="mt-12"><h1 className="text-3xl font-bold tracking-tight">Welcome back</h1><p className="mt-2 text-sm text-zinc-500">Sign in with your clinic account to continue.</p></div>
-      <form className="mt-8 grid gap-5" onSubmit={submit}>
+  return <main className="flex min-h-svh w-full flex-col items-center justify-center gap-6 overflow-x-hidden bg-zinc-50 p-4 sm:p-6 md:p-10">
+    <div className="flex w-full max-w-sm flex-col gap-6">
+      <div className="self-center"><Brand /></div>
+      <Card className="shadow-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Welcome back</CardTitle>
+          <CardDescription>Sign in with your clinic account to continue.</CardDescription>
+        </CardHeader>
+        <CardContent><form className="grid gap-5" onSubmit={submit}>
         <Field label="Email or username"><Input autoComplete="username" autoFocus value={identity} onChange={(event) => setIdentity(event.target.value)} required /></Field>
         <div className="grid gap-1.5 text-sm font-medium text-zinc-800"><label htmlFor="login-password">Password</label><div className="relative"><Input id="login-password" className="pr-11" type={visible ? "text" : "password"} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /><button type="button" onClick={() => setVisible(!visible)} aria-label={visible ? "Hide password" : "Show password"} aria-pressed={visible} className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded text-zinc-500 hover:bg-zinc-100">{visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></div>
         {error && <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
-        <Button type="submit" disabled={submitting || available === false}>{submitting ? "Signing in…" : "Sign in"}</Button>
-      </form>
-      <div className="mt-6 flex items-center gap-2 text-xs text-zinc-500">{available === true ? <Wifi className="h-4 w-4 text-emerald-700" /> : available === false ? <WifiOff className="h-4 w-4 text-red-700" /> : <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />}{available === true ? "Clinic server available" : available === false ? "Clinic server unavailable" : "Checking clinic server…"}</div>
-    </div></section>
-    <aside className="relative hidden overflow-hidden bg-black p-12 text-white lg:flex lg:flex-col lg:justify-between"><div className="absolute inset-0 opacity-20" style={{ backgroundImage: "linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px)", backgroundSize: "48px 48px" }} /><div className="relative text-xs font-bold uppercase tracking-[.2em] text-zinc-400">Local-first · Private · Resilient</div><div className="relative max-w-xl"><p className="text-4xl font-semibold leading-tight tracking-[-.045em]">One coherent record from patient arrival to optical delivery.</p><p className="mt-5 max-w-lg text-zinc-400">Your clinic remains operational on the local network even when the Internet does not.</p></div><div className="relative font-mono text-xs text-zinc-500">SENTRYMED / CLINIC SERVER</div></aside>
+        <Button className="w-full" type="submit" disabled={submitting || available === false}>{submitting ? "Signing in…" : "Sign in"}</Button>
+        <div className="flex items-center justify-center gap-2 text-xs text-zinc-500">{available === true ? <Wifi className="h-4 w-4 text-emerald-700" /> : available === false ? <WifiOff className="h-4 w-4 text-red-700" /> : <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />}{available === true ? "Clinic server available" : available === false ? "Clinic server unavailable" : "Checking clinic server…"}</div>
+      </form></CardContent></Card>
+      <p className="px-6 text-center text-xs leading-relaxed text-zinc-500">Local-first clinic access. Your operational data remains on the SentryMed server.</p>
+    </div>
   </main>;
 }
 

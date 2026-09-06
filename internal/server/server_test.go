@@ -138,6 +138,47 @@ func TestAuthenticationAndRBAC(t *testing.T) {
 	}
 }
 
+func TestDesktopSessionTransportCannotBeUsedFromLAN(t *testing.T) {
+	a := newTestApp(t)
+	desktop := DesktopHandler(a.server.Handler())
+	loginBody, _ := json.Marshal(map[string]string{
+		"identity": "doctor.dev",
+		"password": "Doctor-Development-Only-2026",
+	})
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRequest.RemoteAddr = "192.0.2.1:1234"
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse := httptest.NewRecorder()
+	desktop.ServeHTTP(loginResponse, loginRequest)
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("desktop login: %d %s", loginResponse.Code, loginResponse.Body.String())
+	}
+	login := decodeResponse[struct {
+		DesktopSessionToken string `json:"desktopSessionToken"`
+	}](t, loginResponse)
+	if login.DesktopSessionToken == "" {
+		t.Fatal("desktop login did not return its in-process session token")
+	}
+
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	meRequest.RemoteAddr = "192.0.2.1:1234"
+	meRequest.Header.Set("Authorization", "SentryMed "+login.DesktopSessionToken)
+	meResponse := httptest.NewRecorder()
+	desktop.ServeHTTP(meResponse, meRequest)
+	if meResponse.Code != http.StatusOK {
+		t.Fatalf("desktop token rejected in Wails handler: %d %s", meResponse.Code, meResponse.Body.String())
+	}
+
+	lanRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	lanRequest.RemoteAddr = "192.168.1.25:1234"
+	lanRequest.Header.Set("Authorization", "SentryMed "+login.DesktopSessionToken)
+	lanResponse := httptest.NewRecorder()
+	a.handler.ServeHTTP(lanResponse, lanRequest)
+	if lanResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("desktop token accepted over LAN: %d", lanResponse.Code)
+	}
+}
+
 func TestPatientOptimisticConcurrency(t *testing.T) {
 	a := newTestApp(t)
 	patient := a.createPatient(a.doctor, "Marie", "Joseph")

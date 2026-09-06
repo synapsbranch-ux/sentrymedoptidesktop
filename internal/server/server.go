@@ -61,6 +61,7 @@ func (s *Server) routes() chi.Router {
 			protected.Post("/auth/logout", s.handleLogout)
 			protected.Get("/auth/me", s.handleMe)
 			protected.Get("/events", s.handleEvents)
+			protected.Get("/events/revision", s.handleEventRevision)
 			protected.With(s.requireDoctor).Post("/backups/restore", s.handleBackupRestore)
 			protected.Group(func(live chi.Router) {
 				live.Use(s.withMaintenanceRead)

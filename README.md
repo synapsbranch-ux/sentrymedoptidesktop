@@ -119,7 +119,16 @@ This is the primary Linux development path for this repository. The commands bel
    wails doctor
    ```
 
-   Every item required to build the application should be reported as installed by `wails doctor`. To keep the PATH change after restarting the terminal:
+   Fedora 40+ uses the WebKitGTK 4.1 ABI. Some Wails 2 Doctor releases can still report `libwebkit: Unknown / Not Found` even after the correct Fedora package is installed. Confirm the ABI directly:
+
+   ```bash
+   pkg-config --modversion webkit2gtk-4.1
+   npm --version
+   ```
+
+   If both commands print a version, continue and build with the explicit `webkit2_41` tag. A Doctor row showing an npm version but `Package Name: Unknown` usually means npm was installed outside DNF; it is not a blocker when `npm --version` and `npm ci` succeed.
+
+   To keep the Go binary PATH change after restarting the terminal:
 
    ```bash
    echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
@@ -132,7 +141,7 @@ This is the primary Linux development path for this repository. The commands bel
    git clone https://github.com/synapsbranch-ux/sentrymedoptidesktop.git
    cd sentrymedoptidesktop
    npm --prefix apps/web ci
-   wails build -clean
+   wails build -clean -tags webkit2_41
    ```
 
 5. Start the built desktop application:
@@ -160,7 +169,7 @@ To rebuild after pulling an update:
 ```bash
 git pull --ff-only
 npm --prefix apps/web ci
-wails build -clean
+wails build -clean -tags webkit2_41
 ```
 
 Back up the clinic data before every application upgrade.

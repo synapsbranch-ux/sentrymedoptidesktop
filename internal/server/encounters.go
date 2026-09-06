@@ -495,6 +495,24 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_PRESCRIPTION", "Patient and a valid prescription type are required.")
 		return
 	}
+	if (input.Type == "spectacle" || input.Type == "contact_lens") && len(input.OD) == 0 && len(input.OS) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "PRESCRIPTION_VALUES_REQUIRED", "At least one OD or OS value is required.")
+		return
+	}
+	if input.Type == "medication" {
+		medication, medicationOK := input.Details["medication"].(string)
+		dosage, dosageOK := input.Details["dosage"].(string)
+		if !medicationOK || !dosageOK || strings.TrimSpace(medication) == "" || strings.TrimSpace(dosage) == "" {
+			writeError(w, http.StatusUnprocessableEntity, "MEDICATION_DETAILS_REQUIRED", "Medication name and dosage are required.")
+			return
+		}
+	}
+	if input.ExpiresAt != "" {
+		if _, err := time.Parse("2006-01-02", input.ExpiresAt); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_EXPIRATION_DATE", "Prescription expiration must be a valid date.")
+			return
+		}
+	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	var number string

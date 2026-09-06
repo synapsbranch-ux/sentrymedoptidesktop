@@ -24,6 +24,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/patients/{id}/timeline", s.handlePatientTimeline)
 	r.Get("/appointments", s.handleAppointmentsList)
 	r.Post("/appointments", s.handleAppointmentsCreate)
+	r.Put("/appointments/{id}", s.handleAppointmentUpdate)
 	r.Patch("/appointments/{id}/status", s.handleAppointmentStatus)
 	r.Get("/queue", s.handleQueueList)
 	r.Post("/queue/check-in", s.handleQueueCheckIn)
@@ -304,14 +305,27 @@ type appointmentPayload struct {
 	Type           string `json:"type"`
 	Reason         string `json:"reason"`
 	Notes          string `json:"notes"`
+	Version        int    `json:"version,omitempty"`
 }
 
 func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")
+	from, to := r.URL.Query().Get("from"), r.URL.Query().Get("to")
 	where, args := "a.archived_at IS NULL", []any{}
 	if date != "" {
 		where += " AND substr(a.starts_at,1,10)=?"
 		args = append(args, date)
+	} else if from != "" || to != "" {
+		if _, err := time.Parse(time.RFC3339, from); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Appointment range start must be an RFC3339 timestamp.")
+			return
+		}
+		if _, err := time.Parse(time.RFC3339, to); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Appointment range end must be an RFC3339 timestamp.")
+			return
+		}
+		where += " AND a.starts_at>=? AND a.starts_at<?"
+		args = append(args, from, to)
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(a.practitioner_id,''),COALESCE(u.display_name,''),a.starts_at,a.duration_minutes,a.type,COALESCE(a.reason,''),COALESCE(a.notes,''),a.status,a.version
 		FROM appointments a JOIN patients p ON p.id=a.patient_id LEFT JOIN users u ON u.id=a.practitioner_id WHERE `+where+` ORDER BY a.starts_at LIMIT 500`, args...)
@@ -370,6 +384,58 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 	s.audit(r.Context(), &user, "create", "appointment", id, "Created appointment", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "appointment.created", EntityType: "appointment", EntityID: id})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "scheduled", "version": 1})
+}
+
+func (s *Server) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request) {
+	var input appointmentPayload
+	if err := decodeJSON(r, &input); err != nil || input.Version < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Appointment fields and current version are required.")
+		return
+	}
+	if input.Duration < 10 || input.Duration > 240 {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_DURATION", "Appointment duration must be between 10 and 240 minutes.")
+		return
+	}
+	if err := requireFields(map[string]string{"Patient": input.PatientID, "Start time": input.StartsAt, "Appointment type": input.Type}); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	if _, err := time.Parse(time.RFC3339, input.StartsAt); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_START_TIME", "Start time must be an RFC3339 timestamp.")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if input.PractitionerID != "" {
+		var conflicts int
+		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM appointments WHERE id<>? AND practitioner_id=? AND archived_at IS NULL AND status NOT IN ('cancelled','no_show','completed')
+			AND datetime(starts_at) < datetime(?, '+'||?||' minutes') AND datetime(starts_at, '+'||duration_minutes||' minutes') > datetime(?)`, id, input.PractitionerID, input.StartsAt, input.Duration, input.StartsAt).Scan(&conflicts)
+		if conflicts > 0 {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "The practitioner already has an overlapping appointment.")
+			return
+		}
+	}
+	user, _ := userFromContext(r.Context())
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE appointments SET patient_id=?,practitioner_id=?,starts_at=?,duration_minutes=?,type=?,reason=?,notes=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL AND status NOT IN ('completed','cancelled','no_show')`, input.PatientID, nilIfEmpty(input.PractitionerID), input.StartsAt, input.Duration, input.Type, nilIfEmpty(input.Reason), nilIfEmpty(input.Notes), now, user.ID, id, input.Version)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "APPOINTMENT_UPDATE_FAILED", "Could not reschedule the appointment.")
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		var status string
+		if err := s.db.QueryRowContext(r.Context(), "SELECT status FROM appointments WHERE id=?", id).Scan(&status); err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, "APPOINTMENT_NOT_FOUND", "Appointment was not found.")
+			return
+		} else if status == "completed" || status == "cancelled" || status == "no_show" {
+			writeError(w, http.StatusLocked, "APPOINTMENT_LOCKED", "Completed, cancelled or no-show appointments cannot be rescheduled.")
+			return
+		}
+		writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "The appointment changed since it was opened. Reload before saving.")
+		return
+	}
+	s.audit(r.Context(), &user, "reschedule", "appointment", id, "Rescheduled appointment", "", marshalJSON(input), r)
+	s.broker.Publish(realtime.Event{Type: "appointment.updated", EntityType: "appointment", EntityID: id})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "version": input.Version + 1})
 }
 
 type statusPayload struct {

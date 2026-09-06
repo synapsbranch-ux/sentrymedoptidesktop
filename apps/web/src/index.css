@@ -18,4 +18,13 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 .section-title { font-size: .7rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #71717a; }
 .stat-value { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 1.65rem; font-weight: 700; letter-spacing: -.04em; }
 .safe-bottom { padding-bottom: max(.75rem, env(safe-area-inset-bottom)); }
-@media print { .no-print { display: none !important; } .print-page { border: 0 !important; box-shadow: none !important; margin: 0 !important; padding: 12mm !important; } body { background: white; } }
+.print-only { display: none; }
+@page { margin: 12mm; size: A4; }
+@media print {
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area { position: absolute !important; inset: 0 auto auto 0 !important; width: 100% !important; max-width: none !important; border: 0 !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; background: white !important; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body { background: white; }
+}

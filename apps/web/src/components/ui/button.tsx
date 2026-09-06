@@ -2,6 +2,7 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib";
+import { translateNode, useI18n } from "../../i18n";
 
 const buttonVariants = cva("inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius)] text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 sm:min-h-10", {
   variants: {
@@ -20,5 +21,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export function Button({ className, variant, size, asChild, ...props }: ButtonProps) {
   const Component = asChild ? Slot : "button";
-  return <Component className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  const { t } = useI18n();
+  const children = asChild ? props.children : translateNode(props.children, t);
+  return <Component className={cn(buttonVariants({ variant, size }), className)} {...props}>{children}</Component>;
 }

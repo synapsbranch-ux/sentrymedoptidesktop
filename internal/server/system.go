@@ -251,6 +251,7 @@ func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	defaults := map[string]string{
 		"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+		"localization": `{"language":"en"}`,
 		"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 	}
 	for key, value := range defaults {
@@ -288,7 +289,7 @@ type settingsUpdateRequest struct {
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
-	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "public_display": true}
+	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "localization": true, "public_display": true}
 	if !allowed[key] {
 		writeError(w, http.StatusNotFound, "SETTING_NOT_FOUND", "This setting cannot be changed.")
 		return
@@ -316,6 +317,15 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		radii := map[string]bool{"none": true, "small": true, "medium": true, "large": true}
 		if json.Unmarshal(raw, &value) != nil || !baseColors[value.BaseColor] || !accentColors[value.AccentColor] || !modes[value.Mode] || !radii[value.Radius] {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_APPEARANCE", "Choose a supported base palette, accent, mode and corner radius.")
+			return
+		}
+	}
+	if key == "localization" {
+		var value struct {
+			Language string `json:"language"`
+		}
+		if json.Unmarshal(raw, &value) != nil || !supportedLanguage(value.Language) {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_LANGUAGE", "Choose a supported application language.")
 			return
 		}
 	}
@@ -354,6 +364,29 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	s.audit(r.Context(), &user, "update", "setting", key, "Updated system setting", "", string(raw), r)
 	s.broker.Publish(realtime.Event{Type: "settings.updated", EntityType: "setting", EntityID: key})
 	writeJSON(w, http.StatusOK, map[string]any{"key": key, "version": input.Version + 1, "value": input.Value, "updatedAt": now})
+}
+
+func supportedLanguage(language string) bool {
+	supported := map[string]bool{
+		"en": true, "fr": true, "ht": true, "pt": true, "es": true,
+		"de": true, "zh-CN": true, "ru": true, "ja": true, "ko": true, "id": true,
+	}
+	return supported[language]
+}
+
+func (s *Server) handlePublicLocalization(w http.ResponseWriter, r *http.Request) {
+	language := "en"
+	var raw string
+	if err := s.db.QueryRowContext(r.Context(), "SELECT value_json FROM settings WHERE key='localization'").Scan(&raw); err == nil {
+		var value struct {
+			Language string `json:"language"`
+		}
+		if json.Unmarshal([]byte(raw), &value) == nil && supportedLanguage(value.Language) {
+			language = value.Language
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"language": language})
 }
 
 type createUserRequest struct {

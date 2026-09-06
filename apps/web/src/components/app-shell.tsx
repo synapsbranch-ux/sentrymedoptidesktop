@@ -28,6 +28,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useRealtime } from "../realtime";
 import { useTheme } from "../theme";
+import { useI18n } from "../i18n";
 import { cn } from "../lib";
 import { CommandPalette } from "./command-palette";
 import { Button } from "./ui/button";
@@ -82,12 +83,14 @@ export function AppShell() {
   const { user, signOut } = useAuth();
   const realtime = useRealtime();
   const theme = useTheme();
+  const i18n = useI18n();
   const navigate = useNavigate();
   const [drawer, setDrawer] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState(false);
   const [logoAvailable, setLogoAvailable] = React.useState(true);
   React.useEffect(() => { void theme.refresh().catch(() => undefined); }, [theme.refresh, realtime.revision]);
+  React.useEffect(() => { void i18n.refresh().catch(() => undefined); }, [i18n.refresh, realtime.revision]);
   React.useEffect(() => setLogoAvailable(true), [realtime.revision]);
   const logout = async () => {
     await signOut();
@@ -111,15 +114,15 @@ export function AppShell() {
         <div>
           <div className="font-bold leading-none">SentryMed Opti</div>
           <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-            Clinic Management
+            {i18n.t("Clinic Management")}
           </div>
         </div>
       </div>
-      <nav aria-label="Clinic modules" className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-3 [-webkit-overflow-scrolling:touch]">
+      <nav aria-label={i18n.t("Clinic modules")} className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-3 [-webkit-overflow-scrolling:touch]">
         {links.map((group) => (
           <div className="mb-5" key={group.section}>
             <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[.15em] text-zinc-400">
-              {group.section}
+              {i18n.t(group.section)}
             </div>
             {group.items.map(({ to, label, icon: Icon }) => (
               <NavLink
@@ -135,7 +138,7 @@ export function AppShell() {
                 }
               >
                 <Icon className="h-4 w-4" />
-                {label}
+                {i18n.t(label)}
               </NavLink>
             ))}
           </div>
@@ -154,10 +157,10 @@ export function AppShell() {
             <div className="truncate text-sm font-semibold">
               {user?.displayName}
             </div>
-            <div className="text-xs capitalize text-zinc-500">{user?.role}</div>
+            <div className="text-xs capitalize text-zinc-500">{user?.role ? i18n.t(user.role === "doctor" ? "Doctor" : "Nurse") : ""}</div>
           </div>
           <Button
-            aria-label="Sign out"
+            aria-label={i18n.t("Sign out")}
             size="icon"
             variant="ghost"
             onClick={logout}
@@ -176,14 +179,14 @@ export function AppShell() {
       {drawer && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
           <button
-            aria-label="Close navigation"
+            aria-label={i18n.t("Close navigation")}
             className="absolute inset-0 bg-black/40"
             onClick={() => setDrawer(false)}
           />
           <aside className="relative flex h-dvh min-h-0 w-[85%] max-w-80 flex-col overflow-hidden bg-[var(--card)] shadow-xl">
             {sidebar}
             <button
-              aria-label="Close navigation"
+              aria-label={i18n.t("Close navigation")}
               className="absolute right-3 top-3 rounded p-2 hover:bg-zinc-100"
               onClick={() => setDrawer(false)}
             >
@@ -195,7 +198,7 @@ export function AppShell() {
       <div className={cn("relative z-0 min-w-0 flex-1 transition-[padding] duration-200", sidebarOpen && "lg:pl-64")}>
         <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 lg:px-8">
           <Button
-            aria-label="Open navigation"
+            aria-label={i18n.t("Open navigation")}
             className="lg:hidden"
             size="icon"
             variant="ghost"
@@ -204,7 +207,7 @@ export function AppShell() {
             <Menu className="h-5 w-5" />
           </Button>
           <Button
-            aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            aria-label={i18n.t(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
             className="hidden lg:inline-flex"
             size="icon"
             variant="ghost"
@@ -217,7 +220,7 @@ export function AppShell() {
             className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-500 sm:max-w-sm"
           >
             <Search className="h-4 w-4" />
-            <span className="truncate">Search patients, invoices, orders…</span>
+            <span className="truncate">{i18n.t("Search patients, invoices, orders…")}</span>
             <kbd className="ml-auto hidden rounded border bg-white px-1.5 py-0.5 font-mono text-[10px] sm:block">
               Ctrl K
             </kbd>
@@ -230,7 +233,7 @@ export function AppShell() {
               )}
             />
             <span className="hidden sm:inline">
-              {realtime.connected ? "Live" : "Reconnecting"}
+              {i18n.t(realtime.connected ? "Live" : "Reconnecting")}
             </span>
           </div>
         </header>
@@ -261,7 +264,7 @@ export function AppShell() {
             }
           >
             <Icon className="h-5 w-5" />
-            {label}
+            {i18n.t(label)}
           </NavLink>
         ))}
       </nav>

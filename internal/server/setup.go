@@ -23,6 +23,7 @@ type setupRequest struct {
 	DoctorEmail     string `json:"doctorEmail"`
 	Password        string `json:"password"`
 	BackupDirectory string `json:"backupDirectory"`
+	Language        string `json:"language"`
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +55,13 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "WEAK_PASSWORD", "Use a password of at least 12 characters.")
 		return
 	}
+	if input.Language == "" {
+		input.Language = "en"
+	}
+	if !supportedLanguage(input.Language) {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_LANGUAGE", "Choose a supported application language.")
+		return
+	}
 	var existing int
 	if err := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM users").Scan(&existing); err != nil || existing > 0 {
 		writeError(w, http.StatusConflict, "SETUP_ALREADY_COMPLETE", "Initial setup has already been completed.")
@@ -83,6 +91,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
 			"backup":    marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
 			"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+			"localization": marshalJSON(map[string]any{"language": input.Language}),
 			"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 		}
 		for key, value := range defaults {

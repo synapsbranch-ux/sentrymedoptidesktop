@@ -6,6 +6,7 @@ import { AppShell } from "./components/app-shell";
 import { LoginScreen, SetupScreen } from "./components/auth-screens";
 import { RealtimeProvider } from "./realtime";
 import { PublicDisplayPage } from "./pages/public-display";
+import { useI18n } from "./i18n";
 
 const AuditPage = React.lazy(() => import("./pages/audit").then((module) => ({ default: module.AuditPage })));
 const BillingPage = React.lazy(() => import("./pages/billing").then((module) => ({ default: module.BillingPage })));
@@ -32,6 +33,7 @@ function DoctorOnly({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const auth = useAuth();
+  const { t } = useI18n();
   if (window.location.pathname === "/display") return <PublicDisplayPage />;
   if (auth.loading)
     return (
@@ -39,7 +41,7 @@ export default function App() {
         <div className="text-center">
           <div className="mx-auto h-9 w-9 animate-pulse rounded-lg bg-black" />
           <p className="mt-4 text-sm text-zinc-500">
-            Connecting to clinic server…
+            {t("Connecting to clinic server…")}
           </p>
         </div>
       </div>

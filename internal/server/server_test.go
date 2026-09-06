@@ -569,6 +569,29 @@ func TestAppearanceSettingsAreValidated(t *testing.T) {
 	}
 }
 
+func TestLocalizationSettingsArePublicValidatedAndDoctorOnly(t *testing.T) {
+	a := newTestApp(t)
+	initial := decodeResponse[map[string]string](t, a.request(http.MethodGet, "/api/v1/public/localization", nil, nil))
+	if initial["language"] != "en" {
+		t.Fatalf("initial language=%q, want en", initial["language"])
+	}
+	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
+	version := int(settings["versions"].(map[string]any)["localization"].(float64))
+	if response := a.request(http.MethodPut, "/api/v1/settings/localization", map[string]any{"value": map[string]string{"language": "fr"}, "version": version}, a.nurse); response.Code != http.StatusForbidden {
+		t.Fatalf("nurse localization update status=%d, want 403", response.Code)
+	}
+	if response := a.request(http.MethodPut, "/api/v1/settings/localization", map[string]any{"value": map[string]string{"language": "xx"}, "version": version}, a.doctor); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid localization status=%d, want 422", response.Code)
+	}
+	if response := a.request(http.MethodPut, "/api/v1/settings/localization", map[string]any{"value": map[string]string{"language": "ht"}, "version": version}, a.doctor); response.Code != http.StatusOK {
+		t.Fatalf("valid localization: %d %s", response.Code, response.Body.String())
+	}
+	updated := decodeResponse[map[string]string](t, a.request(http.MethodGet, "/api/v1/public/localization", nil, nil))
+	if updated["language"] != "ht" {
+		t.Fatalf("updated language=%q, want ht", updated["language"])
+	}
+}
+
 func TestBackupCreatesVerifiedSQLiteSnapshot(t *testing.T) {
 	a := newTestApp(t)
 	response := a.request(http.MethodPost, "/api/v1/backups", map[string]any{}, a.doctor)

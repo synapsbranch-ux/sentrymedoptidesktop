@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { useI18n } from "../i18n";
 
 interface Result { type: string; id: string; primary: string; secondary: string }
 
@@ -11,6 +12,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const [query, setQuery] = React.useState("");
   const [items, setItems] = React.useState<Result[]>([]);
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   React.useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -42,11 +44,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="p-0">
-      <DialogTitle className="sr-only">Clinic search</DialogTitle>
+      <DialogTitle className="sr-only">{t("Clinic search")}</DialogTitle>
       <div className="flex items-center border-b px-4"><Search className="h-5 w-5 shrink-0 text-zinc-400" /><Input autoFocus className="min-w-0 border-0 shadow-none focus-visible:ring-0" placeholder="Search the clinic…" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
       <div className="max-h-[min(24rem,70dvh)] overflow-y-auto p-2">
-        {query.length < 2 && <p className="p-6 text-center text-sm text-zinc-500">Type at least two characters.</p>}
-        {query.length >= 2 && items.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">No matching records.</p>}
+        {query.length < 2 && <p className="p-6 text-center text-sm text-zinc-500">{t("Type at least two characters.")}</p>}
+        {query.length >= 2 && items.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">{t("No matching records.")}</p>}
         {items.map((item) => <button key={`${item.type}-${item.id}`} onClick={() => openItem(item)} className="flex w-full min-w-0 items-center gap-3 rounded-md p-3 text-left hover:bg-zinc-100"><span className="grid h-8 w-8 shrink-0 place-items-center rounded border text-zinc-500 [&>svg]:h-4 [&>svg]:w-4">{icons[item.type]}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{item.primary}</span><span className="block truncate text-xs text-zinc-500">{item.secondary}</span></span><span className="hidden shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-400 sm:block">{item.type.replace("_", " ")}</span></button>)}
       </div>
     </DialogContent>

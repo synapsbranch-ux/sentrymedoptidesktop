@@ -57,6 +57,7 @@ func (s *Server) routes() chi.Router {
 		api.Post("/setup/complete", s.handleSetupComplete)
 		api.Post("/auth/login", s.handleLogin)
 		api.Get("/public/branding/logo", s.handleClinicLogoGet)
+		api.Get("/public/localization", s.handlePublicLocalization)
 		api.Get("/public/display", s.handlePublicDisplay)
 		api.Get("/public/events", s.handlePublicEvents)
 		api.Group(func(protected chi.Router) {

@@ -31,6 +31,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - Wails desktop host with the built PWA embedded in the binary and a plug-and-play Windows installer workflow.
 - native Windows system-tray controls for the clinic server.
 - server-persisted shadcn base/accent themes with light, dark and device modes;
+- server-persisted language selection for English, French, Haitian Creole, Portuguese, Spanish, German, Simplified Chinese, Russian, Japanese, Korean and Indonesian;
 - a privacy-filtered live waiting-room display for a clinic TV or tablet at `/display`.
 
 ## Architecture

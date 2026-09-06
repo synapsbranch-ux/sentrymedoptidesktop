@@ -7,7 +7,7 @@ This file distinguishes persisted, authorized workflows from visual placeholders
 The following areas have a responsive UI, Go API, SQLite persistence, server-side authorization, validation/error handling, audit/realtime behavior where applicable, and automated coverage:
 
 - first-run setup, doctor/nurse accounts, Argon2id authentication, sessions, rate limiting and RBAC;
-- clinic identity, app-wide uploaded logo, configurable shadcn theme palettes/modes, currencies/payment methods/timezone and user/password administration;
+- clinic identity, app-wide uploaded logo, configurable shadcn theme palettes/modes, server-persisted language selection, currencies/payment methods/timezone and user/password administration;
 - patient registration, duplicate warning, demographics, structured history, archive, documents and longitudinal timeline;
 - day/week/month/agenda appointments, conflict detection, rescheduling, walk-ins, check-in and waiting-room stages;
 - independent nurse pre-test and doctor encounter sections, complete OD/OS examination fields, diagnoses, finalization, locking and addenda;
@@ -24,6 +24,10 @@ The following areas have a responsive UI, Go API, SQLite persistence, server-sid
 - privacy-filtered live public queue/appointment display with TV URL, QR access and clinic announcement;
 - Windows per-user NSIS installer workflow and local installer build script.
 - native Windows system-tray menu with server state, connected users, mobile access, backup, stop and exit actions.
+
+## Localization coverage
+
+The clinic language is selected during first-run setup or under **System → Language** and is propagated live to desktop and LAN/PWA clients. Supported locale codes are English (`en`), French (`fr`), Haitian Creole (`ht`), Portuguese (`pt`), Spanish (`es`), German (`de`), Simplified Chinese (`zh-CN`), Russian (`ru`), Japanese (`ja`), Korean (`ko`) and Indonesian (`id`). Navigation, authentication, shared controls, connection states, language settings, common workflow terms and the public waiting-room display use the translation catalogue. Untranslated specialist text safely falls back to English instead of showing broken keys.
 
 ## Release validation still required on target hardware
 

@@ -72,3 +72,37 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
     await expect(patientRecord.getByText(new RegExp(`^${label}`)).first()).toBeVisible();
   }
 });
+
+test("mobile navigation, dialogs and public display remain operable", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Email or username").fill("doctor.dev");
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill("Doctor-Development-Only-2026");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: /Good day/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawerNavigation = page.getByRole("navigation", { name: "Clinic modules" }).last();
+  await expect(drawerNavigation).toBeVisible();
+  await drawerNavigation.getByRole("link", { name: "System" }).scrollIntoViewIfNeeded();
+  await expect(drawerNavigation.getByRole("link", { name: "System" })).toBeVisible();
+  await page.getByRole("button", { name: "Close navigation" }).last().click();
+
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Patients" }).click();
+  await page.getByRole("button", { name: "New patient" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  const bounds = await dialog.boundingBox();
+  const viewport = page.viewportSize();
+  expect(bounds).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport!.height + 1);
+  await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+
+  const settings = await json<{ settings: Record<string, unknown>; versions: Record<string, number> }>(await page.request.get("/api/v1/settings"));
+  await put(page, "/settings/public_display", { value: { enabled: true, privacyMode: "ticket_only", showAppointments: true, announcement: "Please watch for your queue number." }, version: settings.versions.public_display });
+  await page.goto("/display");
+  await expect(page.getByRole("heading", { name: "Current progress" })).toBeVisible();
+  await expect(page.getByText("Patient flow · Live clinic display")).toBeVisible();
+});

@@ -56,3 +56,4 @@ func startTray(bridge *DesktopBridge) {
 }
 
 func stopTray() { systray.Quit() }
+func trayAvailable() bool { return true }

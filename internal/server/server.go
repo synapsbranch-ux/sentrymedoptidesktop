@@ -56,6 +56,9 @@ func (s *Server) routes() chi.Router {
 		api.Get("/setup/status", s.handleSetupStatus)
 		api.Post("/setup/complete", s.handleSetupComplete)
 		api.Post("/auth/login", s.handleLogin)
+		api.Get("/public/branding/logo", s.handleClinicLogoGet)
+		api.Get("/public/display", s.handlePublicDisplay)
+		api.Get("/public/events", s.handlePublicEvents)
 		api.Group(func(protected chi.Router) {
 			protected.Use(s.authenticate)
 			protected.Post("/auth/logout", s.handleLogout)
@@ -78,7 +81,7 @@ func (s *Server) routes() chi.Router {
 func (s *Server) timeoutRequests(next http.Handler) http.Handler {
 	timed := middleware.Timeout(30 * time.Second)(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/events" {
+		if r.URL.Path == "/api/v1/events" || r.URL.Path == "/api/v1/public/events" {
 			next.ServeHTTP(w, r)
 			return
 		}

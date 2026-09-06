@@ -27,11 +27,24 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       const timer = window.setInterval(poll, 2500);
       return () => { active = false; window.clearInterval(timer); };
     }
+    let active = true;
+    let serverRevision: number | null = null;
+    const poll = async () => {
+      try {
+        const result = await api.get<{ revision: number }>("/events/revision");
+        if (!active) return;
+        setConnected(true);
+        if (serverRevision !== null && result.revision !== serverRevision) setRevision((value) => value + 1);
+        serverRevision = result.revision;
+      } catch { if (active) setConnected(false); }
+    };
     const stream = new EventSource("/api/v1/events");
     stream.addEventListener("connected", () => setConnected(true));
     stream.addEventListener("update", () => setRevision((value) => value + 1));
     stream.onerror = () => setConnected(false);
-    return () => stream.close();
+    void poll();
+    const timer = window.setInterval(poll, 5000);
+    return () => { active = false; window.clearInterval(timer); stream.close(); };
   }, []);
   return <RealtimeContext.Provider value={{ connected, revision }}>{children}</RealtimeContext.Provider>;
 }

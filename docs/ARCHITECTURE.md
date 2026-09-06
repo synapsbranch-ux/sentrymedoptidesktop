@@ -82,5 +82,6 @@ The default HTTP listener is appropriate only for a controlled clinic LAN. TLS t
 
 ## Desktop lifecycle
 
-Startup creates application directories, opens SQLite, verifies pragmas, applies migrations, checks integrity, starts the backup scheduler and HTTP server, then opens Wails. Closing the main window minimizes it and keeps the server running; explicit exit shuts the HTTP server down cleanly. A true native notification-area menu remains tracked in [Implementation status](IMPLEMENTATION_STATUS.md).
+Startup creates application directories, opens SQLite, verifies pragmas, applies migrations, checks integrity, starts the backup scheduler and HTTP server, then opens Wails. On Windows, where the native notification-area menu is available, closing the main window minimizes it and keeps the server running; **Exit** shuts the HTTP server down. On Linux and macOS builds without that tray implementation, closing the window performs a bounded graceful shutdown and exits so the process cannot become inaccessible in the background.
 
+The public waiting-room display is served by the same process at `/display`. Its unauthenticated read model is deliberately separate from the authenticated chart API: it emits only generated queue codes and the doctor-configured masked label. It never exposes patient IDs, medical record numbers, clinical content, contacts or financial information. Both SSE invalidation and a periodic refresh keep the display current on ordinary clinic LAN hardware.

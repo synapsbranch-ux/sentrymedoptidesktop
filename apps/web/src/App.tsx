@@ -1,25 +1,29 @@
+import * as React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useAuth } from "./auth";
 import { AppShell } from "./components/app-shell";
 import { LoginScreen, SetupScreen } from "./components/auth-screens";
 import { RealtimeProvider } from "./realtime";
-import { AuditPage } from "./pages/audit";
-import { BillingPage } from "./pages/billing";
-import { ClinicalPage } from "./pages/clinical";
-import { DashboardPage } from "./pages/dashboard";
-import { FinancePage } from "./pages/finance";
-import { InventoryPage } from "./pages/inventory";
-import { InsurancePage } from "./pages/insurance";
-import { LabPage } from "./pages/lab";
-import { PatientsPage } from "./pages/patients";
-import { POSPage } from "./pages/pos";
-import { PurchasingPage } from "./pages/purchasing";
-import { DocumentsPage, PrescriptionsPage } from "./pages/records";
-import { ReportsPage } from "./pages/reports";
-import { SchedulePage } from "./pages/schedule";
-import { SystemPage } from "./pages/system";
-import { StockTakesPage } from "./pages/stock-takes";
+import { PublicDisplayPage } from "./pages/public-display";
+
+const AuditPage = React.lazy(() => import("./pages/audit").then((module) => ({ default: module.AuditPage })));
+const BillingPage = React.lazy(() => import("./pages/billing").then((module) => ({ default: module.BillingPage })));
+const ClinicalPage = React.lazy(() => import("./pages/clinical").then((module) => ({ default: module.ClinicalPage })));
+const DashboardPage = React.lazy(() => import("./pages/dashboard").then((module) => ({ default: module.DashboardPage })));
+const FinancePage = React.lazy(() => import("./pages/finance").then((module) => ({ default: module.FinancePage })));
+const InventoryPage = React.lazy(() => import("./pages/inventory").then((module) => ({ default: module.InventoryPage })));
+const InsurancePage = React.lazy(() => import("./pages/insurance").then((module) => ({ default: module.InsurancePage })));
+const LabPage = React.lazy(() => import("./pages/lab").then((module) => ({ default: module.LabPage })));
+const PatientsPage = React.lazy(() => import("./pages/patients").then((module) => ({ default: module.PatientsPage })));
+const POSPage = React.lazy(() => import("./pages/pos").then((module) => ({ default: module.POSPage })));
+const PurchasingPage = React.lazy(() => import("./pages/purchasing").then((module) => ({ default: module.PurchasingPage })));
+const DocumentsPage = React.lazy(() => import("./pages/records").then((module) => ({ default: module.DocumentsPage })));
+const PrescriptionsPage = React.lazy(() => import("./pages/records").then((module) => ({ default: module.PrescriptionsPage })));
+const ReportsPage = React.lazy(() => import("./pages/reports").then((module) => ({ default: module.ReportsPage })));
+const SchedulePage = React.lazy(() => import("./pages/schedule").then((module) => ({ default: module.SchedulePage })));
+const SystemPage = React.lazy(() => import("./pages/system").then((module) => ({ default: module.SystemPage })));
+const StockTakesPage = React.lazy(() => import("./pages/stock-takes").then((module) => ({ default: module.StockTakesPage })));
 
 function DoctorOnly({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -28,6 +32,7 @@ function DoctorOnly({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const auth = useAuth();
+  if (window.location.pathname === "/display") return <PublicDisplayPage />;
   if (auth.loading)
     return (
       <div className="grid min-h-screen place-items-center bg-white">
@@ -55,6 +60,7 @@ export default function App() {
     );
   return (
     <RealtimeProvider>
+      <React.Suspense fallback={<div className="page"><div className="h-8 w-48 animate-pulse rounded bg-[var(--muted)]" /><div className="mt-6 h-80 animate-pulse rounded-[var(--radius)] bg-[var(--muted)]" /></div>}>
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
@@ -112,6 +118,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
+      </React.Suspense>
       <Toaster richColors position="bottom-right" closeButton />
     </RealtimeProvider>
   );

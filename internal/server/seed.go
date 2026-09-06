@@ -45,6 +45,8 @@ func SeedDevelopment(ctx context.Context, db *database.DB) error {
 			"financial": `{"currencies":["HTG","USD"],"baseCurrency":"HTG","exchangeRate":"1","taxRate":"0"}`,
 			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
 			"backup":    `{"intervalHours":4,"retentionDays":30}`,
+			"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+			"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 		}
 		for key, value := range settings {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO settings(key,value_json,updated_at,updated_by) VALUES(?,?,?,?)", key, value, now, doctorID); err != nil {

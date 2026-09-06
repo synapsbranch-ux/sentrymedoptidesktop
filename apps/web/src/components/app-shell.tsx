@@ -27,6 +27,7 @@ import {
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useRealtime } from "../realtime";
+import { useTheme } from "../theme";
 import { cn } from "../lib";
 import { CommandPalette } from "./command-palette";
 import { Button } from "./ui/button";
@@ -80,10 +81,14 @@ const nav = [
 export function AppShell() {
   const { user, signOut } = useAuth();
   const realtime = useRealtime();
+  const theme = useTheme();
   const navigate = useNavigate();
   const [drawer, setDrawer] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState(false);
+  const [logoAvailable, setLogoAvailable] = React.useState(true);
+  React.useEffect(() => { void theme.refresh().catch(() => undefined); }, [theme.refresh, realtime.revision]);
+  React.useEffect(() => setLogoAvailable(true), [realtime.revision]);
   const logout = async () => {
     await signOut();
     navigate("/");
@@ -99,9 +104,9 @@ export function AppShell() {
     }));
   const sidebar = (
     <>
-      <div className="flex h-16 items-center gap-3 border-b border-zinc-200 px-4">
-        <div className="grid h-9 w-9 place-items-center rounded-lg bg-black text-white">
-          <Glasses className="h-5 w-5" />
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">
+        <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[var(--radius)] bg-[var(--primary)] text-[var(--primary-foreground)]">
+          {logoAvailable ? <img className="h-full w-full bg-white object-contain p-1" src={`/api/v1/public/branding/logo?v=${realtime.revision}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
         </div>
         <div>
           <div className="font-bold leading-none">SentryMed Opti</div>
@@ -110,7 +115,7 @@ export function AppShell() {
           </div>
         </div>
       </div>
-      <nav className="flex-1 overflow-y-auto p-3">
+      <nav aria-label="Clinic modules" className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-3 [-webkit-overflow-scrolling:touch]">
         {links.map((group) => (
           <div className="mb-5" key={group.section}>
             <div className="mb-1 px-3 text-[10px] font-bold uppercase tracking-[.15em] text-zinc-400">
@@ -125,7 +130,7 @@ export function AppShell() {
                 className={({ isActive }) =>
                   cn(
                     "mb-0.5 flex h-10 items-center gap-3 rounded-md px-3 text-[13px] font-medium text-zinc-600 hover:bg-zinc-100 hover:text-black",
-                    isActive && "bg-zinc-100 font-semibold text-black",
+                    isActive && "bg-[var(--muted)] font-semibold text-[var(--primary)]",
                   )
                 }
               >
@@ -136,7 +141,7 @@ export function AppShell() {
           </div>
         ))}
       </nav>
-      <div className="border-t border-zinc-200 bg-zinc-50 p-3">
+      <div className="shrink-0 border-t border-[var(--border)] bg-[var(--muted)] p-3">
         <div className="flex items-center gap-3 rounded-md p-2">
           <div className="grid h-9 w-9 place-items-center rounded-full bg-zinc-200 text-xs font-bold">
             {user?.displayName
@@ -164,8 +169,8 @@ export function AppShell() {
     </>
   );
   return (
-    <div className="isolate flex min-h-screen bg-white">
-      <aside className={cn("no-print fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-zinc-200 bg-white transition-transform duration-200 lg:flex", !sidebarOpen && "lg:-translate-x-full")}>
+    <div className="isolate flex min-h-dvh bg-[var(--background)] text-[var(--foreground)]">
+      <aside className={cn("no-print fixed inset-y-0 left-0 z-30 hidden min-h-0 w-64 flex-col border-r border-[var(--border)] bg-[var(--card)] transition-transform duration-200 lg:flex", !sidebarOpen && "lg:-translate-x-full")}>
         {sidebar}
       </aside>
       {drawer && (
@@ -175,7 +180,7 @@ export function AppShell() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setDrawer(false)}
           />
-          <aside className="relative flex h-full w-[85%] max-w-80 flex-col bg-white shadow-xl">
+          <aside className="relative flex h-dvh min-h-0 w-[85%] max-w-80 flex-col overflow-hidden bg-[var(--card)] shadow-xl">
             {sidebar}
             <button
               aria-label="Close navigation"
@@ -188,8 +193,9 @@ export function AppShell() {
         </div>
       )}
       <div className={cn("relative z-0 min-w-0 flex-1 transition-[padding] duration-200", sidebarOpen && "lg:pl-64")}>
-        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-zinc-200 bg-white/95 px-4 backdrop-blur lg:px-8">
+        <header className="no-print sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-[var(--border)] bg-[var(--card)] px-4 lg:px-8">
           <Button
+            aria-label="Open navigation"
             className="lg:hidden"
             size="icon"
             variant="ghost"
@@ -228,13 +234,13 @@ export function AppShell() {
             </span>
           </div>
         </header>
-        <main className="pb-20 lg:pb-0">
+        <main className="min-w-0 touch-pan-y overflow-x-hidden pb-24 lg:pb-0">
           <Outlet />
         </main>
       </div>
       <nav
         aria-label="Primary navigation"
-        className="no-print safe-bottom pointer-events-auto fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-zinc-200 bg-white px-2 pt-2 shadow-[0_-4px_12px_rgba(0,0,0,0.04)] lg:hidden"
+        className="no-print safe-bottom pointer-events-auto fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-[var(--border)] bg-[var(--card)] px-2 pt-2 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] lg:hidden"
       >
         {[
           { to: "/", label: "Today", icon: Activity },
@@ -250,7 +256,7 @@ export function AppShell() {
             className={({ isActive }) =>
               cn(
                 "relative z-10 flex min-h-12 flex-col items-center gap-1 text-[10px] font-semibold text-zinc-500",
-                isActive && "text-black",
+                isActive && "text-[var(--primary)]",
               )
             }
           >

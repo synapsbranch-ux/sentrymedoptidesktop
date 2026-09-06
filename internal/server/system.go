@@ -248,6 +248,14 @@ func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	defaults := map[string]string{
+		"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+		"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
+	}
+	for key, value := range defaults {
+		_, _ = s.db.ExecContext(r.Context(), "INSERT OR IGNORE INTO settings(key,value_json,updated_at) VALUES(?,?,?)", key, value, now)
+	}
 	rows, err := s.db.QueryContext(r.Context(), "SELECT key, value_json, version, updated_at FROM settings ORDER BY key")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "SETTINGS_FAILED", "Could not load settings.")
@@ -280,6 +288,11 @@ type settingsUpdateRequest struct {
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
+	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "public_display": true}
+	if !allowed[key] {
+		writeError(w, http.StatusNotFound, "SETTING_NOT_FOUND", "This setting cannot be changed.")
+		return
+	}
 	var input settingsUpdateRequest
 	if err := decodeJSON(r, &input); err != nil || input.Version < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A value and current version are required.")
@@ -289,6 +302,29 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	if err != nil || len(raw) > 256*1024 {
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_SETTING", "The setting value is invalid or too large.")
 		return
+	}
+	if key == "appearance" {
+		var value struct {
+			BaseColor   string `json:"baseColor"`
+			AccentColor string `json:"accentColor"`
+			Mode        string `json:"mode"`
+			Radius      string `json:"radius"`
+		}
+		baseColors := map[string]bool{"neutral": true, "zinc": true, "stone": true, "mauve": true, "olive": true, "mist": true, "taupe": true}
+		accentColors := map[string]bool{"zinc": true, "red": true, "orange": true, "amber": true, "green": true, "teal": true, "blue": true, "violet": true, "rose": true}
+		modes := map[string]bool{"light": true, "dark": true, "system": true}
+		radii := map[string]bool{"none": true, "small": true, "medium": true, "large": true}
+		if json.Unmarshal(raw, &value) != nil || !baseColors[value.BaseColor] || !accentColors[value.AccentColor] || !modes[value.Mode] || !radii[value.Radius] {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_APPEARANCE", "Choose a supported base palette, accent, mode and corner radius.")
+			return
+		}
+	}
+	if key == "public_display" {
+		var value publicDisplaySettings
+		if json.Unmarshal(raw, &value) != nil || (value.PrivacyMode != "ticket_only" && value.PrivacyMode != "initials" && value.PrivacyMode != "first_name") || len([]rune(value.Announcement)) > 180 {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_PUBLIC_DISPLAY", "Public display privacy and announcement settings are invalid.")
+			return
+		}
 	}
 	if key == "backup" {
 		var value struct {

@@ -62,16 +62,18 @@ func (d *DesktopBridge) BackupNow() error {
 }
 func (d *DesktopBridge) ConnectedClients() int { return d.clinic.ConnectedClients() }
 func (d *DesktopBridge) StopServer() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return d.server.Shutdown(ctx)
+	err := d.server.Shutdown(ctx)
+	if err != nil {
+		_ = d.server.Close()
+	}
+	return err
 }
 
 func (d *DesktopBridge) Exit() {
 	d.closing = true
-	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = d.server.Shutdown(shutdown)
+	_ = d.StopServer()
 	runtime.Quit(d.ctx)
 }
 
@@ -127,6 +129,11 @@ func main() {
 		OnStartup:        bridge.startup,
 		OnBeforeClose: func(ctx context.Context) bool {
 			if bridge.closing {
+				return false
+			}
+			if !trayAvailable() {
+				bridge.closing = true
+				_ = bridge.StopServer()
 				return false
 			}
 			runtime.WindowMinimise(ctx)

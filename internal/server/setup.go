@@ -82,6 +82,8 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 			"financial": `{"currencies":["HTG","USD"],"baseCurrency":"` + strings.ToUpper(input.Currency) + `","exchangeRate":"1","taxRate":"0"}`,
 			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
 			"backup":    marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
+			"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+			"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 		}
 		for key, value := range defaults {
 			if _, err := tx.ExecContext(r.Context(), "INSERT INTO settings(key, value_json, updated_at, updated_by) VALUES(?, ?, ?, ?)", key, value, now, userID); err != nil {

@@ -7,7 +7,7 @@ This file distinguishes persisted, authorized workflows from visual placeholders
 The following areas have a responsive UI, Go API, SQLite persistence, server-side authorization, validation/error handling, audit/realtime behavior where applicable, and automated coverage:
 
 - first-run setup, doctor/nurse accounts, Argon2id authentication, sessions, rate limiting and RBAC;
-- clinic identity, uploaded logo, configurable currencies/payment methods/timezone and user/password administration;
+- clinic identity, app-wide uploaded logo, configurable shadcn theme palettes/modes, currencies/payment methods/timezone and user/password administration;
 - patient registration, duplicate warning, demographics, structured history, archive, documents and longitudinal timeline;
 - day/week/month/agenda appointments, conflict detection, rescheduling, walk-ins, check-in and waiting-room stages;
 - independent nurse pre-test and doctor encounter sections, complete OD/OS examination fields, diagnoses, finalization, locking and addenda;
@@ -20,7 +20,8 @@ The following areas have a responsive UI, Go API, SQLite persistence, server-sid
 - optical laboratory orders, advanced fitting measurements, QC gate, delivery and branded printing;
 - live doctor/nurse dashboards, visit/revenue/status/sales charts, finance reports, CSV and branded browser PDF/print output;
 - audit log, manual and scheduled SQLite-safe backups, configurable backup folder, retention and guarded restore;
-- one responsive mobile-first PWA shared by desktop and LAN clients, SSE updates, QR access and persistent local certificate authority;
+- one responsive mobile-first PWA shared by desktop and LAN clients, touch-scroll navigation and bottom-sheet dialogs, SSE with polling recovery, QR access and persistent local certificate authority;
+- privacy-filtered live public queue/appointment display with TV URL, QR access and clinic announcement;
 - Windows per-user NSIS installer workflow and local installer build script.
 - native Windows system-tray menu with server state, connected users, mobile access, backup, stop and exit actions.
 

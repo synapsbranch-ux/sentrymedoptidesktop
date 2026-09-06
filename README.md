@@ -30,6 +30,8 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - automatic local HTTPS with a persistent clinic CA and downloadable trust certificate;
 - Wails desktop host with the built PWA embedded in the binary and a plug-and-play Windows installer workflow.
 - native Windows system-tray controls for the clinic server.
+- server-persisted shadcn base/accent themes with light, dark and device modes;
+- a privacy-filtered live waiting-room display for a clinic TV or tablet at `/display`.
 
 ## Architecture
 
@@ -348,7 +350,9 @@ SentryMed/
 
 ## Responsive PWA and LAN access
 
-The Go process serves the production PWA from the same origin as `/api/v1`. In **System → Mobile & network**, scan the detected LAN URL QR code from a phone on the clinic Wi-Fi. The mobile UI uses a bottom navigation and full-screen touch forms; desktop uses the full sidebar and wider data layouts.
+The Go process serves the production PWA from the same origin as `/api/v1`. In **System → Mobile & network**, scan the detected LAN URL QR code from a phone on the clinic Wi-Fi. The mobile UI uses a bottom navigation, scrollable touch drawer and bottom-sheet forms; desktop uses the full sidebar and wider data layouts. If a mobile client reports that it cannot contact the clinic server, confirm that the desktop process is still running and the phone remains on the clinic Wi-Fi, then use **Reconnect and try again**. The client automatically falls back to a lightweight revision poll if the live SSE connection is interrupted.
+
+Use **System → Themes** to select a shadcn base palette, accent, light/dark/device mode and corner radius. This setting is stored in SQLite and applied to authenticated desktop and LAN clients. Use **System → Public display** to enable the privacy-filtered waiting-room screen, choose queue-number/initials/first-name identification, and obtain the TV URL and QR code. Open `<clinic-server-url>/display` on a clinic-owned display device.
 
 Production startup automatically creates a persistent clinic CA and serves HTTPS with a certificate valid for the detected LAN addresses. Download the CA from **System → Mobile & network**, install it once on each authorized device, then scan the QR code. Set `SENTRYMED_AUTO_TLS=false` only for development, or supply `SENTRYMED_TLS_CERT` and `SENTRYMED_TLS_KEY` to use a managed certificate. See [Deployment](docs/DEPLOYMENT.md).
 

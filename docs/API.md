@@ -17,6 +17,9 @@ Authentication is an opaque `HttpOnly`, `SameSite=Strict` session cookie. `Secur
 |---|---|---|---|
 | GET | `/health` | Public | Server/database health and live connection count |
 | GET | `/api/v1/setup/status` | Public | Whether first-run setup is required |
+| GET | `/api/v1/public/branding/logo` | Public | Current clinic logo for UI and print assets |
+| GET | `/api/v1/public/display` | Public when enabled | Privacy-filtered queue and today's appointments |
+| GET | `/api/v1/public/events` | Public when enabled | Live display SSE invalidation stream |
 | POST | `/api/v1/setup/complete` | Server computer | Create clinic settings and initial doctor |
 | POST | `/api/v1/auth/login` | Public/rate-limited | Start session |
 | POST | `/api/v1/auth/logout` | Authenticated | Invalidate session |
@@ -128,6 +131,8 @@ Reports support `from`, `to`, and `format=csv`. Available report keys are `sales
 | GET, POST | `/backups` | Doctor |
 | POST | `/backups/restore` | Doctor; maintenance lock |
 | POST | `/backups/validate-destination` | Doctor |
+
+Writable setting keys are explicitly allow-listed. `appearance` accepts supported shadcn base/accent palettes, mode and radius. `public_display` controls enablement, privacy mode, appointment visibility and the waiting-room announcement. The public-display response never includes patient IDs, record numbers, clinical data, contact details or billing data.
 
 ## Status and error semantics
 

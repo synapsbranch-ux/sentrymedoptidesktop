@@ -512,10 +512,60 @@ func TestClinicLogoUploadPersistsMetadataAndFile(t *testing.T) {
 	if logo.Code != http.StatusOK || logo.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("logo load: %d %s", logo.Code, logo.Body.String())
 	}
+	publicLogo := a.request(http.MethodGet, "/api/v1/public/branding/logo", nil, nil)
+	if publicLogo.Code != http.StatusOK || publicLogo.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("public logo load: %d %s", publicLogo.Code, publicLogo.Body.String())
+	}
 	var metadata int
 	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM branding_assets WHERE key='clinic_logo'").Scan(&metadata)
 	if metadata != 1 {
 		t.Fatalf("logo metadata count=%d", metadata)
+	}
+}
+
+func TestPublicDisplayIsDisabledByDefaultAndPrivacyFiltered(t *testing.T) {
+	a := newTestApp(t)
+	if response := a.request(http.MethodGet, "/api/v1/public/display", nil, nil); response.Code != http.StatusNotFound {
+		t.Fatalf("disabled public display status=%d, want 404", response.Code)
+	}
+	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
+	version := int(settings["versions"].(map[string]any)["public_display"].(float64))
+	configuration := map[string]any{"enabled": true, "privacyMode": "ticket_only", "showAppointments": true, "announcement": "Please watch for your number."}
+	if response := a.request(http.MethodPut, "/api/v1/settings/public_display", map[string]any{"value": configuration, "version": version}, a.nurse); response.Code != http.StatusForbidden {
+		t.Fatalf("nurse public display update status=%d, want 403", response.Code)
+	}
+	if response := a.request(http.MethodPut, "/api/v1/settings/public_display", map[string]any{"value": configuration, "version": version}, a.doctor); response.Code != http.StatusOK {
+		t.Fatalf("enable public display: %d %s", response.Code, response.Body.String())
+	}
+	patient := a.createPatient(a.nurse, "PrivateName", "PrivateSurname")
+	if response := a.request(http.MethodPost, "/api/v1/queue/check-in", map[string]any{"patientId": patient.ID, "appointmentId": "", "assignedDoctorId": "", "priority": 0}, a.nurse); response.Code != http.StatusCreated {
+		t.Fatalf("queue check in: %d %s", response.Code, response.Body.String())
+	}
+	display := a.request(http.MethodGet, "/api/v1/public/display", nil, nil)
+	if display.Code != http.StatusOK {
+		t.Fatalf("public display: %d %s", display.Code, display.Body.String())
+	}
+	if bytes.Contains(display.Body.Bytes(), []byte("PrivateName")) || bytes.Contains(display.Body.Bytes(), []byte("PrivateSurname")) || bytes.Contains(display.Body.Bytes(), []byte(patient.MedicalRecordNumber)) {
+		t.Fatalf("public display leaked patient identity: %s", display.Body.String())
+	}
+	decoded := decodeResponse[map[string]any](t, display)
+	queue := decoded["queue"].([]any)
+	if len(queue) != 1 || queue[0].(map[string]any)["patientLabel"] == "" {
+		t.Fatalf("public queue response invalid: %v", queue)
+	}
+}
+
+func TestAppearanceSettingsAreValidated(t *testing.T) {
+	a := newTestApp(t)
+	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
+	version := int(settings["versions"].(map[string]any)["appearance"].(float64))
+	invalid := map[string]any{"baseColor": "unknown", "accentColor": "blue", "mode": "light", "radius": "medium"}
+	if response := a.request(http.MethodPut, "/api/v1/settings/appearance", map[string]any{"value": invalid, "version": version}, a.doctor); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid appearance status=%d, want 422", response.Code)
+	}
+	valid := map[string]any{"baseColor": "stone", "accentColor": "blue", "mode": "system", "radius": "large"}
+	if response := a.request(http.MethodPut, "/api/v1/settings/appearance", map[string]any{"value": valid, "version": version}, a.doctor); response.Code != http.StatusOK {
+		t.Fatalf("valid appearance: %d %s", response.Code, response.Body.String())
 	}
 }
 

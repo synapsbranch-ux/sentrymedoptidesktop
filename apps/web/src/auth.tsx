@@ -24,7 +24,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!required) {
         try { setUser((await api.get<{ user: User }>("/auth/me")).user); } catch { setUser(null); }
       }
-    }).finally(() => setLoading(false));
+    }).catch(() => setUser(null)).finally(() => setLoading(false));
+  }, []);
+
+  React.useEffect(() => {
+    const expired = () => { setDesktopSessionToken(""); setUser(null); };
+    window.addEventListener("sentrymed:session-expired", expired);
+    return () => window.removeEventListener("sentrymed:session-expired", expired);
   }, []);
 
   const signIn = async (identity: string, password: string) => {

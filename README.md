@@ -55,38 +55,247 @@ Only Go opens SQLite. All clients—including the Wails window—use the same se
 - Tailwind CSS 4 with shadcn/Radix component patterns
 - Vitest and Playwright
 
-## Prerequisites
+## Local installation
 
-- Go 1.25 or newer
-- Node.js 24 and npm 11
-- Wails platform dependencies for the desktop target
-- Wails CLI for desktop packaging:
+Choose one of these installation paths:
+
+- **Clinic/end user on Windows:** use the generated installer. Go and Node.js are not required on the clinic computer.
+- **Developer or source installation:** follow the Windows, macOS or Fedora guide below. This builds the desktop application locally.
+- **Backend/PWA development:** follow [Run in development](#run-in-development) after completing the source prerequisites for your OS.
+
+The source build currently requires:
+
+- a 64-bit operating system;
+- Git;
+- Go 1.25 or newer;
+- Node.js 24 and npm 11;
+- the native WebView/build dependencies required by Wails 2.15.
+
+Check the versions before continuing:
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+git --version
+go version
+node --version
+npm --version
 ```
 
-Run `wails doctor` to validate WebView and native build dependencies for the current OS.
+Use the official [Go downloads](https://go.dev/dl/) and [Node.js downloads](https://nodejs.org/en/download) if your operating-system packages do not provide the required major versions.
 
-## Development setup
+### Fedora Linux — step by step
+
+This is the primary Linux development path for this repository. The commands below are intended for a current Fedora Workstation release.
+
+1. Update Fedora and install the native Wails dependencies:
+
+   ```bash
+   sudo dnf upgrade --refresh
+   sudo dnf install -y \
+     git gcc gcc-c++ pkgconf-pkg-config \
+     gtk3-devel webkit2gtk4.1-devel \
+     gstreamer1-plugins-good
+   ```
+
+   If `webkit2gtk4.1-devel` is not available on an older Fedora release, inspect the available package and install the 4.0 development package instead:
+
+   ```bash
+   dnf search webkit2gtk
+   sudo dnf install -y webkit2gtk4.0-devel
+   ```
+
+2. Install Go 1.25+ and Node.js 24/npm 11 using their official installers if they are not already available. Then verify them:
+
+   ```bash
+   go version
+   node --version
+   npm --version
+   ```
+
+3. Install the Wails CLI and make sure the Go binary directory is on this shell's `PATH`:
+
+   ```bash
+   go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+   export PATH="$PATH:$(go env GOPATH)/bin"
+   wails doctor
+   ```
+
+   Every item required to build the application should be reported as installed by `wails doctor`. To keep the PATH change after restarting the terminal:
+
+   ```bash
+   echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+4. Clone and build SentryMed Opti:
+
+   ```bash
+   git clone https://github.com/synapsbranch-ux/sentrymedoptidesktop.git
+   cd sentrymedoptidesktop
+   npm --prefix apps/web ci
+   wails build -clean
+   ```
+
+5. Start the built desktop application:
+
+   ```bash
+   ./build/bin/SentryMed-Opti
+   ```
+
+   Keep this application running: its Go process is also the clinic server used by phones and other computers.
+
+6. Optional—allow phones and laptops on the trusted clinic LAN to reach the server:
+
+   ```bash
+   sudo firewall-cmd --permanent --add-port=8787/tcp
+   sudo firewall-cmd --reload
+   sudo firewall-cmd --list-ports
+   ```
+
+   Open only the configured SentryMed port, only on a trusted clinic network. Do not disable SELinux or the firewall. If you change `SENTRYMED_ADDRESS`, open the corresponding port instead.
+
+7. Complete [First launch](#first-launch) and then use **System → Mobile & network** to obtain the HTTPS URL, QR code and clinic CA certificate.
+
+To rebuild after pulling an update:
+
+```bash
+git pull --ff-only
+npm --prefix apps/web ci
+wails build -clean
+```
+
+Back up the clinic data before every application upgrade.
+
+### Windows — installer (recommended for clinic use)
+
+The Windows installer is per-user and does not require administrator access for the normal installation.
+
+1. Open the repository's **Actions** page on GitHub.
+2. Open a successful **Windows installer** workflow run.
+3. Download its installer artifact and unzip it.
+4. Double-click the generated `*-installer.exe` file.
+5. Because the installer is not commercially code-signed yet, Windows SmartScreen may display **Unknown publisher**. Choose **More info → Run anyway** only when the installer was downloaded from this official repository.
+6. Finish installation and launch **SentryMed Opti** from the Start menu.
+7. If Windows Firewall asks for access, allow **Private networks** for clinic LAN/mobile access; do not enable Public networks.
+8. Complete [First launch](#first-launch).
+
+To remove the application later, use **Settings → Apps → Installed apps → SentryMed Opti → Uninstall**. Uninstalling the program should not be treated as a backup procedure: preserve the SentryMed data directory separately.
+
+### Windows — build the installer from source
+
+1. Install 64-bit Git, Go 1.25+, Node.js 24/npm 11 and [NSIS](https://nsis.sourceforge.io/Download). Microsoft Edge WebView2 is normally present on supported Windows versions; `wails doctor` will report if it is missing.
+2. Open PowerShell and verify the tools:
+
+   ```powershell
+   git --version
+   go version
+   node --version
+   npm --version
+   makensis /VERSION
+   ```
+
+3. Install and validate Wails:
+
+   ```powershell
+   go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+   $env:Path += ";$(go env GOPATH)\bin"
+   wails doctor
+   ```
+
+4. Clone the repository and build the installer:
+
+   ```powershell
+   git clone https://github.com/synapsbranch-ux/sentrymedoptidesktop.git
+   Set-Location sentrymedoptidesktop
+   Set-ExecutionPolicy -Scope Process Bypass
+   .\scripts\build-windows-installer.ps1
+   ```
+
+5. Find the generated installer under `build\bin`, run it, and follow the Windows installer steps above.
+
+### macOS — step by step
+
+1. Install Apple's Command Line Tools:
+
+   ```bash
+   xcode-select --install
+   ```
+
+2. Install Go 1.25+ and Node.js 24/npm 11 from their official downloads, then verify all tools:
+
+   ```bash
+   git --version
+   go version
+   node --version
+   npm --version
+   ```
+
+3. Install and validate Wails:
+
+   ```bash
+   go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
+   export PATH="$PATH:$(go env GOPATH)/bin"
+   wails doctor
+   ```
+
+4. Clone and build the application:
+
+   ```bash
+   git clone https://github.com/synapsbranch-ux/sentrymedoptidesktop.git
+   cd sentrymedoptidesktop
+   npm --prefix apps/web ci
+   wails build -clean
+   ```
+
+5. Launch the app directly from the build directory:
+
+   ```bash
+   open "build/bin/SentryMed-Opti.app"
+   ```
+
+6. For a local installation, copy `build/bin/SentryMed-Opti.app` into `/Applications`. Because locally built development binaries are not commercially signed/notarized, the first launch may require Control-clicking the app in Finder and choosing **Open**.
+7. Complete [First launch](#first-launch). If macOS asks whether SentryMed may accept incoming network connections, allow it only for the trusted clinic LAN.
+
+### First launch
+
+On an empty production data directory, SentryMed opens its setup wizard. Complete it in this order:
+
+1. enter the clinic name, contact details and timezone;
+2. create the doctor's username and a strong unique password—there is no default production password;
+3. configure the base currency and optional secondary currency/exchange rate;
+4. upload the clinic logo if desired;
+5. choose and validate the backup destination;
+6. sign in as the doctor and create nurse/user accounts under **System → Users**;
+7. open **System → Mobile & network** and confirm the server URL before connecting phones.
+
+The application may request firewall/network, file or notification permissions depending on the operating system. Grant only permissions needed for the clinic server, selected document folder and selected backup destination.
+
+Default production data locations are:
+
+| System | Default directory |
+|---|---|
+| Fedora/Linux | `~/.config/SentryMed` or `$XDG_CONFIG_HOME/SentryMed` |
+| macOS | `~/Library/Application Support/SentryMed` |
+| Windows | `%AppData%\SentryMed` |
+
+Inside that directory, the database is stored at `database/sentrymed.db`; documents, backups and logs have separate subdirectories. Set `SENTRYMED_DATA_DIR` before launch to use another root directory. The configurable backup destination can point to a separate authorized USB disk or network folder.
+
+## Run in development
+
+After completing the source prerequisites for your operating system:
 
 ```bash
 git clone https://github.com/synapsbranch-ux/sentrymedoptidesktop.git
 cd sentrymedoptidesktop
-
-cd apps/web
-npm ci
-cd ../..
+npm --prefix apps/web ci
 
 # Terminal 1: Go server, local ./data directory
 go run ./cmd/sentrymed --dev
 
-# Terminal 2: Vite with API proxy
-cd apps/web
-npm run dev
+# Terminal 2: Vite UI with API proxy
+npm --prefix apps/web run dev
 ```
 
-Open `http://localhost:5173`. On a clean database the setup wizard collects clinic identity, doctor credentials, currency and timezone.
+Open `http://localhost:5173`. Development mode deliberately uses HTTP and the repository-local `./data` directory. Production desktop builds use the operating-system data directory and automatic local HTTPS.
 
 ### Development-only seed
 

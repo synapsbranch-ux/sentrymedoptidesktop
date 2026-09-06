@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/app"
+	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/backup"
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/database"
 	clinicserver "github.com/synapsbranch-ux/sentrymedoptidesktop/internal/server"
 	"github.com/wailsapp/wails/v2"
@@ -27,6 +28,8 @@ type DesktopBridge struct {
 	ctx     context.Context
 	config  app.Config
 	server  *http.Server
+	clinic  *clinicserver.Server
+	db      *database.DB
 	closing bool
 }
 
@@ -52,6 +55,17 @@ func (d *DesktopBridge) SelectBackupFolder() (string, error) {
 }
 
 func (d *DesktopBridge) MinimizeServer() { runtime.WindowMinimise(d.ctx) }
+func (d *DesktopBridge) Show()           { runtime.WindowShow(d.ctx); runtime.WindowUnminimise(d.ctx) }
+func (d *DesktopBridge) BackupNow() error {
+	_, err := (backup.Service{DB: d.db, DataDir: d.config.DataDir}).Create(context.Background(), "manual", nil)
+	return err
+}
+func (d *DesktopBridge) ConnectedClients() int { return d.clinic.ConnectedClients() }
+func (d *DesktopBridge) StopServer() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return d.server.Shutdown(ctx)
+}
 
 func (d *DesktopBridge) Exit() {
 	d.closing = true
@@ -100,7 +114,8 @@ func main() {
 			logger.Error("LAN server failed", "error", serveErr)
 		}
 	}()
-	bridge := &DesktopBridge{config: config, server: httpServer}
+	bridge := &DesktopBridge{config: config, server: httpServer, clinic: server, db: db}
+	startTray(bridge)
 	err = wails.Run(&options.App{
 		Title:            "SentryMed Opti",
 		Width:            1440,
@@ -122,6 +137,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	stopTray()
 }
 
 func fatal(err error) {

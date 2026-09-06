@@ -41,6 +41,7 @@ func New(db *database.DB, config app.Config, logger *slog.Logger, webAssets ...f
 }
 
 func (s *Server) Handler() http.Handler { return s.router }
+func (s *Server) ConnectedClients() int { return s.broker.Connected() }
 
 func (s *Server) StartBackground(ctx context.Context) {
 	go (backup.Service{DB: s.db, DataDir: s.config.DataDir}).RunScheduler(ctx, s.logger, s.maintenance.RLocker())

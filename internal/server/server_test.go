@@ -494,6 +494,62 @@ func TestBackupCreatesVerifiedSQLiteSnapshot(t *testing.T) {
 	}
 }
 
+func TestManualInsuranceClaimFlowAndRBAC(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Assured", "Patient")
+	p := a.request(http.MethodPost, "/api/v1/insurance/payers", map[string]any{"name": "Assurance Haiti", "contactName": "Claims Desk", "phone": "1234", "email": "", "address": "Port-au-Prince"}, a.doctor)
+	if p.Code != http.StatusCreated {
+		t.Fatalf("payer: %d %s", p.Code, p.Body.String())
+	}
+	payerID := decodeResponse[map[string]any](t, p)["id"].(string)
+	c := a.request(http.MethodPost, "/api/v1/insurance/claims", map[string]any{"patientId": patient.ID, "payerId": payerID, "invoiceId": "", "authorization": "AUTH-42", "claimAmountMinor": 10000, "patientPortionMinor": 2000, "payerPortionMinor": 8000}, a.nurse)
+	if c.Code != http.StatusCreated {
+		t.Fatalf("claim: %d %s", c.Code, c.Body.String())
+	}
+	claimID := decodeResponse[map[string]any](t, c)["id"].(string)
+	forbidden := a.request(http.MethodPatch, "/api/v1/insurance/claims/"+claimID+"/status", map[string]any{"status": "submitted", "version": 1}, a.nurse)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("nurse status=%d", forbidden.Code)
+	}
+	submitted := a.request(http.MethodPatch, "/api/v1/insurance/claims/"+claimID+"/status", map[string]any{"status": "submitted", "version": 1}, a.doctor)
+	if submitted.Code != http.StatusOK {
+		t.Fatalf("submit: %d %s", submitted.Code, submitted.Body.String())
+	}
+	approved := a.request(http.MethodPatch, "/api/v1/insurance/claims/"+claimID+"/status", map[string]any{"status": "approved", "version": 2}, a.doctor)
+	if approved.Code != http.StatusOK { t.Fatalf("approve: %d %s", approved.Code, approved.Body.String()) }
+	paid := a.request(http.MethodPost, "/api/v1/insurance/claims/"+claimID+"/payments", map[string]any{"amountMinor": 3000, "paymentDate": "2026-09-06", "reference": "CHK-1", "notes": ""}, a.doctor)
+	if paid.Code != http.StatusCreated {
+		t.Fatalf("claim payment: %d %s", paid.Code, paid.Body.String())
+	}
+	list := a.request(http.MethodGet, "/api/v1/insurance/claims", nil, a.nurse)
+	if list.Code != http.StatusOK || !bytes.Contains(list.Body.Bytes(), []byte(`"outstandingMinor":5000`)) {
+		t.Fatalf("claim list: %d %s", list.Code, list.Body.String())
+	}
+}
+
+func TestRefundCreatesCreditNoteAndRestocksAtomically(t *testing.T) {
+	a := newTestApp(t)
+	item := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "RET-1", "barcode": "", "category": "frame", "name": "Return Frame", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 1000, "salePriceMinor": 5000, "currency": "HTG", "quantity": 2, "reorderLevel": 0, "trackStock": true}, a.nurse)
+	itemID := decodeResponse[map[string]any](t, item)["id"].(string)
+	checkout := a.request(http.MethodPost, "/api/v1/pos/checkout", map[string]any{"invoice": map[string]any{"patientId": "", "currency": "HTG", "exchangeRate": "1", "discountMinor": 0, "taxMinor": 0, "dueAt": "", "notes": "", "items": []map[string]any{{"inventoryItemId": itemID, "description": "Return Frame", "quantity": 1, "unitPriceMinor": 5000, "discountMinor": 0, "taxMinor": 0}}}, "payment": map[string]any{"paymentMethodId": "pm_cash", "registerSessionId": "", "amountMinor": 5000, "currency": "HTG", "exchangeRate": "1", "reference": "", "notes": ""}}, a.nurse)
+	res := decodeResponse[map[string]any](t, checkout)
+	invoiceID := res["invoiceId"].(string)
+	paymentID := res["paymentId"].(string)
+	detail := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/invoices/"+invoiceID, nil, a.doctor))
+	lineID := detail["items"].([]any)[0].(map[string]any)["id"].(string)
+	refund := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 5000, "reason": "Frame returned", "restockItemIds": []string{lineID}}, a.doctor)
+	if refund.Code != http.StatusCreated || !bytes.Contains(refund.Body.Bytes(), []byte("CRN-")) {
+		t.Fatalf("refund: %d %s", refund.Code, refund.Body.String())
+	}
+	var quantity, credits, returns int
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT quantity FROM inventory_items WHERE id=?", itemID).Scan(&quantity)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM credit_notes WHERE invoice_id=?", invoiceID).Scan(&credits)
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM stock_movements WHERE item_id=? AND movement_type='return'", itemID).Scan(&returns)
+	if quantity != 2 || credits != 1 || returns != 1 {
+		t.Fatalf("quantity=%d credits=%d returns=%d", quantity, credits, returns)
+	}
+}
+
 func TestRestoreReplacesDatabaseAndPreservesSafetySnapshot(t *testing.T) {
 	a := newTestApp(t)
 	patient := a.createPatient(a.doctor, "Restore", "Patient")

@@ -1,29 +1,700 @@
 import * as React from "react";
-import { Banknote, CreditCard, FileText, Printer, Receipt, Wallet } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  FileText,
+  Printer,
+  Receipt,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
 import { dateTime, money } from "../lib";
 import { useRealtime } from "../realtime";
 import { PrintHeader, triggerPrint } from "../components/print";
 import type { Invoice } from "../types";
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { Badge, EmptyState, ErrorState, Skeleton, Table, Td, Th } from "../components/ui/data";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import {
+  Badge,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+  Table,
+  Td,
+  Th,
+} from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
 
-interface InvoiceDetail extends Invoice { notes: string; items: { id: string; description: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[]; payments: { id: string; receiptNumber: string; amountMinor: number; refundedMinor: number; currency: string; paymentMethod: string; receivedAt: string; receivedBy: string }[] }
+interface InvoiceDetail extends Invoice {
+  notes: string;
+  items: {
+    id: string;
+    inventoryItemId: string;
+    description: string;
+    quantity: number;
+    unitPriceMinor: number;
+    lineTotalMinor: number;
+  }[];
+  payments: {
+    id: string;
+    receiptNumber: string;
+    amountMinor: number;
+    refundedMinor: number;
+    currency: string;
+    paymentMethod: string;
+    receivedAt: string;
+    receivedBy: string;
+  }[];
+  creditNotes: {
+    creditNumber: string;
+    amountMinor: number;
+    reason: string;
+    restocked: boolean;
+    createdAt: string;
+  }[];
+}
 export function BillingPage() {
-  const { revision } = useRealtime(); const [selectedID, setSelectedID] = React.useState<string | null>(null); const [registerOpen, setRegisterOpen] = React.useState(false); const invoices = useLoad(() => api.get<{ items: Invoice[] }>("/invoices"), [revision]); const register = useLoad(() => api.get<{ open: boolean; id?: string; currency?: string; openingFloatMinor?: number; openedAt?: string; openedBy?: string }>("/cash-register"), [revision]);
-  React.useEffect(() => { const id = new URLSearchParams(location.search).get("id"); if (id) setSelectedID(id); }, []);
-  return <div className="page"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="section-title">Invoices, receipts & register</p><h1 className="page-title">Billing</h1><p className="page-description">Payments are immutable records; balances are always derived.</p></div><Button variant="outline" onClick={() => setRegisterOpen(true)}><Wallet className="h-4 w-4" />{register.data?.open ? "Close register" : "Open register"}</Button></div>
-    <Card className="mt-6 overflow-hidden"><CardHeader><CardTitle>Invoices</CardTitle><CardDescription>Issued, partial, paid and outstanding clinic balances</CardDescription></CardHeader>{invoices.loading ? <div className="p-5"><Skeleton className="h-72" /></div> : invoices.error ? <div className="p-5"><ErrorState message={invoices.error.message} retry={invoices.reload} /></div> : invoices.data?.items.length ? <><div className="hidden md:block"><Table><thead><tr><Th>Invoice</Th><Th>Patient</Th><Th>Total</Th><Th>Paid</Th><Th>Balance</Th><Th>Status</Th><Th>Date</Th></tr></thead><tbody>{invoices.data.items.map((item) => <tr key={item.id} onClick={() => setSelectedID(item.id)} className="cursor-pointer hover:bg-zinc-50"><Td className="font-mono text-xs font-bold">{item.invoiceNumber}</Td><Td>{item.patientName}</Td><Td className="font-mono font-bold">{money(item.totalMinor,item.currency)}</Td><Td className="font-mono">{money(item.paidMinor,item.currency)}</Td><Td className="font-mono">{money(item.balanceMinor,item.currency)}</Td><Td><Badge tone={item.status === "paid" ? "success" : item.status === "overdue" ? "danger" : "warning"}>{item.status.replaceAll("_", " ")}</Badge></Td><Td className="text-xs text-zinc-500">{dateTime(item.createdAt)}</Td></tr>)}</tbody></Table></div><div className="divide-y md:hidden">{invoices.data.items.map((item) => <button key={item.id} onClick={() => setSelectedID(item.id)} className="w-full p-4 text-left"><div className="flex justify-between"><span className="font-mono text-xs font-bold">{item.invoiceNumber}</span><Badge tone={item.status === "paid" ? "success" : "warning"}>{item.status}</Badge></div><div className="mt-2 font-semibold">{item.patientName}</div><div className="mt-1 flex justify-between text-sm"><span className="text-zinc-500">Balance</span><span className="font-mono font-bold">{money(item.balanceMinor,item.currency)}</span></div></button>)}</div></> : <EmptyState title="No invoices" description="POS sales and manually issued invoices will appear here." />}</Card>
-    <Dialog open={Boolean(selectedID)} onOpenChange={(open) => !open && setSelectedID(null)}>{selectedID && <InvoiceView id={selectedID} onChanged={() => { invoices.reload(); }} />}</Dialog>
-    <Dialog open={registerOpen} onOpenChange={setRegisterOpen}><RegisterForm current={register.data ?? { open: false }} onSaved={() => { setRegisterOpen(false); register.reload(); }} /></Dialog>
-  </div>;
+  const { revision } = useRealtime();
+  const [selectedID, setSelectedID] = React.useState<string | null>(null);
+  const [registerOpen, setRegisterOpen] = React.useState(false);
+  const invoices = useLoad(
+    () => api.get<{ items: Invoice[] }>("/invoices"),
+    [revision],
+  );
+  const register = useLoad(
+    () =>
+      api.get<{
+        open: boolean;
+        id?: string;
+        currency?: string;
+        openingFloatMinor?: number;
+        openedAt?: string;
+        openedBy?: string;
+      }>("/cash-register"),
+    [revision],
+  );
+  React.useEffect(() => {
+    const id = new URLSearchParams(location.search).get("id");
+    if (id) setSelectedID(id);
+  }, []);
+  return (
+    <div className="page">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="section-title">Invoices, receipts & register</p>
+          <h1 className="page-title">Billing</h1>
+          <p className="page-description">
+            Payments are immutable records; balances are always derived.
+          </p>
+        </div>
+        <Button variant="outline" onClick={() => setRegisterOpen(true)}>
+          <Wallet className="h-4 w-4" />
+          {register.data?.open ? "Close register" : "Open register"}
+        </Button>
+      </div>
+      <Card className="mt-6 overflow-hidden">
+        <CardHeader>
+          <CardTitle>Invoices</CardTitle>
+          <CardDescription>
+            Issued, partial, paid and outstanding clinic balances
+          </CardDescription>
+        </CardHeader>
+        {invoices.loading ? (
+          <div className="p-5">
+            <Skeleton className="h-72" />
+          </div>
+        ) : invoices.error ? (
+          <div className="p-5">
+            <ErrorState
+              message={invoices.error.message}
+              retry={invoices.reload}
+            />
+          </div>
+        ) : invoices.data?.items.length ? (
+          <>
+            <div className="hidden md:block">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Invoice</Th>
+                    <Th>Patient</Th>
+                    <Th>Total</Th>
+                    <Th>Paid</Th>
+                    <Th>Balance</Th>
+                    <Th>Status</Th>
+                    <Th>Date</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoices.data.items.map((item) => (
+                    <tr
+                      key={item.id}
+                      onClick={() => setSelectedID(item.id)}
+                      className="cursor-pointer hover:bg-zinc-50"
+                    >
+                      <Td className="font-mono text-xs font-bold">
+                        {item.invoiceNumber}
+                      </Td>
+                      <Td>{item.patientName}</Td>
+                      <Td className="font-mono font-bold">
+                        {money(item.totalMinor, item.currency)}
+                      </Td>
+                      <Td className="font-mono">
+                        {money(item.paidMinor, item.currency)}
+                      </Td>
+                      <Td className="font-mono">
+                        {money(item.balanceMinor, item.currency)}
+                      </Td>
+                      <Td>
+                        <Badge
+                          tone={
+                            item.status === "paid"
+                              ? "success"
+                              : item.status === "overdue"
+                                ? "danger"
+                                : "warning"
+                          }
+                        >
+                          {item.status.replaceAll("_", " ")}
+                        </Badge>
+                      </Td>
+                      <Td className="text-xs text-zinc-500">
+                        {dateTime(item.createdAt)}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+            <div className="divide-y md:hidden">
+              {invoices.data.items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedID(item.id)}
+                  className="w-full p-4 text-left"
+                >
+                  <div className="flex justify-between">
+                    <span className="font-mono text-xs font-bold">
+                      {item.invoiceNumber}
+                    </span>
+                    <Badge
+                      tone={item.status === "paid" ? "success" : "warning"}
+                    >
+                      {item.status}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 font-semibold">{item.patientName}</div>
+                  <div className="mt-1 flex justify-between text-sm">
+                    <span className="text-zinc-500">Balance</span>
+                    <span className="font-mono font-bold">
+                      {money(item.balanceMinor, item.currency)}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            title="No invoices"
+            description="POS sales and manually issued invoices will appear here."
+          />
+        )}
+      </Card>
+      <Dialog
+        open={Boolean(selectedID)}
+        onOpenChange={(open) => !open && setSelectedID(null)}
+      >
+        {selectedID && (
+          <InvoiceView
+            id={selectedID}
+            onChanged={() => {
+              invoices.reload();
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+        <RegisterForm
+          current={register.data ?? { open: false }}
+          onSaved={() => {
+            setRegisterOpen(false);
+            register.reload();
+          }}
+        />
+      </Dialog>
+    </div>
+  );
 }
 
-function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) { const detail = useLoad(() => api.get<InvoiceDetail>(`/invoices/${id}`), [id]); const methods = useLoad(() => api.get<{ items: { id: string; name: string }[] }>("/payment-methods")); const register = useLoad(() => api.get<{ open: boolean; id?: string }>("/cash-register")); const [paying, setPaying] = React.useState(false); const [method, setMethod] = React.useState("pm_cash"); const [amount, setAmount] = React.useState(0); React.useEffect(() => { if (detail.data) setAmount(detail.data.balanceMinor); }, [detail.data]); const pay = async () => { if (!detail.data) return; setPaying(true); try { await api.post(`/invoices/${id}/payments`, { paymentMethodId: method, registerSessionId: register.data?.id ?? "", amountMinor: amount, currency: detail.data.currency, exchangeRate: detail.data.exchangeRate, reference: "", notes: "" }); toast.success("Payment recorded and receipt created"); detail.reload(); onChanged(); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Payment failed"); } finally { setPaying(false); } }; if (detail.loading) return <DialogContent><Skeleton className="h-96" /></DialogContent>; if (!detail.data || detail.error) return <DialogContent><ErrorState message={detail.error?.message ?? "Invoice not found"} /></DialogContent>; const invoice = detail.data; return <DialogContent className="max-w-4xl"><DialogHeader className="no-print"><div className="flex items-center justify-between pr-8"><div><div className="font-mono text-xs font-bold text-zinc-500">{invoice.invoiceNumber}</div><DialogTitle>Invoice for {invoice.patientName}</DialogTitle></div><Button variant="outline" onClick={triggerPrint}><Printer className="h-4 w-4" />Print / PDF</Button></div></DialogHeader><div className="print-area rounded-lg border p-5"><PrintHeader documentTitle="Invoice" number={invoice.invoiceNumber} date={dateTime(invoice.createdAt)} /><div className="mt-5 flex items-start justify-between"><div><div className="text-xs font-bold uppercase text-zinc-500">Patient</div><div className="mt-1 font-semibold">{invoice.patientName}</div></div><Badge tone={invoice.status === "paid" ? "success" : "warning"}>{invoice.status.replaceAll("_", " ")}</Badge></div><div className="mt-6 divide-y border-y">{invoice.items.map((item) => <div key={item.id} className="grid grid-cols-[1fr_auto] gap-4 py-3 text-sm"><div><strong>{item.description}</strong><div className="text-xs text-zinc-500">{item.quantity} × {money(item.unitPriceMinor, invoice.currency)}</div></div><div className="font-mono font-bold">{money(item.lineTotalMinor, invoice.currency)}</div></div>)}</div><div className="ml-auto mt-5 grid max-w-xs gap-2 text-sm"><div className="flex justify-between"><span>Total</span><strong className="font-mono">{money(invoice.totalMinor, invoice.currency)}</strong></div><div className="flex justify-between"><span>Paid</span><span className="font-mono">{money(invoice.paidMinor, invoice.currency)}</span></div><div className="flex justify-between border-t pt-2 text-lg"><strong>Balance</strong><strong className="font-mono">{money(invoice.balanceMinor, invoice.currency)}</strong></div></div></div>{invoice.payments.length > 0 && <Card className="mt-4 no-print"><CardHeader><CardTitle>Payments & receipts</CardTitle></CardHeader><CardContent className="divide-y">{invoice.payments.map((payment) => <div className="flex items-center gap-3 py-3" key={payment.id}><Receipt className="h-4 w-4 text-zinc-400" /><div className="flex-1"><div className="font-mono text-xs font-bold">{payment.receiptNumber}</div><div className="text-xs text-zinc-500">{payment.paymentMethod} · {dateTime(payment.receivedAt)}</div></div><strong className="font-mono">{money(payment.amountMinor - payment.refundedMinor, payment.currency)}</strong></div>)}</CardContent></Card>}{invoice.balanceMinor > 0 && <Card className="mt-4 no-print"><CardHeader><CardTitle>Record payment</CardTitle><CardDescription>Partial payments create separate receipt records.</CardDescription></CardHeader><CardContent className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><Field label="Method"><Select value={method} onChange={(event) => setMethod(event.target.value)}>{methods.data?.items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</Select></Field><Field label={`Amount (${invoice.currency} minor units)`}><Input type="number" min={1} max={invoice.balanceMinor} value={amount} onChange={(event) => setAmount(Number(event.target.value))} /></Field><Button disabled={paying || amount <= 0 || amount > invoice.balanceMinor} onClick={pay}><CreditCard className="h-4 w-4" />{paying ? "Recording…" : "Record payment"}</Button></CardContent></Card>}</DialogContent>; }
+function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
+  const { user } = useAuth();
+  const detail = useLoad(() => api.get<InvoiceDetail>(`/invoices/${id}`), [id]);
+  const methods = useLoad(() =>
+    api.get<{ items: { id: string; name: string }[] }>("/payment-methods"),
+  );
+  const register = useLoad(() =>
+    api.get<{ open: boolean; id?: string }>("/cash-register"),
+  );
+  const [paying, setPaying] = React.useState(false);
+  const [method, setMethod] = React.useState("pm_cash");
+  const [amount, setAmount] = React.useState(0);
+  const [refundPayment, setRefundPayment] = React.useState<
+    InvoiceDetail["payments"][number] | null
+  >(null);
+  const [refundAmount, setRefundAmount] = React.useState(0);
+  const [refundReason, setRefundReason] = React.useState("");
+  const [restock, setRestock] = React.useState<string[]>([]);
+  const refund = async () => {
+    if (!refundPayment) return;
+    try {
+      const result = await api.post<{ creditNumber: string }>(
+        `/payments/${refundPayment.id}/refunds`,
+        {
+          amountMinor: refundAmount,
+          reason: refundReason,
+          restockItemIds: restock,
+        },
+      );
+      toast.success(`Refund recorded · credit note ${result.creditNumber}`);
+      setRefundPayment(null);
+      setRefundReason("");
+      setRestock([]);
+      detail.reload();
+      onChanged();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Refund failed");
+    }
+  };
+  React.useEffect(() => {
+    if (detail.data) setAmount(detail.data.balanceMinor);
+  }, [detail.data]);
+  const pay = async () => {
+    if (!detail.data) return;
+    setPaying(true);
+    try {
+      await api.post(`/invoices/${id}/payments`, {
+        paymentMethodId: method,
+        registerSessionId: register.data?.id ?? "",
+        amountMinor: amount,
+        currency: detail.data.currency,
+        exchangeRate: detail.data.exchangeRate,
+        reference: "",
+        notes: "",
+      });
+      toast.success("Payment recorded and receipt created");
+      detail.reload();
+      onChanged();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Payment failed");
+    } finally {
+      setPaying(false);
+    }
+  };
+  if (detail.loading)
+    return (
+      <DialogContent>
+        <Skeleton className="h-96" />
+      </DialogContent>
+    );
+  if (!detail.data || detail.error)
+    return (
+      <DialogContent>
+        <ErrorState message={detail.error?.message ?? "Invoice not found"} />
+      </DialogContent>
+    );
+  const invoice = detail.data;
+  return (
+    <DialogContent className="max-w-4xl">
+      <DialogHeader className="no-print">
+        <div className="flex items-center justify-between pr-8">
+          <div>
+            <div className="font-mono text-xs font-bold text-zinc-500">
+              {invoice.invoiceNumber}
+            </div>
+            <DialogTitle>Invoice for {invoice.patientName}</DialogTitle>
+          </div>
+          <Button variant="outline" onClick={triggerPrint}>
+            <Printer className="h-4 w-4" />
+            Print / PDF
+          </Button>
+        </div>
+      </DialogHeader>
+      <div className="print-area rounded-lg border p-5">
+        <PrintHeader
+          documentTitle="Invoice"
+          number={invoice.invoiceNumber}
+          date={dateTime(invoice.createdAt)}
+        />
+        <div className="mt-5 flex items-start justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase text-zinc-500">
+              Patient
+            </div>
+            <div className="mt-1 font-semibold">{invoice.patientName}</div>
+          </div>
+          <Badge tone={invoice.status === "paid" ? "success" : "warning"}>
+            {invoice.status.replaceAll("_", " ")}
+          </Badge>
+        </div>
+        <div className="mt-6 divide-y border-y">
+          {invoice.items.map((item) => (
+            <div
+              key={item.id}
+              className="grid grid-cols-[1fr_auto] gap-4 py-3 text-sm"
+            >
+              <div>
+                <strong>{item.description}</strong>
+                <div className="text-xs text-zinc-500">
+                  {item.quantity} ×{" "}
+                  {money(item.unitPriceMinor, invoice.currency)}
+                </div>
+              </div>
+              <div className="font-mono font-bold">
+                {money(item.lineTotalMinor, invoice.currency)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="ml-auto mt-5 grid max-w-xs gap-2 text-sm">
+          <div className="flex justify-between">
+            <span>Total</span>
+            <strong className="font-mono">
+              {money(invoice.totalMinor, invoice.currency)}
+            </strong>
+          </div>
+          <div className="flex justify-between">
+            <span>Paid</span>
+            <span className="font-mono">
+              {money(invoice.paidMinor, invoice.currency)}
+            </span>
+          </div>
+          <div className="flex justify-between border-t pt-2 text-lg">
+            <strong>Balance</strong>
+            <strong className="font-mono">
+              {money(invoice.balanceMinor, invoice.currency)}
+            </strong>
+          </div>
+        </div>
+      </div>
+      {invoice.payments.length > 0 && (
+        <Card className="mt-4 no-print">
+          <CardHeader>
+            <CardTitle>Payments & receipts</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y">
+            {invoice.payments.map((payment) => (
+              <div className="flex items-center gap-3 py-3" key={payment.id}>
+                <Receipt className="h-4 w-4 text-zinc-400" />
+                <div className="flex-1">
+                  <div className="font-mono text-xs font-bold">
+                    {payment.receiptNumber}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {payment.paymentMethod} · {dateTime(payment.receivedAt)}
+                  </div>
+                </div>
+                <strong className="font-mono">
+                  {money(
+                    payment.amountMinor - payment.refundedMinor,
+                    payment.currency,
+                  )}
+                </strong>
+                {user?.role === "doctor" &&
+                  payment.amountMinor > payment.refundedMinor && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setRefundPayment(payment);
+                        setRefundAmount(
+                          payment.amountMinor - payment.refundedMinor,
+                        );
+                      }}
+                    >
+                      Refund
+                    </Button>
+                  )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {invoice.creditNotes.length > 0 && (
+        <Card className="mt-4 no-print">
+          <CardHeader>
+            <CardTitle>Credit notes</CardTitle>
+            <CardDescription>
+              Immutable documents generated by confirmed refunds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="divide-y">
+            {invoice.creditNotes.map((note) => (
+              <div
+                key={note.creditNumber}
+                className="flex items-center gap-3 py-3"
+              >
+                <FileText className="h-4 w-4 text-zinc-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-xs font-bold">
+                    {note.creditNumber}
+                  </div>
+                  <div className="truncate text-xs text-zinc-500">
+                    {note.reason} · {dateTime(note.createdAt)}
+                    {note.restocked ? " · stock returned" : ""}
+                  </div>
+                </div>
+                <b className="font-mono">
+                  −{money(note.amountMinor, invoice.currency)}
+                </b>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {refundPayment && (
+        <Card className="mt-4 border-black no-print">
+          <CardHeader>
+            <CardTitle>Refund & credit note</CardTitle>
+            <CardDescription>
+              Creates an immutable refund and optionally returns selected sold
+              products to stock in the same transaction.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label={`Refund amount (${refundPayment.currency} minor units)`}
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  max={refundPayment.amountMinor - refundPayment.refundedMinor}
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(Number(e.target.value))}
+                />
+              </Field>
+              <Field label="Reason">
+                <Input
+                  required
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="Return, cancellation, pricing correction…"
+                />
+              </Field>
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-bold uppercase text-zinc-500">
+                Products physically returned
+              </div>
+              {invoice.items.filter((x) =>
+                Boolean((x as { inventoryItemId?: string }).inventoryItemId),
+              ).length ? (
+                invoice.items
+                  .filter((x) =>
+                    Boolean(
+                      (x as { inventoryItemId?: string }).inventoryItemId,
+                    ),
+                  )
+                  .map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex min-h-11 items-center gap-3 border-t text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={restock.includes(item.id)}
+                        onChange={(e) =>
+                          setRestock(
+                            e.target.checked
+                              ? [...restock, item.id]
+                              : restock.filter((x) => x !== item.id),
+                          )
+                        }
+                      />
+                      <span>
+                        {item.quantity} × {item.description}
+                      </span>
+                    </label>
+                  ))
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  This invoice has no stock-linked products.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRefundPayment(null)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={
+                  !refundReason.trim() ||
+                  refundAmount <= 0 ||
+                  refundAmount >
+                    refundPayment.amountMinor - refundPayment.refundedMinor
+                }
+                onClick={refund}
+              >
+                Confirm refund & credit note
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {invoice.balanceMinor > 0 && (
+        <Card className="mt-4 no-print">
+          <CardHeader>
+            <CardTitle>Record payment</CardTitle>
+            <CardDescription>
+              Partial payments create separate receipt records.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <Field label="Method">
+              <Select
+                value={method}
+                onChange={(event) => setMethod(event.target.value)}
+              >
+                {methods.data?.items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label={`Amount (${invoice.currency} minor units)`}>
+              <Input
+                type="number"
+                min={1}
+                max={invoice.balanceMinor}
+                value={amount}
+                onChange={(event) => setAmount(Number(event.target.value))}
+              />
+            </Field>
+            <Button
+              disabled={paying || amount <= 0 || amount > invoice.balanceMinor}
+              onClick={pay}
+            >
+              <CreditCard className="h-4 w-4" />
+              {paying ? "Recording…" : "Record payment"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </DialogContent>
+  );
+}
 
-function RegisterForm({ current, onSaved }: { current: { open: boolean; id?: string; currency?: string; openingFloatMinor?: number; openedAt?: string; openedBy?: string }; onSaved(): void }) { const [amount, setAmount] = React.useState(0); const [notes, setNotes] = React.useState(""); const [saving, setSaving] = React.useState(false); const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { if (current.open && current.id) await api.post(`/cash-register/${current.id}/close`, { countedCashMinor: amount, notes }); else await api.post("/cash-register/open", { currency: "HTG", openingFloatMinor: amount, notes }); toast.success(current.open ? "Cash register closed" : "Cash register opened"); onSaved(); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Register action failed"); } finally { setSaving(false); } }; return <DialogContent><DialogHeader><DialogTitle>{current.open ? "Close cash register" : "Open cash register"}</DialogTitle><DialogDescription>{current.open ? `Opened by ${current.openedBy} with ${money(current.openingFloatMinor ?? 0,current.currency)}` : "Set the physical opening float before accepting cash."}</DialogDescription></DialogHeader><form className="grid gap-4" onSubmit={submit}><Field label={current.open ? "Counted cash (minor units)" : "Opening float (minor units)"}><Input type="number" min={0} value={amount} onChange={(event) => setAmount(Number(event.target.value))} /></Field><Field label="Notes"><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></Field><DialogFooter><Button type="submit" disabled={saving}>{current.open ? <Banknote className="h-4 w-4" /> : <FileText className="h-4 w-4" />}{saving ? "Saving…" : current.open ? "Close & generate Z report" : "Open register"}</Button></DialogFooter></form></DialogContent>; }
+function RegisterForm({
+  current,
+  onSaved,
+}: {
+  current: {
+    open: boolean;
+    id?: string;
+    currency?: string;
+    openingFloatMinor?: number;
+    openedAt?: string;
+    openedBy?: string;
+  };
+  onSaved(): void;
+}) {
+  const [amount, setAmount] = React.useState(0);
+  const [notes, setNotes] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      if (current.open && current.id)
+        await api.post(`/cash-register/${current.id}/close`, {
+          countedCashMinor: amount,
+          notes,
+        });
+      else
+        await api.post("/cash-register/open", {
+          currency: "HTG",
+          openingFloatMinor: amount,
+          notes,
+        });
+      toast.success(
+        current.open ? "Cash register closed" : "Cash register opened",
+      );
+      onSaved();
+    } catch (reason) {
+      toast.error(
+        reason instanceof Error ? reason.message : "Register action failed",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>
+          {current.open ? "Close cash register" : "Open cash register"}
+        </DialogTitle>
+        <DialogDescription>
+          {current.open
+            ? `Opened by ${current.openedBy} with ${money(current.openingFloatMinor ?? 0, current.currency)}`
+            : "Set the physical opening float before accepting cash."}
+        </DialogDescription>
+      </DialogHeader>
+      <form className="grid gap-4" onSubmit={submit}>
+        <Field
+          label={
+            current.open
+              ? "Counted cash (minor units)"
+              : "Opening float (minor units)"
+          }
+        >
+          <Input
+            type="number"
+            min={0}
+            value={amount}
+            onChange={(event) => setAmount(Number(event.target.value))}
+          />
+        </Field>
+        <Field label="Notes">
+          <Textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
+        </Field>
+        <DialogFooter>
+          <Button type="submit" disabled={saving}>
+            {current.open ? (
+              <Banknote className="h-4 w-4" />
+            ) : (
+              <FileText className="h-4 w-4" />
+            )}
+            {saving
+              ? "Saving…"
+              : current.open
+                ? "Close & generate Z report"
+                : "Open register"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+}

@@ -96,6 +96,20 @@ Marking a lab order `ready` fails until a QC row exists.
 | GET | `/finance/summary` | Doctor |
 | GET | `/reports/{report}` | Doctor |
 
+Refund requests accept `amountMinor`, `reason`, and optional `restockItemIds`. The refund, credit note, invoice status and selected stock returns commit atomically.
+
+## Insurance
+
+| Methods | Path | Access |
+|---|---|---|
+| GET | `/insurance/payers` | Doctor, nurse |
+| POST, PUT | `/insurance/payers[/{id}]` | Doctor |
+| GET, POST | `/insurance/claims` | Doctor, nurse |
+| PATCH | `/insurance/claims/{id}/status` | Doctor |
+| POST | `/insurance/claims/{id}/payments` | Doctor |
+
+This is an offline/manual workflow: staff record authorization references and insurer remittances from paper, telephone, email, cheque or bank records. No insurer API is required.
+
 Reports support `from`, `to`, and `format=csv`. Available report keys are `sales`, `patients`, `appointments`, `clinical`, `inventory`, and `lab`.
 
 ## System

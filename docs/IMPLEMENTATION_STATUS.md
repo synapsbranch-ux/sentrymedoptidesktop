@@ -15,21 +15,14 @@ The following areas have a responsive UI, Go API, SQLite persistence, server-sid
 - suppliers, purchase orders, partial/full receipts and transactional inventory movements;
 - inventory catalogue and ledger, low-stock alerts and counted-versus-expected stock-take sessions;
 - POS, invoices, immutable partial payments, stock deduction, cash-register sessions and expenses;
+- manual insurance workflow for Haitian clinics: insurers, authorizations, patient/payer portions, claim stages, remittances and receivable aging;
+- guided refunds with immutable credit notes and transactional return-to-stock selection;
 - optical laboratory orders, advanced fitting measurements, QC gate, delivery and branded printing;
 - live doctor/nurse dashboards, visit/revenue/status/sales charts, finance reports, CSV and branded browser PDF/print output;
 - audit log, manual and scheduled SQLite-safe backups, configurable backup folder, retention and guarded restore;
 - one responsive mobile-first PWA shared by desktop and LAN clients, SSE updates, QR access and persistent local certificate authority;
 - Windows per-user NSIS installer workflow and local installer build script.
-
-## Deliberately deferred from the current delivery
-
-These items are not represented as finished features:
-
-- insurance/third-party claim processing and payer receivable aging;
-- a guided refunds/credit-note workspace (the doctor-only refund API foundation remains available);
-- a true OS-native tray command menu; closing the Wails window currently keeps the local server available through the supported minimize behavior;
-- code-signed installers and OS notarization. The supplied installer is plug-and-play but unsigned until the publisher provides signing certificates;
-- formal regulatory certification, penetration testing and jurisdiction-specific clinical/legal approval.
+- native Windows system-tray menu with server state, connected users, mobile access, backup, stop and exit actions.
 
 ## Release validation still required on target hardware
 
@@ -39,6 +32,5 @@ Before putting real patient data into service, the clinic or deployment partner 
 2. approve the Windows firewall prompt, install the generated local CA on authorized LAN devices and verify the QR URL;
 3. test touch behavior and printing on the clinic's actual phones, tablets, printer and paper sizes;
 4. exercise backup and restore with the selected external destination;
-5. establish data-retention, device-security and incident-response procedures appropriate to the clinic's jurisdiction.
 
 The repository's automated suite covers database migrations, authentication/RBAC, optimistic concurrency, concurrent doctor/nurse writes, encounter locking, appointments, purchasing, stock takes, transactional POS/inventory, partial payments, backup/restore and the principal browser workflow.

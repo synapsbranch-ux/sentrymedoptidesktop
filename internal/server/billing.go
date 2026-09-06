@@ -116,7 +116,20 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments})
+	credits := []map[string]any{}
+	creditRows, _ := s.db.QueryContext(r.Context(), `SELECT credit_number,amount_minor,reason,restocked,created_at FROM credit_notes WHERE invoice_id=? ORDER BY created_at`, id)
+	if creditRows != nil {
+		defer creditRows.Close()
+		for creditRows.Next() {
+			var creditNumber, reason, created string
+			var amount int64
+			var restocked bool
+			if creditRows.Scan(&creditNumber, &amount, &reason, &restocked, &created) == nil {
+				credits = append(credits, map[string]any{"creditNumber": creditNumber, "amountMinor": amount, "reason": reason, "restocked": restocked, "createdAt": created})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments, "creditNotes": credits})
 }
 
 func validateInvoice(input invoicePayload) *APIError {
@@ -366,8 +379,9 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		AmountMinor int64  `json:"amountMinor"`
-		Reason      string `json:"reason"`
+		AmountMinor    int64    `json:"amountMinor"`
+		Reason         string   `json:"reason"`
+		RestockItemIDs []string `json:"restockItemIds"`
 	}
 	if err := decodeJSON(r, &input); err != nil || input.AmountMinor <= 0 || strings.TrimSpace(input.Reason) == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Positive amount and refund reason are required.")
@@ -375,7 +389,7 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	user, _ := userFromContext(r.Context())
 	paymentID, refundID, now := chi.URLParam(r, "id"), uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
-	var invoiceID string
+	var invoiceID, creditNumber string
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var paid, refunded int64
 		if err := tx.QueryRowContext(r.Context(), "SELECT invoice_id,amount_minor FROM payments WHERE id=?", paymentID).Scan(&invoiceID, &paid); err != nil {
@@ -388,6 +402,30 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.ExecContext(r.Context(), "INSERT INTO refunds(id,payment_id,amount_minor,reason,refunded_at,created_by) VALUES(?,?,?,?,?,?)", refundID, paymentID, input.AmountMinor, strings.TrimSpace(input.Reason), now, user.ID); err != nil {
 			return err
 		}
+		var err error
+		creditNumber, err = s.nextNumber(r.Context(), tx, "credit_note", "CRN", true)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(r.Context(), `INSERT INTO credit_notes(id,credit_number,invoice_id,refund_id,amount_minor,reason,restocked,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?)`, uuid.NewString(), creditNumber, invoiceID, refundID, input.AmountMinor, strings.TrimSpace(input.Reason), len(input.RestockItemIDs) > 0, now, user.ID); err != nil {
+			return err
+		}
+		for _, lineID := range input.RestockItemIDs {
+			var inventoryID string
+			var quantity, previous int
+			if err = tx.QueryRowContext(r.Context(), `SELECT inventory_item_id,quantity FROM invoice_items WHERE id=? AND invoice_id=? AND inventory_item_id IS NOT NULL`, lineID, invoiceID).Scan(&inventoryID, &quantity); err != nil {
+				return &APIError{Code: "INVALID_RETURN_ITEM", Message: "A selected return item does not belong to this invoice."}
+			}
+			if err = tx.QueryRowContext(r.Context(), `SELECT quantity FROM inventory_items WHERE id=?`, inventoryID).Scan(&previous); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(r.Context(), `UPDATE inventory_items SET quantity=quantity+?,version=version+1,updated_at=?,updated_by=? WHERE id=?`, quantity, now, user.ID, inventoryID); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(r.Context(), `INSERT INTO stock_movements(id,item_id,movement_type,previous_quantity,quantity_change,resulting_quantity,reason,reference_type,reference_id,created_at,created_by) VALUES(?,?,'return',?,?,?,?,'invoice',?,?,?)`, uuid.NewString(), inventoryID, previous, quantity, previous+quantity, "Customer return: "+strings.TrimSpace(input.Reason), invoiceID, now, user.ID); err != nil {
+				return err
+			}
+		}
 		var total, netPaid int64
 		_ = tx.QueryRowContext(r.Context(), "SELECT total_minor FROM invoices WHERE id=?", invoiceID).Scan(&total)
 		_ = tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(p.amount_minor),0)-COALESCE((SELECT SUM(r.amount_minor) FROM refunds r JOIN payments p2 ON p2.id=r.payment_id WHERE p2.invoice_id=?),0) FROM payments p WHERE p.invoice_id=?`, invoiceID, invoiceID).Scan(&netPaid)
@@ -395,7 +433,7 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 		if netPaid == 0 {
 			status = "refunded"
 		}
-		_, err := tx.ExecContext(r.Context(), "UPDATE invoices SET status=?,version=version+1,updated_at=?,updated_by=? WHERE id=?", status, now, user.ID, invoiceID)
+		_, err = tx.ExecContext(r.Context(), "UPDATE invoices SET status=?,version=version+1,updated_at=?,updated_by=? WHERE id=?", status, now, user.ID, invoiceID)
 		return err
 	})
 	if err != nil {
@@ -407,7 +445,8 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r.Context(), &user, "refund", "payment", paymentID, "Recorded payment refund", "", "", r)
-	writeJSON(w, http.StatusCreated, map[string]any{"id": refundID, "invoiceId": invoiceID})
+	s.broker.Publish(realtime.Event{Type: "invoice.refunded", EntityType: "invoice", EntityID: invoiceID})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": refundID, "invoiceId": invoiceID, "creditNumber": creditNumber})
 }
 
 func validExchangeRate(value string) bool {

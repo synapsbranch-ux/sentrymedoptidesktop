@@ -41,10 +41,10 @@ erDiagram
 | Clinical | `encounters`, `pretests`, `encounter_sections`, `diagnoses`, `encounter_addenda`, `prescriptions` |
 | Files | `documents` |
 | Supply | `suppliers`, `inventory_items`, `stock_movements`, `purchase_orders`, `purchase_order_items`, `purchase_order_receipts`, `purchase_order_receipt_items`, `stock_take_sessions`, `stock_take_items` |
-| Billing | `invoices`, `invoice_items`, `payments`, `refunds`, `payment_methods` |
+| Billing | `invoices`, `invoice_items`, `payments`, `refunds`, `credit_notes`, `payment_methods` |
 | Cash/expense | `cash_register_sessions`, `expenses` |
 | Optical lab | `lab_orders`, `lab_status_history`, `lab_quality_control` |
-| Third party | `payers`, `insurance_claims` |
+| Third party | `payers`, `patient_insurance`, `insurance_claims`, `insurance_claim_payments` |
 | Recovery | `backup_records` |
 
 Large document content is not stored as BLOBs. `documents` contains metadata, SHA-256 and an opaque storage name; bytes live under `<data-directory>/documents`.

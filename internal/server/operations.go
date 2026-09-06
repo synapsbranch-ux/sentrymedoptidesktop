@@ -40,4 +40,11 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.With(s.requireDoctor).Post("/expenses", s.handleExpenseCreate)
 	r.With(s.requireDoctor).Get("/finance/summary", s.handleFinanceSummary)
 	r.With(s.requireDoctor).Get("/reports/{report}", s.handleReport)
+	r.Get("/insurance/payers", s.handlePayersList)
+	r.With(s.requireDoctor).Post("/insurance/payers", s.handlePayerCreate)
+	r.With(s.requireDoctor).Put("/insurance/payers/{id}", s.handlePayerUpdate)
+	r.Get("/insurance/claims", s.handleClaimsList)
+	r.Post("/insurance/claims", s.handleClaimCreate)
+	r.With(s.requireDoctor).Patch("/insurance/claims/{id}/status", s.handleClaimStatus)
+	r.With(s.requireDoctor).Post("/insurance/claims/{id}/payments", s.handleClaimPayment)
 }

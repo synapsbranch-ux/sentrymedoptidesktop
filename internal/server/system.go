@@ -256,8 +256,8 @@ func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	defaults := map[string]string{
-		"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
-		"localization": `{"language":"en"}`,
+		"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+		"localization":   `{"language":"en"}`,
 		"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 	}
 	for key, value := range defaults {
@@ -344,8 +344,9 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if key == "clinical" {
 		var value struct {
-			TranscriptionEnabled bool   `json:"transcriptionEnabled"`
-			TranscriptionCommand string `json:"transcriptionCommand"`
+			TranscriptionEnabled bool                       `json:"transcriptionEnabled"`
+			TranscriptionCommand string                     `json:"transcriptionCommand"`
+			Analytics            *clinicalAnalyticsSettings `json:"analytics"`
 		}
 		if json.Unmarshal(raw, &value) != nil || len(value.TranscriptionCommand) > 1000 {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_SETTING", "Clinical settings are invalid.")
@@ -354,6 +355,18 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		if value.TranscriptionEnabled && strings.TrimSpace(value.TranscriptionCommand) == "" {
 			writeError(w, http.StatusUnprocessableEntity, "TRANSCRIPTION_COMMAND_REQUIRED", "Set a transcription command before enabling transcription.")
 			return
+		}
+		if value.Analytics != nil {
+			a := value.Analytics
+			validThresholds := a.RapidMyopicShiftDPerYear >= 0.1 && a.RapidMyopicShiftDPerYear <= 5 &&
+				a.SignificantAcuityLoss >= 1 && a.SignificantAcuityLoss <= 10 &&
+				a.ElevatedIOP >= 10 && a.ElevatedIOP <= 50 && a.IOPAsymmetry >= 1 && a.IOPAsymmetry <= 20 &&
+				a.ThinCornea >= 350 && a.ThinCornea <= 700 && a.ThickCornea >= 350 && a.ThickCornea <= 700 && a.ThinCornea < a.ThickCornea &&
+				a.CCTReference >= 350 && a.CCTReference <= 700 && a.CCTMicronsPerMmHg >= 0 && a.CCTMicronsPerMmHg <= 100
+			if !validThresholds || (a.CCTCorrectionEnabled && a.CCTMicronsPerMmHg == 0) {
+				writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_THRESHOLDS", "Clinical alert thresholds or the optional CCT correction coefficient are invalid.")
+				return
+			}
 		}
 	}
 	if key == "backup" {

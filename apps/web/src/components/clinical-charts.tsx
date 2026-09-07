@@ -4,14 +4,14 @@ import { Trash2 } from "lucide-react";
 import { api, APIError } from "../api";
 import { useLoad } from "../hooks";
 import { cn } from "../lib";
-import { AnteriorBackdrop, FundusBackdrop, fieldCells, motilityCells, type ChartCell, type Eye } from "./chart-backdrops";
+import { AnteriorBackdrop, FundusBackdrop, fieldCells, fundusClockHour, motilityCells, type ChartCell, type Eye } from "./chart-backdrops";
 import { AmslerSurface } from "./vision-surfaces";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { EmptyState, Skeleton } from "./ui/data";
+import { Badge, EmptyState, Skeleton } from "./ui/data";
 import { Field, Input, Select, Textarea } from "./ui/input";
 
-interface Mark { x: number; y: number; shape: string; color: string; label: string; structure: string; cell?: string; grade?: string }
+interface Mark { x: number; y: number; shape: string; color: string; label: string; structure: string; cell?: string; grade?: string; clockHour?: number }
 interface ChartState { annotations: Mark[]; notes: string; version: number }
 type ChartType = "anterior" | "fundus" | "field" | "amsler" | "motility";
 type Charts = Record<ChartType, Partial<Record<Eye, ChartState>>>;
@@ -38,19 +38,23 @@ const fieldGrades: Grade[] = [
   { value: "absent", label: "Absent", color: "#dc2626" },
 ];
 const motilityGrades: Grade[] = [
-  { value: "full", label: "Full", color: "#16a34a" },
+  { value: "0", label: "0 Normal", color: "#16a34a" },
   { value: "-1", label: "−1", color: "#d97706" },
   { value: "-2", label: "−2", color: "#d97706" },
   { value: "-3", label: "−3", color: "#dc2626" },
   { value: "-4", label: "−4", color: "#dc2626" },
+  { value: "+1", label: "+1", color: "#2563eb" },
+  { value: "+2", label: "+2", color: "#2563eb" },
+  { value: "+3", label: "+3", color: "#7c3aed" },
+  { value: "+4", label: "+4", color: "#7c3aed" },
 ];
 
 const chartTabs: { type: ChartType; label: string; description: string }[] = [
   { type: "anterior", label: "Anterior segment", description: "Click the eye to mark a finding on the lids, cornea, iris or lens." },
-  { type: "fundus", label: "Fundus", description: "Click the retina to mark the disc, macula, vessels or periphery." },
-  { type: "field", label: "Confrontation fields", description: "Tap a zone to cycle full, reduced or absent. The previous visit is overlaid." },
+  { type: "fundus", label: "Fundus", description: "Click the retina to record a finding with automatic clock-hour notation." },
+  { type: "field", label: "Confrontation fields", description: "Tap a zone to cycle full, reduced or absent; toggle the grey N−1 overlay." },
   { type: "amsler", label: "Amsler", description: "What the patient traced during the vision test, with the previous visit behind it." },
-  { type: "motility", label: "Motility & cover test", description: "Tap a gaze position to grade the limitation from −1 to −4." },
+  { type: "motility", label: "Motility & cover test", description: "Grade the 3×3 positions from −4 underaction to +4 overaction and record cover testing." },
 ];
 
 export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: string; canEdit: boolean }) {
@@ -172,6 +176,7 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
           previousMarks={previousMarks("motility", "OU")}
           previousLabel={previous?.encounterNumber ?? null}
           canEdit={canEdit}
+          showCoverTest
           onSaved={charts.reload}
         />
       )}
@@ -255,7 +260,7 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
 
   const addMark = () => {
     if (!pending || !label.trim()) return;
-    setAnnotations([...annotations, { x: pending.x, y: pending.y, shape: "dot", color, label: label.trim(), structure }]);
+    setAnnotations([...annotations, { x: pending.x, y: pending.y, shape: "dot", color, label: label.trim(), structure, ...(chartType === "fundus" ? { clockHour: fundusClockHour(pending.x, pending.y) } : {}) }]);
     setPending(null);
     setLabel("");
   };
@@ -295,7 +300,7 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
             {annotations.map((mark, index) => (
               <li key={index} className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: mark.color }} />
-                <span className="flex-1">{mark.label} <span className="text-zinc-400">· {mark.structure.replaceAll("_", " ")}</span></span>
+                <span className="flex-1">{mark.label} <span className="text-zinc-400">· {mark.structure.replaceAll("_", " ")}{chartType === "fundus" && ` · ${mark.clockHour ?? fundusClockHour(mark.x, mark.y)} o'clock`}</span></span>
                 {canEdit && (
                   <button type="button" aria-label={`Remove ${mark.label}`} onClick={() => setAnnotations(annotations.filter((_, i) => i !== index))}>
                     <Trash2 className="h-3 w-3 text-zinc-400 hover:text-red-700" />
@@ -307,6 +312,7 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
         )}
         {pending && canEdit && (
           <div className="grid gap-2 rounded-md border border-dashed p-3">
+            {chartType === "fundus" && <Badge>Clock hour: {fundusClockHour(pending.x, pending.y)}</Badge>}
             <div className="grid gap-2 sm:grid-cols-2">
               <Field label="Finding"><Input autoFocus value={label} onChange={(event) => setLabel(event.target.value)} placeholder="e.g. nasal pterygium" /></Field>
               <Field label="Structure">
@@ -340,7 +346,7 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
   );
 }
 
-function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, layout, state, previousMarks, previousLabel, canEdit, onSaved }: {
+function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, layout, state, previousMarks, previousLabel, canEdit, showCoverTest = false, onSaved }: {
   encounterId: string;
   chartType: ChartType;
   eye: Eye;
@@ -352,13 +358,22 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
   previousMarks: Mark[];
   previousLabel: string | null;
   canEdit: boolean;
+  showCoverTest?: boolean;
   onSaved(): void;
 }) {
   const { annotations, setAnnotations, notes, setNotes, saving, dirty, save } = useChartSave(encounterId, chartType, eye, state, onSaved);
   const [focused, setFocused] = React.useState<string | null>(null);
+  const [showPrevious, setShowPrevious] = React.useState(true);
   const marked = new Map(annotations.map((mark) => [mark.cell ?? "", mark]));
   const before = new Map(previousMarks.map((mark) => [mark.cell ?? "", mark]));
   const gradeOf = (value?: string) => grades.find((grade) => grade.value === value);
+
+  const setCoverValue = (cell: string, grade: string) => {
+    const existing = marked.get(cell);
+    if (!grade) { setAnnotations(annotations.filter((mark) => mark.cell !== cell)); return; }
+    const updated: Mark = { x: 50, y: 50, shape: "field", color: "#52525b", label: existing?.label ?? "", structure: "cover_test", cell, grade };
+    setAnnotations(existing ? annotations.map((mark) => mark.cell === cell ? updated : mark) : [...annotations, updated]);
+  };
 
   /** Tapping a zone walks the grade list and then clears it, so one control records and undoes. */
   const cycle = (cell: ChartCell) => {
@@ -396,6 +411,7 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
+        {previousMarks.length > 0 && previousLabel && <label className="flex items-center gap-2 text-xs font-semibold text-zinc-600"><input type="checkbox" checked={showPrevious} onChange={(event) => setShowPrevious(event.target.checked)} />Show {previousLabel} in grey</label>}
         {layout === "radial" ? (
           <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
             <span />
@@ -407,9 +423,12 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
             {cells.map((cell) => {
               const grade = gradeOf(marked.get(cell.id)?.grade);
               const priorGrade = gradeOf(before.get(cell.id)?.grade);
+              const priorShape = showPrevious && priorGrade && (cell.path
+                ? <path d={cell.path} fill="#94a3b8" fillOpacity="0.28" stroke="#64748b" strokeWidth="0.7" strokeDasharray="1.5,1" />
+                : <circle cx={cell.cx} cy={cell.cy} r="13" fill="#94a3b8" fillOpacity="0.28" stroke="#64748b" strokeWidth="0.7" strokeDasharray="1.5,1" />);
               const shape = cell.path
-                ? <path d={cell.path} fill={grade?.color ?? "#ffffff"} fillOpacity={grade ? 0.35 : 1} stroke="#52525b" strokeWidth="0.5" />
-                : <circle cx={cell.cx} cy={cell.cy} r="13" fill={grade?.color ?? "#ffffff"} fillOpacity={grade ? 0.35 : 1} stroke="#52525b" strokeWidth="0.5" />;
+                ? <path d={cell.path} fill={grade?.color ?? "#ffffff"} fillOpacity={grade ? 0.35 : showPrevious && priorGrade ? 0 : 1} stroke="#52525b" strokeWidth="0.5" />
+                : <circle cx={cell.cx} cy={cell.cy} r="13" fill={grade?.color ?? "#ffffff"} fillOpacity={grade ? 0.35 : showPrevious && priorGrade ? 0 : 1} stroke="#52525b" strokeWidth="0.5" />;
               return (
                 <g
                   key={cell.id}
@@ -422,13 +441,14 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
                   onBlur={() => setFocused(null)}
                   onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); cycle(cell); } }}
                 >
+                  {priorShape}
                   {shape}
                   {focused === cell.id && (cell.path
                     ? <path d={cell.path} fill="none" stroke="#111827" strokeWidth="1.4" />
                     : <circle cx={cell.cx} cy={cell.cy} r="13" fill="none" stroke="#111827" strokeWidth="1.4" />)}
                   <title>{cellTitle(cell)}</title>
                   {grade && <text x={cell.cx} y={cell.cy + 1.6} textAnchor="middle" fontSize="5" fontWeight="700" fill={grade.color}>{grade.label}</text>}
-                  {priorGrade && priorGrade.value !== marked.get(cell.id)?.grade && (
+                  {showPrevious && priorGrade && priorGrade.value !== marked.get(cell.id)?.grade && (
                     <circle cx={cell.cx} cy={cell.cy - 6} r="1.8" fill="none" stroke={priorGrade.color} strokeWidth="0.8" strokeDasharray="1,0.8" />
                   )}
                 </g>
@@ -462,7 +482,7 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
                   <span className="text-lg font-bold" style={{ color: grade?.color ?? "#a1a1aa" }}>{grade ? grade.label : "·"}</span>
                   <span className="text-[10px] font-semibold leading-tight text-zinc-600">{cell.label}</span>
                   {cell.hint && <span className="font-mono text-[9px] text-zinc-400">{cell.hint}</span>}
-                  {priorGrade && priorGrade.value !== marked.get(cell.id)?.grade && (
+                  {showPrevious && priorGrade && priorGrade.value !== marked.get(cell.id)?.grade && (
                     <span className="text-[9px] text-zinc-400">was {priorGrade.label}</span>
                   )}
                 </button>
@@ -477,6 +497,12 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
             </span>
           ))}
         </div>
+        {showCoverTest && (
+          <div className="grid gap-3 rounded-md border p-4"><div><div className="font-semibold">Cover test</div><p className="text-xs text-zinc-500">Structured binocular alignment at distance and near.</p></div><div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Method"><Select disabled={!canEdit} value={marked.get("cover-method")?.grade ?? ""} onChange={(event) => setCoverValue("cover-method", event.target.value)}><option value="">Not recorded</option><option value="cover-uncover">Cover–uncover</option><option value="alternate-cover">Alternate cover</option></Select></Field>
+            {(["distance", "near"] as const).map((distance) => <Field key={distance} label={distance === "distance" ? "Distance alignment" : "Near alignment"}><Select disabled={!canEdit} value={marked.get(`cover-${distance}`)?.grade ?? ""} onChange={(event) => setCoverValue(`cover-${distance}`, event.target.value)}><option value="">Not recorded</option><option value="ortho">Orthophoria</option><option value="exophoria">Exophoria</option><option value="esophoria">Esophoria</option><option value="exotropia">Exotropia</option><option value="esotropia">Esotropia</option><option value="vertical-deviation">Vertical deviation</option><option value="not-tested">Not tested</option></Select></Field>)}
+          </div></div>
+        )}
         {annotations.length > 0 && (
           <ul className="grid gap-2">
             {annotations.map((mark) => {

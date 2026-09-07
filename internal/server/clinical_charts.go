@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,6 +28,7 @@ type chartMark struct {
 	Structure string  `json:"structure"`
 	Cell      string  `json:"cell,omitempty"`
 	Grade     string  `json:"grade,omitempty"`
+	ClockHour int     `json:"clockHour,omitempty"`
 }
 
 type chartPayload struct {
@@ -56,6 +60,47 @@ func chartAcceptsEye(chartType, eye string) bool {
 		}
 	}
 	return false
+}
+
+func fundusClockHour(x, y float64) int {
+	degrees := math.Atan2(x-50, 50-y) * 180 / math.Pi
+	if degrees < 0 {
+		degrees += 360
+	}
+	hour := int(math.Round(degrees/30)) % 12
+	if hour == 0 {
+		return 12
+	}
+	return hour
+}
+
+func validateChartMarks(chartType string, marks []chartMark) error {
+	fieldGrades := map[string]bool{"full": true, "reduced": true, "absent": true}
+	motilityGrades := map[string]bool{"full": true, "0": true, "-1": true, "-2": true, "-3": true, "-4": true, "+1": true, "+2": true, "+3": true, "+4": true}
+	coverGrades := map[string]bool{"cover-uncover": true, "alternate-cover": true, "ortho": true, "exophoria": true, "esophoria": true, "exotropia": true, "esotropia": true, "vertical-deviation": true, "not-tested": true}
+	for index := range marks {
+		mark := &marks[index]
+		if math.IsNaN(mark.X) || math.IsNaN(mark.Y) || mark.X < 0 || mark.X > 100 || mark.Y < 0 || mark.Y > 100 || len([]rune(mark.Label)) > 500 || len(mark.Color) > 32 || len(mark.Structure) > 64 || len(mark.Cell) > 64 {
+			return fmt.Errorf("mark %d has invalid coordinates or text", index+1)
+		}
+		switch chartType {
+		case "fundus":
+			mark.ClockHour = fundusClockHour(mark.X, mark.Y)
+		case "field":
+			if mark.Cell == "" || !fieldGrades[mark.Grade] {
+				return fmt.Errorf("mark %d has an invalid visual-field grade", index+1)
+			}
+		case "motility":
+			if strings.HasPrefix(mark.Cell, "cover-") {
+				if !coverGrades[mark.Grade] {
+					return fmt.Errorf("mark %d has an invalid cover-test value", index+1)
+				}
+			} else if mark.Cell == "" || !motilityGrades[mark.Grade] {
+				return fmt.Errorf("mark %d has an invalid motility grade", index+1)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Server) registerEyeDiagramRoutes(r chi.Router) {
@@ -150,6 +195,10 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(input.Annotations) > maxChartMarks {
 		writeError(w, http.StatusUnprocessableEntity, "TOO_MANY_MARKS", "A chart holds at most 200 marks.")
+		return
+	}
+	if err := validateChartMarks(chartType, input.Annotations); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_MARK", err.Error())
 		return
 	}
 	encounterID, now := chi.URLParam(r, "id"), time.Now().UTC().Format(time.RFC3339Nano)

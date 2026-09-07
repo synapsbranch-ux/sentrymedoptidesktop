@@ -86,12 +86,12 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defaults := map[string]string{
-			"clinic":    string(clinic),
-			"financial": `{"currencies":["HTG","USD"],"baseCurrency":"` + strings.ToUpper(input.Currency) + `","exchangeRate":"1","taxRate":"0"}`,
-			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
-			"backup":    marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
-			"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
-			"localization": marshalJSON(map[string]any{"language": input.Language}),
+			"clinic":         string(clinic),
+			"financial":      `{"currencies":["HTG","USD"],"baseCurrency":"` + strings.ToUpper(input.Currency) + `","exchangeRate":"1","taxRate":"0"}`,
+			"clinical":       `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"],"analytics":{"rapidMyopicShiftDPerYear":0.75,"significantAcuityLossLines":2,"elevatedIOPMmHg":21,"iopAsymmetryMmHg":4,"thinCorneaMicrons":510,"thickCorneaMicrons":570,"cctCorrectionEnabled":false,"cctReferenceMicrons":545,"cctMicronsPerMmHg":0}}`,
+			"backup":         marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
+			"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+			"localization":   marshalJSON(map[string]any{"language": input.Language}),
 			"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 		}
 		for key, value := range defaults {

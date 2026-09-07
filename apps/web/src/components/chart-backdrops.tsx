@@ -21,6 +21,14 @@ function polar(radius: number, degrees: number) {
   return { x: centre + radius * Math.cos(radians), y: centre + radius * Math.sin(radians) };
 }
 
+/** Clock-face notation used by retina charts: 12 superior, 3 right, 6 inferior, 9 left. */
+export function fundusClockHour(x: number, y: number) {
+  const degrees = (Math.atan2(x - centre, centre - y) * 180) / Math.PI;
+  const normalized = degrees < 0 ? degrees + 360 : degrees;
+  const hour = Math.round(normalized / 30) % 12;
+  return hour === 0 ? 12 : hour;
+}
+
 /** Annular sector swept clockwise in screen coordinates, used for field quadrants. */
 function sector(startDegrees: number, endDegrees: number) {
   const outerStart = polar(outerRadius, startDegrees);
@@ -112,6 +120,10 @@ export function FundusBackdrop({ eye }: { eye: Eye }) {
         <clipPath id={clip}><circle cx="50" cy="50" r="44.4" /></clipPath>
       </defs>
       <circle cx="50" cy="50" r="45" fill="#f0a868" stroke="#27272a" strokeWidth="1.2" />
+      {Array.from({ length: 12 }, (_, index) => index + 1).map((hour) => {
+        const position = polar(48, hour * 30 - 90);
+        return <text key={hour} x={position.x} y={position.y + 1.4} textAnchor="middle" fontSize="3.5" fontWeight="700" fill="#52525b">{hour}</text>;
+      })}
       <g clipPath={`url(#${clip})`}>
         {/* Macula and foveal reflex, roughly two disc diameters temporal to the disc. */}
         <circle cx={maculaX} cy="52" r="9.5" fill="#c2703a" opacity="0.5" />

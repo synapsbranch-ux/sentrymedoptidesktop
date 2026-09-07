@@ -656,7 +656,9 @@ func TestManualInsuranceClaimFlowAndRBAC(t *testing.T) {
 		t.Fatalf("submit: %d %s", submitted.Code, submitted.Body.String())
 	}
 	approved := a.request(http.MethodPatch, "/api/v1/insurance/claims/"+claimID+"/status", map[string]any{"status": "approved", "version": 2}, a.doctor)
-	if approved.Code != http.StatusOK { t.Fatalf("approve: %d %s", approved.Code, approved.Body.String()) }
+	if approved.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", approved.Code, approved.Body.String())
+	}
 	paid := a.request(http.MethodPost, "/api/v1/insurance/claims/"+claimID+"/payments", map[string]any{"amountMinor": 3000, "paymentDate": "2026-09-06", "reference": "CHK-1", "notes": ""}, a.doctor)
 	if paid.Code != http.StatusCreated {
 		t.Fatalf("claim payment: %d %s", paid.Code, paid.Body.String())
@@ -1112,12 +1114,33 @@ func TestClinicalTrendsAndVisitDelta(t *testing.T) {
 	if _, err := a.server.db.ExecContext(context.Background(), "UPDATE encounters SET created_at=? WHERE id=?", twoYearsAgo, first); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := a.server.db.ExecContext(context.Background(), "UPDATE encounters SET treatment_plan='Observe and review' WHERE id=?", first); err != nil {
+		t.Fatal(err)
+	}
+	if created := a.request(http.MethodPost, "/api/v1/encounters/"+first+"/diagnoses", map[string]any{"diagnosis": "Old diagnosis", "code": "H00", "laterality": "OD", "notes": "", "primary": true}, a.doctor); created.Code != http.StatusCreated {
+		t.Fatalf("first diagnosis: %d %s", created.Code, created.Body.String())
+	}
+	if created := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{"patientId": patient.ID, "encounterId": first, "type": "medication", "od": map[string]any{}, "os": map[string]any{}, "details": map[string]any{"medication": "Timolol", "dosage": "1 drop", "frequency": "BID"}, "notes": "", "expiresAt": ""}, a.doctor); created.Code != http.StatusCreated {
+		t.Fatalf("first medication: %d %s", created.Code, created.Body.String())
+	}
 
 	second := a.recordVisit(t, patient.ID,
 		map[string]string{"odbestcorrectedva": "20/60", "osbestcorrectedva": "20/20"},
 		map[string]string{"odiop": "26", "osiop": "17"},
 		map[string]string{"odthickness": "500", "osthickness": "545"},
 		map[string]string{"odsphere": "-4.00", "odcylinder": "-1.00", "ossphere": "-1.50", "oscylinder": "0"})
+	if _, err := a.server.db.ExecContext(context.Background(), "UPDATE encounters SET treatment_plan='Start new treatment' WHERE id=?", second); err != nil {
+		t.Fatal(err)
+	}
+	if created := a.request(http.MethodPost, "/api/v1/encounters/"+second+"/diagnoses", map[string]any{"diagnosis": "New diagnosis", "code": "H01", "laterality": "OD", "notes": "", "primary": true}, a.doctor); created.Code != http.StatusCreated {
+		t.Fatalf("second diagnosis: %d %s", created.Code, created.Body.String())
+	}
+	if created := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{"patientId": patient.ID, "encounterId": second, "type": "medication", "od": map[string]any{}, "os": map[string]any{}, "details": map[string]any{"medication": "Latanoprost", "dosage": "1 drop", "frequency": "nightly"}, "notes": "", "expiresAt": ""}, a.doctor); created.Code != http.StatusCreated {
+		t.Fatalf("second medication: %d %s", created.Code, created.Body.String())
+	}
+	if created := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{"patientId": patient.ID, "encounterId": second, "type": "spectacle", "od": map[string]any{"sphere": "-4.00", "cylinder": "-1.00", "axis": "180"}, "os": map[string]any{"sphere": "-1.50"}, "details": map[string]any{}, "notes": "", "expiresAt": ""}, a.doctor); created.Code != http.StatusCreated {
+		t.Fatalf("spectacle prescription: %d %s", created.Code, created.Body.String())
+	}
 
 	trends := a.request(http.MethodGet, "/api/v1/patients/"+patient.ID+"/clinical-trends", nil, a.nurse)
 	if trends.Code != http.StatusOK {
@@ -1132,6 +1155,10 @@ func TestClinicalTrendsAndVisitDelta(t *testing.T) {
 	refraction := latest["refraction"].(map[string]any)
 	if refraction["source"] != "subjective" || refraction["odSphericalEquivalent"].(float64) != -4.50 {
 		t.Fatalf("latest refraction = %v", refraction)
+	}
+	prescription := latest["refractions"].(map[string]any)["prescription"].(map[string]any)
+	if prescription["odSphere"].(float64) != -4 || prescription["odCylinder"].(float64) != -1 || prescription["odAxis"].(float64) != 180 {
+		t.Fatalf("prescription refraction = %v", prescription)
 	}
 	if acuity := latest["visualAcuity"].(map[string]any); math.Abs(acuity["od"].(float64)-0.48) > 0.005 {
 		t.Fatalf("latest OD acuity = %v, want 0.48 logMAR", acuity["od"])
@@ -1156,7 +1183,7 @@ func TestClinicalTrendsAndVisitDelta(t *testing.T) {
 		t.Fatalf("expected a previous visit: %s", delta.Body.String())
 	}
 	deltaBody := delta.Body.String()
-	for _, want := range []string{"Visual acuity", "Intraocular pressure", "Refraction (spherical equivalent)", "+10 mmHg", "-2.00 D"} {
+	for _, want := range []string{"Visual acuity", "Intraocular pressure", "Refraction (spherical equivalent)", "+10 mmHg", "-2.00 D", "Old diagnosis", "New diagnosis", "Timolol", "Latanoprost", "Observe and review", "Start new treatment", `"changeType":"removed"`, `"changeType":"added"`} {
 		if !strings.Contains(deltaBody, want) {
 			t.Fatalf("delta missing %q: %s", want, deltaBody)
 		}
@@ -1222,6 +1249,10 @@ func TestClinicalChartTypesAndPreviousOverlay(t *testing.T) {
 	if saved := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/motility/OU", map[string]any{"annotations": []map[string]any{motilityMark}, "notes": "", "version": 0}, a.doctor); saved.Code != http.StatusCreated {
 		t.Fatalf("motility chart save: %d %s", saved.Code, saved.Body.String())
 	}
+	invalidMotility := map[string]any{"x": 20, "y": 20, "shape": "cell", "color": "#7c3aed", "label": "", "structure": "motility", "cell": "up-right", "grade": "+5"}
+	if invalid := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/motility/OU", map[string]any{"annotations": []map[string]any{invalidMotility}, "notes": "", "version": 1}, a.doctor); invalid.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid motility grade status=%d, want 422", invalid.Code)
+	}
 	if saved := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/fundus/OS", map[string]any{"annotations": []map[string]any{{"x": 32, "y": 50, "shape": "dot", "color": "#dc2626", "label": "disc haemorrhage", "structure": "optic_disc"}}, "notes": "", "version": 0}, a.doctor); saved.Code != http.StatusCreated {
 		t.Fatalf("fundus chart save: %d %s", saved.Code, saved.Body.String())
 	}
@@ -1249,7 +1280,7 @@ func TestClinicalChartTypesAndPreviousOverlay(t *testing.T) {
 	if got := payload.Charts["motility"]["OU"].Annotations; len(got) != 1 || got[0].Grade != "-2" || got[0].Cell != "up-right" {
 		t.Fatalf("motility annotations = %+v", got)
 	}
-	if got := payload.Charts["fundus"]["OS"].Annotations; len(got) != 1 || got[0].Label != "disc haemorrhage" {
+	if got := payload.Charts["fundus"]["OS"].Annotations; len(got) != 1 || got[0].Label != "disc haemorrhage" || got[0].ClockHour != 9 {
 		t.Fatalf("fundus annotations = %+v", got)
 	}
 	// Charts never opened still come back as empty entries so the client renders the full set.

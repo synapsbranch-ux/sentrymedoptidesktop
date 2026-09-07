@@ -7,24 +7,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Badge, EmptyState, ErrorState, Skeleton } from "./ui/data";
 
 interface EyeMeasurement { od: number | null; os: number | null; odLabel?: string; osLabel?: string }
-interface RefractionPoint { source: string; odSphericalEquivalent: number | null; osSphericalEquivalent: number | null }
+interface RefractionPoint {
+  source: string;
+  odSphere: number | null; osSphere: number | null;
+  odCylinder: number | null; osCylinder: number | null;
+  odAxis: number | null; osAxis: number | null;
+  odSphericalEquivalent: number | null; osSphericalEquivalent: number | null;
+}
 interface TrendPoint {
   encounterId: string;
   encounterNumber: string;
   date: string;
   refraction?: RefractionPoint;
+  refractions?: Record<string, RefractionPoint>;
   visualAcuity?: EyeMeasurement;
   iop?: EyeMeasurement;
   pachymetry?: EyeMeasurement;
 }
 interface ClinicalAlert { severity: "info" | "warning" | "danger"; eye?: string; title: string; detail: string }
-interface TrendsResponse { points: TrendPoint[]; alerts: ClinicalAlert[]; summary: Record<string, number | string> }
-interface VisitChange { category: string; eye?: string; before: string; after: string; delta: string; severity: "info" | "warning" | "danger" }
+interface CorrectedIOP { measured?: number; pachymetry?: number; estimated?: number; interpretation: string }
+interface TrendSummary extends Record<string, unknown> { iopContext?: { od?: CorrectedIOP; os?: CorrectedIOP; correctionEnabled: boolean } }
+interface TrendsResponse { points: TrendPoint[]; alerts: ClinicalAlert[]; summary: TrendSummary; thresholds: { elevatedIOPMmHg: number } }
+interface VisitChange { category: string; changeType: "added" | "removed" | "modified"; eye?: string; before: string; after: string; delta: string; severity: "info" | "warning" | "danger" }
 interface DeltaResponse {
   hasPrevious: boolean;
   previous?: { encounterNumber: string; date: string };
   current?: { encounterNumber: string; date: string };
   changes: VisitChange[];
+}
+
+export function refractionForSource(point: Pick<TrendPoint, "refractions">, source: "subjective" | "prescription" | "autorefraction") {
+  return point.refractions?.[source];
 }
 
 const severityTone: Record<ClinicalAlert["severity"], "neutral" | "warning" | "danger"> = { info: "neutral", warning: "warning", danger: "danger" };
@@ -119,6 +132,8 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
   const points = trends.data?.points ?? [];
   const alerts = trends.data?.alerts ?? [];
   const summary = trends.data?.summary ?? {};
+  const [refractionSource, setRefractionSource] = React.useState<"subjective" | "prescription" | "autorefraction">("subjective");
+  const selectedRefraction = (point: TrendPoint) => refractionForSource(point, refractionSource);
 
   return (
     <div className="grid gap-4">
@@ -158,6 +173,7 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
                 {delta.data.changes.map((change, index) => (
                   <div key={index} className={cn("flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm", change.severity === "danger" ? "border-red-300 bg-red-50" : change.severity === "warning" ? "border-amber-300 bg-amber-50" : "border-zinc-200")}>
                     <span className="font-semibold">{change.category}</span>
+                    <Badge tone={change.changeType === "removed" ? "warning" : "neutral"}>{change.changeType}</Badge>
                     {change.eye && <Badge>{change.eye}</Badge>}
                     <span className="flex items-center gap-2 font-mono text-xs text-zinc-500">
                       {change.before} <ArrowRight className="h-3 w-3" /> <strong className="text-[var(--foreground)]">{change.after}</strong>
@@ -175,17 +191,23 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="flex-row items-start justify-between gap-4">
+          <div><CardTitle>Refractive progression</CardTitle><CardDescription>Sphere, cylinder and spherical equivalent are never mixed across measurement sources.</CardDescription></div>
+          <label className="grid gap-1 text-xs font-semibold">Source
+            <select className="h-9 rounded-md border bg-[var(--background)] px-3 text-sm" value={refractionSource} onChange={(event) => setRefractionSource(event.target.value as typeof refractionSource)}>
+              <option value="subjective">Subjective</option><option value="prescription">Final prescription</option><option value="autorefraction">Autorefraction</option>
+            </select>
+          </label>
+        </CardHeader>
+        <CardContent className="grid gap-4 xl:grid-cols-3">
+          <TrendChart title="Sphere" description={`${refractionSource} sphere`} unit="D" points={points.map((point) => ({ date: point.date, od: selectedRefraction(point)?.odSphere ?? null, os: selectedRefraction(point)?.osSphere ?? null }))} />
+          <TrendChart title="Cylinder" description={`${refractionSource} cylinder`} unit="D" points={points.map((point) => ({ date: point.date, od: selectedRefraction(point)?.odCylinder ?? null, os: selectedRefraction(point)?.osCylinder ?? null }))} />
+          <TrendChart title="Spherical equivalent" description={`${refractionSource}; sphere + cylinder ÷ 2`} unit="D" points={points.map((point) => ({ date: point.date, od: selectedRefraction(point)?.odSphericalEquivalent ?? null, os: selectedRefraction(point)?.osSphericalEquivalent ?? null }))} />
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 xl:grid-cols-2">
-        <TrendChart
-          title="Refractive progression"
-          description={
-            summary.refractionRateOD !== undefined
-              ? `Spherical equivalent. OD trend ${Number(summary.refractionRateOD) > 0 ? "+" : ""}${summary.refractionRateOD} D/year.`
-              : "Spherical equivalent (sphere + cylinder ÷ 2) per eye."
-          }
-          unit="D"
-          points={points.map((point) => ({ date: point.date, od: point.refraction?.odSphericalEquivalent ?? null, os: point.refraction?.osSphericalEquivalent ?? null }))}
-        />
         <TrendChart
           title="Visual acuity (logMAR)"
           description="Lower is better; one line equals 0.10 logMAR."
@@ -197,7 +219,7 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
           title="Intraocular pressure"
           description={summary.iopPeakOD !== undefined ? `Peak on record OD: ${summary.iopPeakOD} mmHg.` : "Tonometry per eye."}
           unit="mmHg"
-          threshold={21}
+          threshold={trends.data?.thresholds.elevatedIOPMmHg ?? 21}
           points={points.map((point) => ({ date: point.date, od: point.iop?.od ?? null, os: point.iop?.os ?? null }))}
         />
         <TrendChart
@@ -207,6 +229,12 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
           points={points.map((point) => ({ date: point.date, od: point.pachymetry?.od ?? null, os: point.pachymetry?.os ?? null }))}
         />
       </div>
+      {summary.iopContext && (
+        <Card><CardHeader><CardTitle>IOP interpreted with pachymetry</CardTitle><CardDescription>Measured values remain authoritative. A numeric estimate appears only when a doctor configured and enabled a coefficient.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{(["od", "os"] as const).map((eye) => {
+          const value = summary.iopContext?.[eye];
+          return <div key={eye} className="rounded-md border p-4"><div className="font-semibold uppercase">{eye}</div>{value ? <><div className="mt-2 font-mono text-sm">Measured: {value.measured} mmHg · CCT: {value.pachymetry ?? "—"} µm</div>{value.estimated !== undefined && <div className="mt-1 font-mono text-sm font-bold">Configured estimate: {value.estimated} mmHg</div>}<p className="mt-2 text-xs text-zinc-600">{value.interpretation}</p></> : <p className="mt-2 text-sm text-zinc-500">No IOP recorded.</p>}</div>;
+        })}</CardContent></Card>
+      )}
     </div>
   );
 }

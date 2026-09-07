@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Truck,
+  MonitorPlay,
   Users,
   WalletCards,
   X,
@@ -46,6 +47,7 @@ const nav = [
   {
     section: "Clinical",
     items: [
+      { to: "/vision-test", label: "Vision testing", icon: MonitorPlay },
       { to: "/prescriptions", label: "Prescriptions", icon: Glasses },
       { to: "/lab", label: "Optical / Lab", icon: FlaskConical },
       { to: "/documents", label: "Documents", icon: FileText },
@@ -91,7 +93,7 @@ export function AppShell() {
   const [logoAvailable, setLogoAvailable] = React.useState(true);
   React.useEffect(() => { void theme.refresh().catch(() => undefined); }, [theme.refresh, realtime.revision]);
   React.useEffect(() => { void i18n.refresh().catch(() => undefined); }, [i18n.refresh, realtime.revision]);
-  React.useEffect(() => setLogoAvailable(true), [realtime.revision]);
+  React.useEffect(() => setLogoAvailable(true), [realtime.brandingRevision]);
   const logout = async () => {
     await signOut();
     navigate("/");
@@ -109,7 +111,7 @@ export function AppShell() {
     <>
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">
         <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[var(--radius)] bg-[var(--primary)] text-[var(--primary-foreground)]">
-          {logoAvailable ? <img className="h-full w-full bg-white object-contain p-1" src={`/api/v1/public/branding/logo?v=${realtime.revision}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
+          {logoAvailable ? <img className="h-full w-full bg-white object-contain p-1" src={`/api/v1/public/branding/logo?v=${realtime.brandingRevision}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
         </div>
         <div>
           <div className="font-bold leading-none">SentryMed Opti</div>

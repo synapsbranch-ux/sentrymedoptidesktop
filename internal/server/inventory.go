@@ -26,6 +26,7 @@ type inventoryPayload struct {
 	Quantity       int            `json:"quantity"`
 	ReorderLevel   int            `json:"reorderLevel"`
 	TrackStock     bool           `json:"trackStock"`
+	ProcedureCode  string         `json:"procedureCode"`
 }
 
 func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +46,7 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 	if lowStock {
 		where += " AND track_stock=1 AND quantity<=reorder_level"
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT 1000`, args...)
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,COALESCE(procedure_code,''),version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT 1000`, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
 		return
@@ -53,12 +54,12 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, sku, barcode, category, name, brand, model, attributes, supplierID, currency, updatedAt string
+		var id, sku, barcode, category, name, brand, model, attributes, supplierID, currency, procedureCode, updatedAt string
 		var cost, price int64
 		var quantity, reorder, version int
 		var tracked bool
-		if rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &version, &updatedAt) == nil {
-			items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
+		if rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &procedureCode, &version, &updatedAt) == nil {
+			items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -82,7 +83,7 @@ func (s *Server) handleInventoryCreate(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(r.Context(), `INSERT INTO inventory_items(id,sku,barcode,category,name,brand,model,attributes_json,supplier_id,cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, input.SKU, nilIfEmpty(input.Barcode), input.Category, input.Name, nilIfEmpty(input.Brand), nilIfEmpty(input.Model), marshalJSON(input.Attributes), nilIfEmpty(input.SupplierID), input.CostMinor, input.SalePriceMinor, strings.ToUpper(input.Currency), input.Quantity, input.ReorderLevel, boolInt(input.TrackStock), now, now, user.ID)
+		_, err := tx.ExecContext(r.Context(), `INSERT INTO inventory_items(id,sku,barcode,category,name,brand,model,attributes_json,supplier_id,cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,procedure_code,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, input.SKU, nilIfEmpty(input.Barcode), input.Category, input.Name, nilIfEmpty(input.Brand), nilIfEmpty(input.Model), marshalJSON(input.Attributes), nilIfEmpty(input.SupplierID), input.CostMinor, input.SalePriceMinor, strings.ToUpper(input.Currency), input.Quantity, input.ReorderLevel, boolInt(input.TrackStock), nilIfEmpty(input.ProcedureCode), now, now, user.ID)
 		if err != nil {
 			return err
 		}

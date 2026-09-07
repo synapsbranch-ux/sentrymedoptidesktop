@@ -14,6 +14,11 @@ import (
 )
 
 func (s *Server) registerClinicalRoutes(r chi.Router) {
+	s.registerMacroRoutes(r)
+	s.registerEyeDiagramRoutes(r)
+	s.registerVisionTestRoutes(r)
+	s.registerCodingRoutes(r)
+	s.registerRecordingRoutes(r)
 	r.Get("/patients", s.handlePatientsList)
 	r.Post("/patients", s.handlePatientsCreate)
 	r.Get("/patients/{id}", s.handlePatientGet)
@@ -22,6 +27,8 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/patients/{id}/history", s.handlePatientHistoryGet)
 	r.Put("/patients/{id}/history", s.handlePatientHistoryUpdate)
 	r.Get("/patients/{id}/timeline", s.handlePatientTimeline)
+	r.Get("/patients/{id}/clinical-trends", s.handleClinicalTrends)
+	r.Get("/encounters/{id}/delta", s.handleEncounterDelta)
 	r.Get("/appointments", s.handleAppointmentsList)
 	r.Post("/appointments", s.handleAppointmentsCreate)
 	r.Put("/appointments/{id}", s.handleAppointmentUpdate)
@@ -347,6 +354,30 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// appointmentConflict reports whether the given slot overlaps an existing active appointment.
+// Appointments with no assigned practitioner share a single clinic-wide bucket (practitioner_id IS NULL)
+// so that unassigned bookings still prevent double-booking the same time slot.
+func (s *Server) appointmentConflict(r *http.Request, excludeID, practitionerID, startsAt string, duration int) (bool, error) {
+	query := `SELECT COUNT(*) FROM appointments WHERE archived_at IS NULL AND status NOT IN ('cancelled','no_show','completed')
+		AND datetime(starts_at) < datetime(?, '+'||?||' minutes') AND datetime(starts_at, '+'||duration_minutes||' minutes') > datetime(?)`
+	args := []any{startsAt, duration, startsAt}
+	if practitionerID != "" {
+		query += " AND practitioner_id=?"
+		args = append(args, practitionerID)
+	} else {
+		query += " AND practitioner_id IS NULL"
+	}
+	if excludeID != "" {
+		query += " AND id<>?"
+		args = append(args, excludeID)
+	}
+	var conflicts int
+	if err := s.db.QueryRowContext(r.Context(), query, args...).Scan(&conflicts); err != nil {
+		return false, err
+	}
+	return conflicts > 0, nil
+}
+
 func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request) {
 	var input appointmentPayload
 	if err := decodeJSON(r, &input); err != nil {
@@ -364,14 +395,12 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_START_TIME", "Start time must be an RFC3339 timestamp.")
 		return
 	}
-	if input.PractitionerID != "" {
-		var conflicts int
-		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM appointments WHERE practitioner_id=? AND status NOT IN ('cancelled','no_show')
-			AND datetime(starts_at) < datetime(?, '+'||?||' minutes') AND datetime(starts_at, '+'||duration_minutes||' minutes') > datetime(?)`, input.PractitionerID, input.StartsAt, input.Duration, input.StartsAt).Scan(&conflicts)
-		if conflicts > 0 {
-			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "The practitioner already has an overlapping appointment.")
-			return
-		}
+	if conflict, err := s.appointmentConflict(r, "", input.PractitionerID, input.StartsAt, input.Duration); err != nil {
+		writeError(w, http.StatusInternalServerError, "APPOINTMENT_CREATE_FAILED", "Could not check for scheduling conflicts.")
+		return
+	} else if conflict {
+		writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+		return
 	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
@@ -405,14 +434,12 @@ func (s *Server) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := chi.URLParam(r, "id")
-	if input.PractitionerID != "" {
-		var conflicts int
-		_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM appointments WHERE id<>? AND practitioner_id=? AND archived_at IS NULL AND status NOT IN ('cancelled','no_show','completed')
-			AND datetime(starts_at) < datetime(?, '+'||?||' minutes') AND datetime(starts_at, '+'||duration_minutes||' minutes') > datetime(?)`, id, input.PractitionerID, input.StartsAt, input.Duration, input.StartsAt).Scan(&conflicts)
-		if conflicts > 0 {
-			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "The practitioner already has an overlapping appointment.")
-			return
-		}
+	if conflict, err := s.appointmentConflict(r, id, input.PractitionerID, input.StartsAt, input.Duration); err != nil {
+		writeError(w, http.StatusInternalServerError, "APPOINTMENT_UPDATE_FAILED", "Could not check for scheduling conflicts.")
+		return
+	} else if conflict {
+		writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+		return
 	}
 	user, _ := userFromContext(r.Context())
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -472,7 +499,7 @@ func (s *Server) handleAppointmentStatus(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.version,q.updated_at
+	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.source,q.version,q.updated_at
 		FROM queue_entries q JOIN patients p ON p.id=q.patient_id LEFT JOIN users u ON u.id=q.assigned_doctor_id WHERE q.completed_at IS NULL ORDER BY q.priority DESC,q.arrived_at`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
@@ -481,13 +508,13 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, updatedAt string
+		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt string
 		var priority, version int
-		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &version, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
 			return
 		}
-		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "priority": priority, "version": version, "updatedAt": updatedAt})
+		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

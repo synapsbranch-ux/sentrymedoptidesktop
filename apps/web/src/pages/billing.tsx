@@ -411,12 +411,17 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
                     {payment.paymentMethod} · {dateTime(payment.receivedAt)}
                   </div>
                 </div>
-                <strong className="font-mono">
-                  {money(
-                    payment.amountMinor - payment.refundedMinor,
-                    payment.currency,
+                <div className="text-right">
+                  <strong className="font-mono">
+                    {money(payment.amountMinor, payment.currency)}
+                  </strong>
+                  {payment.refundedMinor > 0 && (
+                    <div className="text-xs text-red-700">
+                      −{money(payment.refundedMinor, payment.currency)}{" "}
+                      refunded
+                    </div>
                   )}
-                </strong>
+                </div>
                 {user?.role === "doctor" &&
                   payment.amountMinor > payment.refundedMinor && (
                     <Button

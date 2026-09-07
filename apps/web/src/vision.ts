@@ -126,3 +126,86 @@ export function stepLogMar(current: number, direction: 1 | -1): number {
   const next = index === -1 ? logMarLines.indexOf(0) : index + direction;
   return logMarLines[Math.min(logMarLines.length - 1, Math.max(0, next))];
 }
+
+/* ------------------------------------------------------------------ *
+ * Colour vision screening plates
+ * ------------------------------------------------------------------ */
+
+/**
+ * Plates are generated here rather than reproduced. The published Ishihara plates are
+ * copyrighted, and a scanned copy would print at whatever size and colour the screen
+ * happened to render; a generated plate is honest about being a screening aid.
+ */
+export interface PlateDot { x: number; y: number; r: number }
+
+/**
+ * Dart-throwing with rejection: candidate dots are kept only when they clear every dot
+ * already placed, which gives the dense, non-overlapping, irregular packing the plates
+ * depend on — a regular grid would let the figure be read from its edges alone.
+ */
+export function packPlateDots(seed: number, limit = 900, minRadius = 0.008, maxRadius = 0.022): PlateDot[] {
+  const random = createRandom(seed || 1);
+  const dots: PlateDot[] = [];
+  // The disc saturates well before any dot count one might ask for, so the real stop
+  // condition is a long run of rejections; `limit` is only an upper bound.
+  let sinceLastPlaced = 0;
+  while (dots.length < limit && sinceLastPlaced < 900) {
+    sinceLastPlaced += 1;
+    // Sample uniformly over the disc: the square root keeps the centre from crowding.
+    const angle = random() * Math.PI * 2;
+    const distance = Math.sqrt(random()) * 0.48;
+    const x = 0.5 + distance * Math.cos(angle);
+    const y = 0.5 + distance * Math.sin(angle);
+    const r = minRadius + random() * (maxRadius - minRadius);
+    if (Math.hypot(x - 0.5, y - 0.5) + r > 0.49) continue;
+    let clear = true;
+    for (const dot of dots) {
+      if (Math.hypot(dot.x - x, dot.y - y) < dot.r + r + 0.002) { clear = false; break; }
+    }
+    if (clear) { dots.push({ x, y, r }); sinceLastPlaced = 0; }
+  }
+  return dots;
+}
+
+/**
+ * Figure and ground share lightness and differ along the red-green confusion axis, so
+ * the number separates by hue alone. Several tones per set break up the outline that a
+ * single flat colour would leave.
+ */
+export const plateGroundColours = ["#9a9a72", "#adad85", "#c0c09b", "#8b8b66", "#b6b690"];
+export const plateFigureColours = ["#c58a5c", "#d69a6b", "#b87a4d", "#e0a87a", "#cb9066"];
+
+/** The digits a plate shows, derived from the seed so both devices agree without sharing them. */
+export function plateDigits(seed: number, plate: number): string {
+  const random = createRandom(Math.round((seed + plate * 131) * 7919));
+  const twoDigits = random() > 0.35;
+  const first = 1 + Math.floor(random() * 9);
+  if (!twoDigits) return String(first);
+  return `${first}${Math.floor(random() * 10)}`;
+}
+
+export function plateColour(seed: number, index: number, figure: boolean): string {
+  const palette = figure ? plateFigureColours : plateGroundColours;
+  const random = createRandom(Math.round((seed + index * 977) * 31));
+  return palette[Math.floor(random() * palette.length)];
+}
+
+/* ------------------------------------------------------------------ *
+ * Amsler grid
+ * ------------------------------------------------------------------ */
+
+/** Squares per side. Twenty at 33 cm covers the central ten degrees either side. */
+export const amslerSquares = 20;
+
+/**
+ * Amsler grid geometry. Each square subtends one degree at the reading distance, which
+ * is what makes a marked square mean "this many degrees from fixation" rather than
+ * "this far across a screen".
+ */
+export function amslerSquareSizeMm(readingDistanceMm: number): number {
+  return readingDistanceMm * Math.tan((1 * Math.PI) / 180);
+}
+
+export function amslerSideMm(readingDistanceMm: number): number {
+  return amslerSquareSizeMm(readingDistanceMm) * amslerSquares;
+}

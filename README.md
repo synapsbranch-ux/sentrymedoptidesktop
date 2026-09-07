@@ -35,7 +35,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - a privacy-filtered live waiting-room display for a clinic TV or tablet at `/display`.
 - consultation audio recording (with confirmed patient consent) and optional, fully local transcription saved to the patient's chart — see [Consultation recording and transcription](#consultation-recording-and-transcription).
 - per-patient clinical trends derived from the values already recorded: refractive progression, acuity in logMAR, IOP and corneal thickness, plus a "what changed since the last visit" delta;
-- four annotated clinical charts per consultation — anterior segment, fundus, confrontation visual field and the nine positions of gaze — with the previous visit overlaid on the graded ones;
+- five annotated clinical charts per consultation — anterior segment, fundus, confrontation visual field, Amsler grid and the nine positions of gaze — with the previous visit overlaid;
 - a calibrated digital acuity chart shown on the exam-lane screen and driven from a phone over the clinic LAN — see [Digital acuity chart](#digital-acuity-chart).
 
 ## Consultation recording and transcription
@@ -60,6 +60,11 @@ The screen is calibrated on the screen. Holding a bank or ID card against it and
 Optotype size follows from those numbers: a 20/20 letter subtends five arc-minutes at the test distance, and each logMAR step scales it by a factor of ten to the power of the step. Letters and digits are measured glyph by glyph on a canvas and scaled so the ink is exactly the height the acuity level calls for; the Landolt C and the tumbling E are drawn geometrically to exact five-by-five proportions. Prefer the latter two when the result must be comparable with a printed chart: the letter set uses the screen's own monospace font, whose stroke width is not a certified Sloan typeface.
 
 Each line is generated from a seed, so a new seed reshuffles the letters between eyes and between visits and a patient cannot recite a line from memory. Recorded results can be written straight into the linked consultation's pre-test acuity grid, and from there they feed the clinical trends.
+
+The same session also runs two other tests on the lane screen:
+
+- **Colour vision screening.** Pseudo-isochromatic plates are generated rather than reproduced — the published Ishihara plates are copyrighted, and a scan would print at whatever size and colour the screen happened to render. Figure and ground share lightness and differ along the red-green confusion axis, so the number separates by hue alone. The expected number is shown only on the examiner's phone, never on the patient's screen. These plates flag a likely red-green deficiency for referral; they do not classify or grade one, and a normal result does not rule out a subtle defect.
+- **Amsler grid.** The patient traces distortions directly on the lane screen with a finger, the examiner sees the tracing appear on the phone, and the doctor decides whether it enters the record. Saved grids show up on the consultation's **Charts → Amsler** tab with the previous visit behind them in grey, so a scotoma that grew reads as a change.
 
 ## Architecture
 

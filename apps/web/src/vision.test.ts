@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  amslerSideMm,
+  amslerSquareSizeMm,
   buildChartLine,
   createRandom,
   lineLength,
   metricFromLogMar,
   optotypeHeightMm,
+  packPlateDots,
+  plateDigits,
   snellenFromLogMar,
   stepLogMar,
 } from "./vision";
@@ -109,5 +113,47 @@ describe("seeded generator", () => {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThan(1);
     }
+  });
+});
+
+describe("colour screening plates", () => {
+  it("packs dots without overlap and inside the disc", () => {
+    const dots = packPlateDots(11);
+    expect(dots.length).toBeGreaterThan(400);
+    for (const dot of dots) {
+      expect(Math.hypot(dot.x - 0.5, dot.y - 0.5) + dot.r).toBeLessThanOrEqual(0.49);
+    }
+    for (let i = 0; i < dots.length; i += 1) {
+      for (let j = i + 1; j < dots.length; j += 1) {
+        expect(Math.hypot(dots[i].x - dots[j].x, dots[i].y - dots[j].y)).toBeGreaterThanOrEqual(dots[i].r + dots[j].r);
+      }
+    }
+  });
+
+  it("is deterministic, so both devices see the same plate", () => {
+    expect(packPlateDots(11, 60)).toEqual(packPlateDots(11, 60));
+    expect(packPlateDots(11)).toEqual(packPlateDots(11));
+    expect(plateDigits(11, 3)).toBe(plateDigits(11, 3));
+  });
+
+  it("gives different plates different numbers", () => {
+    const numbers = new Set(Array.from({ length: 12 }, (_, index) => plateDigits(99, index + 1)));
+    expect(numbers.size).toBeGreaterThan(4);
+  });
+
+  it("never starts a number with zero", () => {
+    for (let plate = 1; plate <= 24; plate += 1) {
+      expect(plateDigits(5, plate).startsWith("0")).toBe(false);
+    }
+  });
+});
+
+describe("Amsler geometry", () => {
+  it("makes each square one degree at the reading distance", () => {
+    expect(amslerSquareSizeMm(330)).toBeCloseTo(5.76, 2);
+  });
+
+  it("scales the whole grid with the distance", () => {
+    expect(amslerSideMm(660)).toBeCloseTo(amslerSideMm(330) * 2, 6);
   });
 });

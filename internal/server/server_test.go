@@ -1403,3 +1403,71 @@ func TestSnellenFromLogMAR(t *testing.T) {
 		}
 	}
 }
+
+func TestVisionAmslerReachesTheChart(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Amsler", "Grid")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Macula", "chiefComplaint": "Wavy lines", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+	opened := a.request(http.MethodPost, "/api/v1/vision-tests", map[string]any{"room": "Lane 2", "encounterId": encounterID}, a.nurse)
+	sessionID := decodeResponse[map[string]any](t, opened)["id"].(string)
+
+	base := map[string]any{
+		"mode": "amsler", "eye": "OD", "correction": "corrected", "logMar": 0, "optotype": "sloan",
+		"seed": 11, "singleLine": false, "plate": 1,
+		"display": map[string]any{"distanceMm": 330, "pixelsPerMm": 4, "calibratedAt": "2026-09-07T10:00:00Z", "label": "Lane 2"},
+		"results": []map[string]any{},
+	}
+
+	// Marks only exist for the eyes the grid is shown to.
+	wrongEye := map[string]any{}
+	for key, value := range base {
+		wrongEye[key] = value
+	}
+	wrongEye["amsler"] = map[string]any{"OU": []map[string]any{{"x": 10, "y": 10, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler"}}}
+	if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": wrongEye}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("amsler OU status=%d, want 422", rejected.Code)
+	}
+
+	// The patient traces on the lane screen, which lands in the shared session first.
+	traced := map[string]any{}
+	for key, value := range base {
+		traced[key] = value
+	}
+	traced["amsler"] = map[string]any{"OD": []map[string]any{
+		{"x": 42.5, "y": 47.1, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
+		{"x": 46.0, "y": 44.8, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
+	}}
+	if saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": traced}, a.nurse); saved.Code != http.StatusOK {
+		t.Fatalf("amsler state save: %d %s", saved.Code, saved.Body.String())
+	}
+
+	// The doctor reviews it, then commits it to the consultation as an amsler chart.
+	written := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/amsler/OD", map[string]any{
+		"annotations": []map[string]any{
+			{"x": 42.5, "y": 47.1, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
+			{"x": 46.0, "y": 44.8, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
+		},
+		"notes": "Patient marked 2 distorted areas.", "version": 0,
+	}, a.doctor)
+	if written.Code != http.StatusCreated {
+		t.Fatalf("amsler chart save: %d %s", written.Code, written.Body.String())
+	}
+
+	fetched := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID+"/eye-diagrams", nil, a.nurse)
+	var payload struct {
+		Charts map[string]map[string]struct {
+			Annotations []chartMark `json:"annotations"`
+			Notes       string      `json:"notes"`
+		} `json:"charts"`
+	}
+	if err := json.Unmarshal(fetched.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("charts decode: %v", err)
+	}
+	if got := payload.Charts["amsler"]["OD"].Annotations; len(got) != 2 || got[0].Grade != "distorted" {
+		t.Fatalf("amsler chart annotations = %+v", got)
+	}
+	if payload.Charts["amsler"]["OS"].Notes != "" {
+		t.Fatalf("untouched OS amsler chart should be empty, got %q", payload.Charts["amsler"]["OS"].Notes)
+	}
+}

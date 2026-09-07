@@ -27,6 +27,10 @@ type visionTestState struct {
 	Plate      int                `json:"plate"`
 	Display    visionDisplayInfo  `json:"display"`
 	Results    []visionTestResult `json:"results"`
+	// Amsler marks the patient makes on the lane screen, per eye. They stay here while
+	// the patient is drawing and only enter the record when the doctor saves them as an
+	// amsler chart on the consultation.
+	Amsler map[string][]chartMark `json:"amsler"`
 }
 
 // visionDisplayInfo is reported by the screen itself. Calibration belongs to a
@@ -87,7 +91,7 @@ func defaultVisionState() visionTestState {
 	return visionTestState{
 		Mode: "blank", Eye: "OD", Correction: "uncorrected", LogMAR: 1.0,
 		Optotype: "sloan", Seed: time.Now().UnixNano() % 1_000_000, SingleLine: false,
-		Plate: 1, Results: []visionTestResult{},
+		Plate: 1, Results: []visionTestResult{}, Amsler: map[string][]chartMark{},
 	}
 }
 
@@ -123,6 +127,17 @@ func sanitiseVisionState(state visionTestState) (visionTestState, string) {
 	}
 	if len(state.Results) > 40 {
 		return state, "A session holds at most 40 recorded results."
+	}
+	if state.Amsler == nil {
+		state.Amsler = map[string][]chartMark{}
+	}
+	for eye, marks := range state.Amsler {
+		if eye != "OD" && eye != "OS" {
+			return state, "Amsler marks are recorded for OD or OS."
+		}
+		if len(marks) > maxChartMarks {
+			return state, "An Amsler grid holds at most 200 marks."
+		}
 	}
 	state.LogMAR = round2(state.LogMAR)
 	for index, result := range state.Results {
@@ -168,6 +183,9 @@ func scanVisionSession(scan func(...any) error) (visionSessionRow, error) {
 	_ = json.Unmarshal([]byte(stateJSON), &row.State)
 	if row.State.Results == nil {
 		row.State.Results = []visionTestResult{}
+	}
+	if row.State.Amsler == nil {
+		row.State.Amsler = map[string][]chartMark{}
 	}
 	return row, nil
 }

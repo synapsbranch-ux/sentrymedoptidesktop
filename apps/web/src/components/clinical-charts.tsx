@@ -5,14 +5,15 @@ import { api, APIError } from "../api";
 import { useLoad } from "../hooks";
 import { cn } from "../lib";
 import { AnteriorBackdrop, FundusBackdrop, fieldCells, motilityCells, type ChartCell, type Eye } from "./chart-backdrops";
+import { AmslerSurface } from "./vision-surfaces";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Skeleton } from "./ui/data";
+import { EmptyState, Skeleton } from "./ui/data";
 import { Field, Input, Select, Textarea } from "./ui/input";
 
 interface Mark { x: number; y: number; shape: string; color: string; label: string; structure: string; cell?: string; grade?: string }
 interface ChartState { annotations: Mark[]; notes: string; version: number }
-type ChartType = "anterior" | "fundus" | "field" | "motility";
+type ChartType = "anterior" | "fundus" | "field" | "amsler" | "motility";
 type Charts = Record<ChartType, Partial<Record<Eye, ChartState>>>;
 interface ChartsResponse {
   charts: Charts;
@@ -48,6 +49,7 @@ const chartTabs: { type: ChartType; label: string; description: string }[] = [
   { type: "anterior", label: "Anterior segment", description: "Click the eye to mark a finding on the lids, cornea, iris or lens." },
   { type: "fundus", label: "Fundus", description: "Click the retina to mark the disc, macula, vessels or periphery." },
   { type: "field", label: "Confrontation fields", description: "Tap a zone to cycle full, reduced or absent. The previous visit is overlaid." },
+  { type: "amsler", label: "Amsler", description: "What the patient traced during the vision test, with the previous visit behind it." },
   { type: "motility", label: "Motility & cover test", description: "Tap a gaze position to grade the limitation from −1 to −4." },
 ];
 
@@ -138,6 +140,20 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
               previousLabel={previous?.encounterNumber ?? null}
               canEdit={canEdit}
               onSaved={charts.reload}
+            />
+          ))}
+        </div>
+      )}
+
+      {chartType === "amsler" && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {(["OD", "OS"] as const).map((eye) => (
+            <AmslerChartCard
+              key={eye}
+              title={eye === "OD" ? "Right eye (OD)" : "Left eye (OS)"}
+              state={state("amsler", eye)}
+              previousMarks={previousMarks("amsler", eye)}
+              previousLabel={previous?.encounterNumber ?? null}
             />
           ))}
         </div>
@@ -477,6 +493,49 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
           </ul>
         )}
         <ChartFooter notes={notes} setNotes={setNotes} canEdit={canEdit} dirty={dirty} saving={saving} save={save} />
+      </CardContent>
+    </Card>
+  );
+}
+
+
+/**
+ * The Amsler grid is drawn by the patient during the vision test and committed to the
+ * record from there, so it is read-only here. The previous visit sits behind it in a
+ * paler tone: a scotoma that grew is the finding, not the marks on their own.
+ */
+function AmslerChartCard({ title, state, previousMarks, previousLabel }: {
+  title: string;
+  state: ChartState;
+  previousMarks: Mark[];
+  previousLabel: string | null;
+}) {
+  const combined = [
+    ...previousMarks.map((mark) => ({ ...mark, color: "#94a3b8" })),
+    ...state.annotations,
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>
+          {state.version === 0
+            ? "Not recorded for this visit."
+            : state.annotations.length === 0
+              ? "Recorded as normal — nothing marked."
+              : `${state.annotations.length} areas marked.`}
+          {previousMarks.length > 0 && previousLabel && ` Grey marks are ${previousLabel}.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid justify-items-center gap-3">
+        {state.version === 0 && previousMarks.length === 0 ? (
+          <EmptyState title="No Amsler grid" description="Run an Amsler test from Vision testing and save it to this consultation." />
+        ) : (
+          <>
+            <AmslerSurface marks={combined} sizePx={320} readOnly inverted={false} />
+            {state.notes && <p className="text-sm text-zinc-600">{state.notes}</p>}
+          </>
+        )}
       </CardContent>
     </Card>
   );

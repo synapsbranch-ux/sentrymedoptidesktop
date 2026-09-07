@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { AmslerSurface, ColourPlate, type AmslerMark } from "../components/vision-surfaces";
 import { useRealtime } from "../realtime";
 import {
   buildChartLine,
@@ -23,6 +24,7 @@ interface VisionState {
   plate: number;
   display: DisplayInfo;
   results: unknown[];
+  amsler: Record<string, AmslerMark[]>;
 }
 interface Session { id: string; room: string; state: VisionState; revision: number }
 
@@ -115,7 +117,16 @@ export function VisionDisplayPage() {
       >
         {session.room} · {(calibration.distanceMm / 1000).toFixed(2)} m · recalibrate
       </button>
-      <ChartSurface state={session.state} calibration={calibration} />
+      <ChartSurface
+        state={session.state}
+        calibration={calibration}
+        onAmslerMarks={(marks) => {
+          const eye = session.state.eye === "OU" ? "OD" : session.state.eye;
+          void api.put(`/vision-tests/${id}/state`, {
+            state: { ...session.state, amsler: { ...session.state.amsler, [eye]: marks } },
+          }).catch(() => undefined);
+        }}
+      />
     </Fullscreen>
   );
 }
@@ -203,7 +214,11 @@ function CalibrationScreen({ initial, onDone }: { initial: Calibration | null; o
   );
 }
 
-function ChartSurface({ state, calibration }: { state: VisionState; calibration: Calibration }) {
+function ChartSurface({ state, calibration, onAmslerMarks }: {
+  state: VisionState;
+  calibration: Calibration;
+  onAmslerMarks(marks: AmslerMark[]): void;
+}) {
   const [width, setWidth] = React.useState(() => window.innerWidth);
   React.useEffect(() => {
     const onResize = () => setWidth(window.innerWidth);
@@ -211,8 +226,32 @@ function ChartSurface({ state, calibration }: { state: VisionState; calibration:
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+
   if (state.mode === "fixation") {
     return <div className="h-24 w-24 rounded-full bg-white" aria-label="Fixation target" />;
+  }
+  if (state.mode === "colour") {
+    // Screening plates are held at reading distance, so they are sized to the screen
+    // rather than to the lane's test distance.
+    const size = Math.min(window.innerHeight * 0.85, width * 0.85);
+    return (
+      <div className="grid gap-4 justify-items-center">
+        <ColourPlate seed={state.seed} plate={state.plate} sizePx={size} />
+        <p className="text-sm text-zinc-600">Plate {state.plate}</p>
+      </div>
+    );
+  }
+  if (state.mode === "amsler") {
+    const eye = state.eye === "OU" ? "OD" : state.eye;
+    const size = Math.min(window.innerHeight * 0.82, width * 0.82);
+    return (
+      <div className="grid gap-4 justify-items-center">
+        <AmslerSurface marks={state.amsler?.[eye] ?? []} onMark={onAmslerMarks} sizePx={size} />
+        <p className="text-sm text-zinc-500">
+          Cover the other eye, look at the centre dot, and trace anywhere the lines bend, blur or disappear.
+        </p>
+      </div>
+    );
   }
   if (state.mode !== "acuity") {
     return <p className="text-xl text-zinc-600">Waiting for the examiner…</p>;

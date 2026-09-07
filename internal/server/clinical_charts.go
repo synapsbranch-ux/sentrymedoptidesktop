@@ -33,13 +33,15 @@ type chartPayload struct {
 	Version     int         `json:"version"`
 }
 
-// chartEyes declares which eyes each chart type is recorded for. Ocular motility
-// and cover testing describe how the two eyes work together, so they are stored
-// once as OU rather than duplicated per eye.
+// chartEyes is the single source of truth for which charts exist and which eyes each
+// is recorded for; the database deliberately holds no matching constraint, so a new
+// view costs a drawing rather than a table rebuild. Ocular motility and cover testing
+// describe how the two eyes work together, so they are stored once as OU.
 var chartEyes = map[string][]string{
 	"anterior": {"OD", "OS"},
 	"fundus":   {"OD", "OS"},
 	"field":    {"OD", "OS"},
+	"amsler":   {"OD", "OS"},
 	"motility": {"OU"},
 }
 
@@ -131,7 +133,7 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 	}
 	chartType, eye := chi.URLParam(r, "chartType"), chi.URLParam(r, "eye")
 	if chartEyes[chartType] == nil {
-		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_TYPE", "Chart must be anterior, fundus, field or motility.")
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_TYPE", "Chart must be anterior, fundus, field, amsler or motility.")
 		return
 	}
 	if !chartAcceptsEye(chartType, eye) {

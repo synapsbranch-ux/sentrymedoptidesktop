@@ -752,11 +752,11 @@ func TestEyeDiagramRBACAndLocking(t *testing.T) {
 		t.Fatalf("encounter create: %d %s", created.Code, created.Body.String())
 	}
 	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
-	forbidden := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.nurse)
+	forbidden := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/anterior/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.nurse)
 	if forbidden.Code != http.StatusForbidden {
 		t.Fatalf("nurse eye diagram save status=%d, want 403", forbidden.Code)
 	}
-	saved := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.doctor)
+	saved := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/anterior/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.doctor)
 	if saved.Code != http.StatusCreated {
 		t.Fatalf("doctor eye diagram save: %d %s", saved.Code, saved.Body.String())
 	}
@@ -772,7 +772,7 @@ func TestEyeDiagramRBACAndLocking(t *testing.T) {
 	if finalized.Code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
 	}
-	locked := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{}, "notes": "edit after lock", "version": 1}, a.doctor)
+	locked := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/anterior/OD", map[string]any{"annotations": []map[string]any{}, "notes": "edit after lock", "version": 1}, a.doctor)
 	if locked.Code != http.StatusLocked {
 		t.Fatalf("locked eye diagram update status=%d, want 423", locked.Code)
 	}
@@ -1191,5 +1191,87 @@ func TestRestoreReplacesDatabaseAndPreservesSafetySnapshot(t *testing.T) {
 	backups, err := filepath.Glob(filepath.Join(a.server.config.DataDir, "backups", "sentrymed-pre_restore-*.db"))
 	if err != nil || len(backups) == 0 {
 		t.Fatalf("pre-restore safety snapshot missing: %v", err)
+	}
+}
+
+func TestClinicalChartTypesAndPreviousOverlay(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Chart", "Engine")
+	newEncounter := func() string {
+		created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Field check", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+		if created.Code != http.StatusCreated {
+			t.Fatalf("encounter create: %d %s", created.Code, created.Body.String())
+		}
+		return decodeResponse[map[string]any](t, created)["id"].(string)
+	}
+
+	first := newEncounter()
+	fieldMark := map[string]any{"x": 74, "y": 30, "shape": "cell", "color": "#dc2626", "label": "", "structure": "field", "cell": "superior-temporal", "grade": "absent"}
+	if saved := a.request(http.MethodPut, "/api/v1/encounters/"+first+"/eye-diagrams/field/OD", map[string]any{"annotations": []map[string]any{fieldMark}, "notes": "Superior temporal loss", "version": 0}, a.doctor); saved.Code != http.StatusCreated {
+		t.Fatalf("field chart save: %d %s", saved.Code, saved.Body.String())
+	}
+
+	second := newEncounter()
+	if bad := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/motility/OD", map[string]any{"annotations": []map[string]any{}, "notes": "", "version": 0}, a.doctor); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("motility per-eye save status=%d, want 422", bad.Code)
+	}
+	if bad := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/topography/OD", map[string]any{"annotations": []map[string]any{}, "notes": "", "version": 0}, a.doctor); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown chart type status=%d, want 422", bad.Code)
+	}
+	motilityMark := map[string]any{"x": 20, "y": 20, "shape": "cell", "color": "#d97706", "label": "left eye lags", "structure": "motility", "cell": "up-right", "grade": "-2"}
+	if saved := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/motility/OU", map[string]any{"annotations": []map[string]any{motilityMark}, "notes": "", "version": 0}, a.doctor); saved.Code != http.StatusCreated {
+		t.Fatalf("motility chart save: %d %s", saved.Code, saved.Body.String())
+	}
+	if saved := a.request(http.MethodPut, "/api/v1/encounters/"+second+"/eye-diagrams/fundus/OS", map[string]any{"annotations": []map[string]any{{"x": 32, "y": 50, "shape": "dot", "color": "#dc2626", "label": "disc haemorrhage", "structure": "optic_disc"}}, "notes": "", "version": 0}, a.doctor); saved.Code != http.StatusCreated {
+		t.Fatalf("fundus chart save: %d %s", saved.Code, saved.Body.String())
+	}
+
+	fetched := a.request(http.MethodGet, "/api/v1/encounters/"+second+"/eye-diagrams", nil, a.nurse)
+	if fetched.Code != http.StatusOK {
+		t.Fatalf("charts get: %d %s", fetched.Code, fetched.Body.String())
+	}
+	var payload struct {
+		Charts map[string]map[string]struct {
+			Annotations []chartMark `json:"annotations"`
+			Notes       string      `json:"notes"`
+			Version     int         `json:"version"`
+		} `json:"charts"`
+		Previous *struct {
+			EncounterNumber string `json:"encounterNumber"`
+			Charts          map[string]map[string]struct {
+				Annotations []chartMark `json:"annotations"`
+			} `json:"charts"`
+		} `json:"previous"`
+	}
+	if err := json.Unmarshal(fetched.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("charts decode: %v", err)
+	}
+	if got := payload.Charts["motility"]["OU"].Annotations; len(got) != 1 || got[0].Grade != "-2" || got[0].Cell != "up-right" {
+		t.Fatalf("motility annotations = %+v", got)
+	}
+	if got := payload.Charts["fundus"]["OS"].Annotations; len(got) != 1 || got[0].Label != "disc haemorrhage" {
+		t.Fatalf("fundus annotations = %+v", got)
+	}
+	// Charts never opened still come back as empty entries so the client renders the full set.
+	if entry, ok := payload.Charts["anterior"]["OD"]; !ok || entry.Version != 0 || len(entry.Annotations) != 0 {
+		t.Fatalf("unopened anterior chart = %+v (present=%v)", entry, ok)
+	}
+	if payload.Previous == nil {
+		t.Fatal("expected the earlier charted visit to be returned for overlay")
+	}
+	if got := payload.Previous.Charts["field"]["OD"].Annotations; len(got) != 1 || got[0].Grade != "absent" {
+		t.Fatalf("previous field annotations = %+v", got)
+	}
+
+	// The first visit has nothing before it, so no overlay is offered.
+	firstFetched := a.request(http.MethodGet, "/api/v1/encounters/"+first+"/eye-diagrams", nil, a.nurse)
+	var firstPayload struct {
+		Previous *struct{} `json:"previous"`
+	}
+	if err := json.Unmarshal(firstFetched.Body.Bytes(), &firstPayload); err != nil {
+		t.Fatalf("first charts decode: %v", err)
+	}
+	if firstPayload.Previous != nil {
+		t.Fatalf("first visit should have no previous charts, got %s", firstFetched.Body.String())
 	}
 }

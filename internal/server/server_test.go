@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1032,6 +1033,138 @@ func TestConsultationRecordingTranscriptionPipelineAndAudioPlayback(t *testing.T
 	deleted := a.request(http.MethodDelete, "/api/v1/recordings/"+recordingID, nil, a.doctor)
 	if deleted.Code != http.StatusNoContent {
 		t.Fatalf("doctor delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+}
+
+func TestClinicalValueConversions(t *testing.T) {
+	acuityCases := []struct {
+		input string
+		want  float64
+		ok    bool
+	}{
+		{"20/20", 0.00, true},
+		{"6/6", 0.00, true},
+		{"10/10", 0.00, true},
+		{"20/40", 0.30, true},
+		{"6/12", 0.30, true},
+		{"5/10", 0.30, true},
+		{"20/200", 1.00, true},
+		{"0.5", 0.30, true},
+		{"20/40-2", 0.30, true},
+		{"CF", 1.90, true},
+		{"hm", 2.30, true},
+		{"LP", 2.70, true},
+		{"NLP", 3.00, true},
+		{"", 0, false},
+		{"illegible", 0, false},
+	}
+	for _, testCase := range acuityCases {
+		got, ok := snellenToLogMAR(testCase.input)
+		if ok != testCase.ok || (ok && math.Abs(got-testCase.want) > 0.005) {
+			t.Fatalf("snellenToLogMAR(%q)=%v,%v want %v,%v", testCase.input, got, ok, testCase.want, testCase.ok)
+		}
+	}
+	if value, ok := parseClinicalNumber("−2,25"); !ok || value != -2.25 {
+		t.Fatalf("parseClinicalNumber unicode minus and comma = %v,%v", value, ok)
+	}
+	if got := sphericalEquivalent(-2.00, -1.00, true); got != -2.50 {
+		t.Fatalf("sphericalEquivalent = %v, want -2.50", got)
+	}
+	if got := sphericalEquivalent(-2.00, 0, false); got != -2.00 {
+		t.Fatalf("sphericalEquivalent without cylinder = %v, want -2.00", got)
+	}
+}
+
+func (a *testApp) recordVisit(t *testing.T, patientID string, acuity, iop, pachymetry, refraction map[string]string) string {
+	t.Helper()
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patientID, "appointmentId": "", "visitReason": "Follow-up", "chiefComplaint": "", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("encounter create: %d %s", created.Code, created.Body.String())
+	}
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+	pretest := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/pretest", map[string]any{
+		"chiefComplaint": "", "vitals": map[string]string{}, "visualAcuity": acuity, "autorefraction": map[string]string{},
+		"keratometry": map[string]string{}, "iop": iop, "pupils": "", "eom": "", "coverTest": "", "confrontationFields": "",
+		"colorVision": "", "stereopsis": "", "pachymetry": pachymetry, "lensometry": map[string]string{}, "complete": false, "version": 1,
+	}, a.nurse)
+	if pretest.Code != http.StatusOK {
+		t.Fatalf("pretest save: %d %s", pretest.Code, pretest.Body.String())
+	}
+	section := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/sections/subjective_refraction", map[string]any{"data": refraction, "version": 0}, a.doctor)
+	if section.Code != http.StatusCreated && section.Code != http.StatusOK {
+		t.Fatalf("refraction section save: %d %s", section.Code, section.Body.String())
+	}
+	return encounterID
+}
+
+func TestClinicalTrendsAndVisitDelta(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Trend", "Patient")
+
+	first := a.recordVisit(t, patient.ID,
+		map[string]string{"odbestcorrectedva": "20/20", "osbestcorrectedva": "20/20"},
+		map[string]string{"odiop": "16", "osiop": "15"},
+		map[string]string{"odthickness": "500", "osthickness": "545"},
+		map[string]string{"odsphere": "-2.00", "odcylinder": "-1.00", "ossphere": "-1.50", "oscylinder": "0"})
+	// Back-date the first visit so the progression rate covers a real interval instead of
+	// two encounters created seconds apart in the test.
+	twoYearsAgo := time.Now().UTC().AddDate(-2, 0, 0).Format(time.RFC3339Nano)
+	if _, err := a.server.db.ExecContext(context.Background(), "UPDATE encounters SET created_at=? WHERE id=?", twoYearsAgo, first); err != nil {
+		t.Fatal(err)
+	}
+
+	second := a.recordVisit(t, patient.ID,
+		map[string]string{"odbestcorrectedva": "20/60", "osbestcorrectedva": "20/20"},
+		map[string]string{"odiop": "26", "osiop": "17"},
+		map[string]string{"odthickness": "500", "osthickness": "545"},
+		map[string]string{"odsphere": "-4.00", "odcylinder": "-1.00", "ossphere": "-1.50", "oscylinder": "0"})
+
+	trends := a.request(http.MethodGet, "/api/v1/patients/"+patient.ID+"/clinical-trends", nil, a.nurse)
+	if trends.Code != http.StatusOK {
+		t.Fatalf("clinical trends: %d %s", trends.Code, trends.Body.String())
+	}
+	payload := decodeResponse[map[string]any](t, trends)
+	points := payload["points"].([]any)
+	if len(points) != 2 {
+		t.Fatalf("expected 2 trend points, got %d: %s", len(points), trends.Body.String())
+	}
+	latest := points[1].(map[string]any)
+	refraction := latest["refraction"].(map[string]any)
+	if refraction["source"] != "subjective" || refraction["odSphericalEquivalent"].(float64) != -4.50 {
+		t.Fatalf("latest refraction = %v", refraction)
+	}
+	if acuity := latest["visualAcuity"].(map[string]any); math.Abs(acuity["od"].(float64)-0.48) > 0.005 {
+		t.Fatalf("latest OD acuity = %v, want 0.48 logMAR", acuity["od"])
+	}
+
+	body := trends.Body.String()
+	for _, want := range []string{"Rapid myopic shift", "Visual acuity dropped", "Elevated intraocular pressure", "Thin cornea", "Asymmetric intraocular pressure"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("alert %q missing from trends: %s", want, body)
+		}
+	}
+	if summary := payload["summary"].(map[string]any); summary["refractionRateOD"].(float64) != -1.00 {
+		t.Fatalf("OD progression rate = %v, want -1.00 D/year", summary["refractionRateOD"])
+	}
+
+	delta := a.request(http.MethodGet, "/api/v1/encounters/"+second+"/delta", nil, a.nurse)
+	if delta.Code != http.StatusOK {
+		t.Fatalf("encounter delta: %d %s", delta.Code, delta.Body.String())
+	}
+	deltaPayload := decodeResponse[map[string]any](t, delta)
+	if deltaPayload["hasPrevious"] != true {
+		t.Fatalf("expected a previous visit: %s", delta.Body.String())
+	}
+	deltaBody := delta.Body.String()
+	for _, want := range []string{"Visual acuity", "Intraocular pressure", "Refraction (spherical equivalent)", "+10 mmHg", "-2.00 D"} {
+		if !strings.Contains(deltaBody, want) {
+			t.Fatalf("delta missing %q: %s", want, deltaBody)
+		}
+	}
+
+	firstDelta := a.request(http.MethodGet, "/api/v1/encounters/"+first+"/delta", nil, a.nurse)
+	if firstDelta.Code != http.StatusOK || !bytes.Contains(firstDelta.Body.Bytes(), []byte(`"hasPrevious":false`)) {
+		t.Fatalf("first visit should have no previous consultation: %d %s", firstDelta.Code, firstDelta.Body.String())
 	}
 }
 

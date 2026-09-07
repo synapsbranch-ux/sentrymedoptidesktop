@@ -26,6 +26,8 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/patients/{id}/history", s.handlePatientHistoryGet)
 	r.Put("/patients/{id}/history", s.handlePatientHistoryUpdate)
 	r.Get("/patients/{id}/timeline", s.handlePatientTimeline)
+	r.Get("/patients/{id}/clinical-trends", s.handleClinicalTrends)
+	r.Get("/encounters/{id}/delta", s.handleEncounterDelta)
 	r.Get("/appointments", s.handleAppointmentsList)
 	r.Post("/appointments", s.handleAppointmentsCreate)
 	r.Put("/appointments/{id}", s.handleAppointmentUpdate)

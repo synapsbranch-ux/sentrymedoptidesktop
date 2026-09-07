@@ -84,6 +84,14 @@ export function AmslerSurface({
 }) {
   const surface = React.useRef<SVGSVGElement>(null);
   const drawing = React.useRef(false);
+  const [draft, setDraft] = React.useState(marks);
+  const draftRef = React.useRef(marks);
+  React.useEffect(() => {
+    if (!drawing.current) {
+      draftRef.current = marks;
+      setDraft(marks);
+    }
+  }, [marks]);
   const line = inverted ? "#ffffff" : "#111827";
   const ground = inverted ? "#000000" : "#ffffff";
   const cells = Array.from({ length: amslerSquares + 1 }, (_, index) => (index / amslerSquares) * 100);
@@ -96,8 +104,10 @@ export function AmslerSurface({
     if (x < 0 || x > 100 || y < 0 || y > 100) return;
     // Marks within a square of one already made are dropped, so a slow drag leaves a
     // trace rather than hundreds of stacked points.
-    if (marks.some((mark) => Math.hypot(mark.x - x, mark.y - y) < 100 / amslerSquares / 2)) return;
-    onMark([...marks, { x, y, shape: "amsler", color: "#dc2626", label: "", structure: "amsler", grade: "distorted" }]);
+    if (draftRef.current.some((mark) => Math.hypot(mark.x - x, mark.y - y) < 100 / amslerSquares / 2)) return;
+    const next = [...draftRef.current, { x, y, shape: "amsler", color: "#dc2626", label: "", structure: "amsler", grade: "distorted" }];
+    draftRef.current = next;
+    setDraft(next);
   };
 
   return (
@@ -111,7 +121,7 @@ export function AmslerSurface({
       aria-label="Amsler grid"
       onPointerDown={(event) => { drawing.current = true; surface.current?.setPointerCapture(event.pointerId); add(event); }}
       onPointerMove={(event) => { if (drawing.current) add(event); }}
-      onPointerUp={(event) => { drawing.current = false; surface.current?.releasePointerCapture(event.pointerId); }}
+      onPointerUp={(event) => { drawing.current = false; surface.current?.releasePointerCapture(event.pointerId); onMark?.(draftRef.current); }}
       onPointerCancel={() => { drawing.current = false; }}
     >
       <rect x="0" y="0" width="100" height="100" fill={ground} />
@@ -122,7 +132,7 @@ export function AmslerSurface({
         </React.Fragment>
       ))}
       <circle cx="50" cy="50" r="1.1" fill={line} />
-      {marks.map((mark, index) => (
+      {draft.map((mark, index) => (
         <circle key={index} cx={mark.x} cy={mark.y} r={1.8} fill={mark.color} fillOpacity={0.75} />
       ))}
     </svg>

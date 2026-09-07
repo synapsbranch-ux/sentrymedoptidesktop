@@ -81,7 +81,13 @@ func (s *Server) handlePublicDisplay(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "PUBLIC_DISPLAY_DISABLED", "The clinic public display is not enabled.")
 		return
 	}
-	queueRows, err := s.db.QueryContext(r.Context(), `SELECT q.id,p.first_name,p.last_name,q.stage,q.arrived_at,COALESCE(u.display_name,''),q.priority
+	averages, err := s.queueStageAverages(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PUBLIC_DISPLAY_FAILED", "Could not calculate waiting-time estimates.")
+		return
+	}
+	queueRows, err := s.db.QueryContext(r.Context(), `SELECT q.id,p.first_name,p.last_name,q.stage,q.arrived_at,COALESCE(u.display_name,''),q.priority,
+		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at)
 		FROM queue_entries q JOIN patients p ON p.id=q.patient_id LEFT JOIN users u ON u.id=q.assigned_doctor_id
 		WHERE q.completed_at IS NULL ORDER BY q.priority DESC,q.arrived_at`)
 	if err != nil {
@@ -90,15 +96,16 @@ func (s *Server) handlePublicDisplay(w http.ResponseWriter, r *http.Request) {
 	}
 	queue := []map[string]any{}
 	for queueRows.Next() {
-		var id, firstName, lastName, stage, arrivedAt, doctor string
+		var id, firstName, lastName, stage, arrivedAt, doctor, stageEnteredAt string
 		var priority int
-		if err := queueRows.Scan(&id, &firstName, &lastName, &stage, &arrivedAt, &doctor, &priority); err != nil {
+		if err := queueRows.Scan(&id, &firstName, &lastName, &stage, &arrivedAt, &doctor, &priority, &stageEnteredAt); err != nil {
 			queueRows.Close()
 			writeError(w, http.StatusInternalServerError, "PUBLIC_DISPLAY_FAILED", "Could not read the waiting room.")
 			return
 		}
 		code := publicDisplayCode("Q", id)
-		queue = append(queue, map[string]any{"code": code, "patientLabel": publicPatientLabel(settings.PrivacyMode, firstName, lastName, code), "stage": stage, "arrivedAt": arrivedAt, "doctor": doctor, "priority": priority})
+		estimate, samples := estimatedQueueWait(stage, stageEnteredAt, averages)
+		queue = append(queue, map[string]any{"code": code, "patientLabel": publicPatientLabel(settings.PrivacyMode, firstName, lastName, code), "stage": stage, "arrivedAt": arrivedAt, "doctor": doctor, "priority": priority, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples})
 	}
 	queueRows.Close()
 

@@ -13,7 +13,7 @@ import { AmslerSurface, type AmslerMark } from "../components/vision-surfaces";
 import { buildChartLine, metricFromLogMar, plateDigits, snellenFromLogMar, stepLogMar, type Optotype } from "../vision";
 
 interface DisplayInfo { distanceMm: number; pixelsPerMm: number; calibratedAt: string; label: string }
-interface Result { eye: string; correction: string; logMar: number; snellen: string; test: string; detail: string; recordedAt: string }
+interface Result { eye: string; correction: string; logMar: number; snellen: string; test: "acuity" | "colour"; detail: string; recordedAt: string; plate?: number; correct?: boolean }
 interface VisionState {
   mode: "blank" | "acuity" | "colour" | "amsler" | "fixation";
   eye: "OD" | "OS" | "OU";
@@ -114,16 +114,20 @@ export function VisionTestPage() {
 
 function SessionCard({ session, expanded, onToggle, onChanged }: { session: Session; expanded: boolean; onToggle(): void; onChanged(): void }) {
   const [busy, setBusy] = React.useState(false);
-  const state = session.state;
+  const [current, setCurrent] = React.useState(session);
+  React.useEffect(() => setCurrent(session), [session]);
+  const state = current.state;
   const calibrated = state.display.pixelsPerMm > 0 && state.display.distanceMm > 0;
 
   const push = async (changes: Partial<VisionState>) => {
     setBusy(true);
     try {
-      await api.put(`/vision-tests/${session.id}/state`, { state: { ...state, ...changes } });
+      const updated = await api.put<Session>(`/vision-tests/${current.id}/state`, { state: { ...state, ...changes }, revision: current.revision });
+      setCurrent(updated);
       onChanged();
     } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Could not reach the display");
+      if (reason instanceof APIError && reason.isConflict) { toast.error("The lane screen changed this test. Reloading the latest state."); onChanged(); }
+      else toast.error(reason instanceof Error ? reason.message : "Could not reach the display");
     } finally {
       setBusy(false);
     }
@@ -147,7 +151,7 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
   const apply = async () => {
     setBusy(true);
     try {
-      const outcome = await api.post<{ applied: string[] }>(`/vision-tests/${session.id}/apply`, {});
+      const outcome = await api.post<{ applied: string[] }>(`/vision-tests/${current.id}/apply`, {});
       toast.success(`Written to the pre-test: ${outcome.applied.join(", ")}`);
     } catch (reason) {
       if (reason instanceof APIError && reason.isConflict) toast.error("The pre-test changed while testing. Reopen it and try again.");
@@ -160,7 +164,7 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
   const close = async () => {
     setBusy(true);
     try {
-      await api.post(`/vision-tests/${session.id}/close`, {});
+      await api.post(`/vision-tests/${current.id}/close`, {});
       onChanged();
     } finally {
       setBusy(false);
@@ -174,9 +178,9 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="flex items-center gap-2"><Monitor className="h-4 w-4" />{session.room}</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Monitor className="h-4 w-4" />{current.room}</CardTitle>
             <CardDescription>
-              {session.patientName ? `Linked to ${session.patientName}` : "Not linked to a consultation"}
+              {current.patientName ? `Linked to ${current.patientName}` : "Not linked to a consultation"}
               {" · "}
               {calibrated
                 ? `${(state.display.distanceMm / 1000).toFixed(2)} m, ${state.display.pixelsPerMm.toFixed(2)} px/mm`
@@ -193,7 +197,7 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
         <CardContent className="grid gap-4">
           <div className="rounded-md border bg-zinc-50 p-3">
             <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">Open on the lane screen</p>
-            <p className="mt-1 break-all font-mono text-xs">{window.location.origin}/vision-display/{session.id}</p>
+            <p className="mt-1 break-all font-mono text-xs">{window.location.origin}/vision-display/{current.id}</p>
           </div>
 
           {!calibrated && (
@@ -282,11 +286,11 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
           )}
 
           {state.mode === "colour" && <ColourPanel state={state} busy={busy} push={push} />}
-          {state.mode === "amsler" && <AmslerPanel session={session} state={state} busy={busy} push={push} />}
+          {state.mode === "amsler" && <AmslerPanel session={current} state={state} busy={busy} push={push} />}
 
           <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-            {state.mode === "acuity" && <Button size="sm" disabled={busy || !calibrated} onClick={record}><Check className="h-4 w-4" />Record {state.eye} {snellenFromLogMar(state.logMar)}</Button>}
-            {session.encounterId && <Button size="sm" variant="outline" disabled={busy || state.results.length === 0} onClick={apply}>Write to pre-test</Button>}
+            {state.mode === "acuity" && <Button size="sm" disabled={busy || !calibrated || state.eye === "OU"} onClick={record}><Check className="h-4 w-4" />Record {state.eye} {snellenFromLogMar(state.logMar)}</Button>}
+            {current.encounterId && <Button size="sm" variant="outline" disabled={busy || state.results.length === 0} onClick={apply}>Write to pre-test</Button>}
             <Button size="sm" variant="ghost" className="ml-auto" disabled={busy} onClick={close}><X className="h-4 w-4" />Close session</Button>
           </div>
 
@@ -296,7 +300,7 @@ function SessionCard({ session, expanded, onToggle, onChanged }: { session: Sess
                 <li key={index} className="flex items-center gap-3 rounded-md border p-2">
                   <Badge>{result.eye}</Badge>
                   <span className="capitalize text-zinc-500">{result.correction}</span>
-                  <strong className="font-mono">{result.snellen}</strong>
+                  <strong className="font-mono">{result.test === "acuity" ? result.snellen : `Colour plate ${result.plate} · ${result.correct ? "correct" : "misread"}`}</strong>
                   <span className="ml-auto text-xs text-zinc-400">{new Date(result.recordedAt).toLocaleTimeString()}</span>
                 </li>
               ))}
@@ -324,6 +328,8 @@ function ColourPanel({ state, busy, push }: { state: VisionState; busy: boolean;
       test: "colour",
       detail: `Plate ${state.plate}: expected ${answer}, ${correct ? "read correctly" : "misread or not seen"}`,
       recordedAt: new Date().toISOString(),
+      plate: state.plate,
+      correct,
     };
     await push({ results: [...state.results, result] });
     toast.success(`Plate ${state.plate} recorded`);

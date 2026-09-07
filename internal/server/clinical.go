@@ -499,7 +499,13 @@ func (s *Server) handleAppointmentStatus(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.source,q.version,q.updated_at
+	averages, err := s.queueStageAverages(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not calculate waiting-time estimates.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.source,q.version,q.updated_at,
+		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at)
 		FROM queue_entries q JOIN patients p ON p.id=q.patient_id LEFT JOIN users u ON u.id=q.assigned_doctor_id WHERE q.completed_at IS NULL ORDER BY q.priority DESC,q.arrived_at`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
@@ -508,13 +514,14 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt string
+		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt, stageEnteredAt string
 		var priority, version int
-		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt, &stageEnteredAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
 			return
 		}
-		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
+		estimate, samples := estimatedQueueWait(stage, stageEnteredAt, averages)
+		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "stageEnteredAt": stageEnteredAt, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

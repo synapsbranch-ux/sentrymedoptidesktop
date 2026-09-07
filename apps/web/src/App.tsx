@@ -24,6 +24,8 @@ const DocumentsPage = React.lazy(() => import("./pages/records").then((module) =
 const PrescriptionsPage = React.lazy(() => import("./pages/records").then((module) => ({ default: module.PrescriptionsPage })));
 const ReportsPage = React.lazy(() => import("./pages/reports").then((module) => ({ default: module.ReportsPage })));
 const SchedulePage = React.lazy(() => import("./pages/schedule").then((module) => ({ default: module.SchedulePage })));
+const VisionTestPage = React.lazy(() => import("./pages/vision-test").then((module) => ({ default: module.VisionTestPage })));
+const VisionDisplayPage = React.lazy(() => import("./pages/vision-display").then((module) => ({ default: module.VisionDisplayPage })));
 const SystemPage = React.lazy(() => import("./pages/system").then((module) => ({ default: module.SystemPage })));
 const StockTakesPage = React.lazy(() => import("./pages/stock-takes").then((module) => ({ default: module.StockTakesPage })));
 
@@ -66,11 +68,13 @@ export default function App() {
     <RealtimeProvider>
       <React.Suspense fallback={<div className="page"><div className="h-8 w-48 animate-pulse rounded bg-[var(--muted)]" /><div className="mt-6 h-80 animate-pulse rounded-[var(--radius)] bg-[var(--muted)]" /></div>}>
       <Routes>
+        <Route path="vision-display/:id" element={<VisionDisplayPage />} />
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
           <Route path="patients" element={<PatientsPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="clinical" element={<ClinicalPage />} />
+          <Route path="vision-test" element={<VisionTestPage />} />
           <Route path="prescriptions" element={<PrescriptionsPage />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="inventory" element={<InventoryPage />} />

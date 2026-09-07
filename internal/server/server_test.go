@@ -1275,3 +1275,131 @@ func TestClinicalChartTypesAndPreviousOverlay(t *testing.T) {
 		t.Fatalf("first visit should have no previous charts, got %s", firstFetched.Body.String())
 	}
 }
+
+func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Vision", "Lane")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Acuity", "chiefComplaint": "Blurred vision", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("encounter create: %d %s", created.Code, created.Body.String())
+	}
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+
+	opened := a.request(http.MethodPost, "/api/v1/vision-tests", map[string]any{"room": "Lane 1", "encounterId": encounterID}, a.nurse)
+	if opened.Code != http.StatusCreated {
+		t.Fatalf("vision session create: %d %s", opened.Code, opened.Body.String())
+	}
+	sessionID := decodeResponse[map[string]any](t, opened)["id"].(string)
+
+	if blank := a.request(http.MethodPost, "/api/v1/vision-tests", map[string]any{"room": "  ", "encounterId": ""}, a.nurse); blank.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("blank room status=%d, want 422", blank.Code)
+	}
+
+	// The lane screen publishes the calibration it measured; the phone then drives it.
+	calibrated := map[string]any{
+		"mode": "acuity", "eye": "OD", "correction": "uncorrected", "logMar": 0.3,
+		"optotype": "sloan", "seed": 4242, "singleLine": false, "plate": 1,
+		"display": map[string]any{"distanceMm": 4000, "pixelsPerMm": 3.78, "calibratedAt": "2026-09-07T10:00:00Z", "label": "Lane 1"},
+		"results": []map[string]any{},
+	}
+	saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated}, a.nurse)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("vision state save: %d %s", saved.Code, saved.Body.String())
+	}
+	var afterSave struct {
+		Revision int `json:"revision"`
+		State    struct {
+			Mode   string  `json:"mode"`
+			LogMAR float64 `json:"logMar"`
+		} `json:"state"`
+	}
+	if err := json.Unmarshal(saved.Body.Bytes(), &afterSave); err != nil {
+		t.Fatalf("vision state decode: %v", err)
+	}
+	if afterSave.Revision != 2 || afterSave.State.Mode != "acuity" || afterSave.State.LogMAR != 0.3 {
+		t.Fatalf("vision state after save = %+v", afterSave)
+	}
+
+	// Values outside the chart are refused rather than left to break the lane screen.
+	for _, broken := range []map[string]any{
+		{"mode": "hologram"},
+		{"mode": "acuity", "logMar": 9},
+		{"mode": "acuity", "eye": "left"},
+		{"mode": "acuity", "optotype": "comic-sans"},
+	} {
+		state := map[string]any{"mode": "acuity", "eye": "OD", "correction": "uncorrected", "logMar": 0.3, "optotype": "sloan", "seed": 1, "plate": 1}
+		for key, value := range broken {
+			state[key] = value
+		}
+		if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": state}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("state %v status=%d, want 422", broken, rejected.Code)
+		}
+	}
+
+	// Nothing to apply until a result is recorded.
+	if empty := a.request(http.MethodPost, "/api/v1/vision-tests/"+sessionID+"/apply", map[string]any{}, a.nurse); empty.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("apply with no results status=%d, want 422", empty.Code)
+	}
+
+	withResults := map[string]any{}
+	for key, value := range calibrated {
+		withResults[key] = value
+	}
+	withResults["results"] = []map[string]any{
+		{"eye": "OD", "correction": "uncorrected", "logMar": 0.3, "snellen": "", "test": "acuity", "detail": "", "recordedAt": "2026-09-07T10:05:00Z"},
+		{"eye": "OS", "correction": "corrected", "logMar": 0, "snellen": "", "test": "acuity", "detail": "", "recordedAt": "2026-09-07T10:06:00Z"},
+	}
+	if recorded := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": withResults}, a.nurse); recorded.Code != http.StatusOK {
+		t.Fatalf("vision results save: %d %s", recorded.Code, recorded.Body.String())
+	}
+
+	applied := a.request(http.MethodPost, "/api/v1/vision-tests/"+sessionID+"/apply", map[string]any{}, a.nurse)
+	if applied.Code != http.StatusOK {
+		t.Fatalf("vision apply: %d %s", applied.Code, applied.Body.String())
+	}
+	var outcome struct {
+		VisualAcuity map[string]string `json:"visualAcuity"`
+	}
+	if err := json.Unmarshal(applied.Body.Bytes(), &outcome); err != nil {
+		t.Fatalf("apply decode: %v", err)
+	}
+	// The server fills in the Snellen line the client left blank, on the same keys the
+	// nurse's pre-test grid uses.
+	if outcome.VisualAcuity["oduncorrecteddistance"] != "20/40" {
+		t.Fatalf("OD uncorrected = %q, want 20/40 (%v)", outcome.VisualAcuity["oduncorrecteddistance"], outcome.VisualAcuity)
+	}
+	if outcome.VisualAcuity["oscorrecteddistance"] != "20/20" {
+		t.Fatalf("OS corrected = %q, want 20/20 (%v)", outcome.VisualAcuity["oscorrecteddistance"], outcome.VisualAcuity)
+	}
+
+	// The pre-test really holds it, and the acuity now feeds the trend endpoints.
+	detail := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID, nil, a.nurse)
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte("20/40")) {
+		t.Fatalf("encounter detail: %d %s", detail.Code, detail.Body.String())
+	}
+
+	if closed := a.request(http.MethodPost, "/api/v1/vision-tests/"+sessionID+"/close", map[string]any{}, a.nurse); closed.Code != http.StatusOK {
+		t.Fatalf("vision close: %d %s", closed.Code, closed.Body.String())
+	}
+	if again := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated}, a.nurse); again.Code != http.StatusNotFound {
+		t.Fatalf("state save on closed session status=%d, want 404", again.Code)
+	}
+	listed := a.request(http.MethodGet, "/api/v1/vision-tests", nil, a.nurse)
+	if listed.Code != http.StatusOK || bytes.Contains(listed.Body.Bytes(), []byte(sessionID)) {
+		t.Fatalf("closed session still listed: %d %s", listed.Code, listed.Body.String())
+	}
+}
+
+func TestSnellenFromLogMAR(t *testing.T) {
+	for _, testCase := range []struct {
+		logMAR float64
+		want   string
+	}{
+		{0, "20/20"}, {0.1, "20/25"}, {0.3, "20/40"}, {1, "20/200"}, {-0.3, "20/10"},
+		{0.32, "20/40"}, {2.5, "logMAR 2.50"},
+	} {
+		if got := snellenFromLogMAR(testCase.logMAR); got != testCase.want {
+			t.Errorf("snellenFromLogMAR(%.2f) = %q, want %q", testCase.logMAR, got, testCase.want)
+		}
+	}
+}

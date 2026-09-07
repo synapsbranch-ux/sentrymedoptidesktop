@@ -34,6 +34,9 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - server-persisted language selection for English, French, Haitian Creole, Portuguese, Spanish, German, Simplified Chinese, Russian, Japanese, Korean and Indonesian;
 - a privacy-filtered live waiting-room display for a clinic TV or tablet at `/display`.
 - consultation audio recording (with confirmed patient consent) and optional, fully local transcription saved to the patient's chart — see [Consultation recording and transcription](#consultation-recording-and-transcription).
+- per-patient clinical trends derived from the values already recorded: refractive progression, acuity in logMAR, IOP and corneal thickness, plus a "what changed since the last visit" delta;
+- four annotated clinical charts per consultation — anterior segment, fundus, confrontation visual field and the nine positions of gaze — with the previous visit overlaid on the graded ones;
+- a calibrated digital acuity chart shown on the exam-lane screen and driven from a phone over the clinic LAN — see [Digital acuity chart](#digital-acuity-chart).
 
 ## Consultation recording and transcription
 
@@ -47,6 +50,16 @@ pip install pocketsphinx       # bundles its own small acoustic model, no extra 
 ```
 
 Then set the transcription command to `python3 /path/to/scripts/transcribe_pocketsphinx.py` and enable transcription. Every transcript is shown as an editable draft — review and correct it before treating it as part of the official record; pocketsphinx is accurate enough to speed up note-taking but is not a substitute for clinician review, and currently only recognizes English. A clinic needing another language can point the setting at any other local command that reads an audio file path from `argv[1]` and prints the transcript to stdout.
+
+## Digital acuity chart
+
+Two devices share one session. The screen in the lane opens `/vision-display/<session>` and the examiner drives it from **Vision testing** on a phone or tablet; every command travels through the clinic server, so nothing needs pairing beyond both devices being signed in on the clinic network.
+
+The screen is calibrated on the screen. Holding a bank or ID card against it and matching an on-screen rectangle gives the pixels-per-millimetre that monitor actually renders at — no browser API reports this reliably — and the test distance is entered on the same device. Both numbers stay in that screen's own local storage and are published into the session, so the phone can see whether a measurement can be trusted; until a screen reports its calibration, results cannot be recorded.
+
+Optotype size follows from those numbers: a 20/20 letter subtends five arc-minutes at the test distance, and each logMAR step scales it by a factor of ten to the power of the step. Letters and digits are measured glyph by glyph on a canvas and scaled so the ink is exactly the height the acuity level calls for; the Landolt C and the tumbling E are drawn geometrically to exact five-by-five proportions. Prefer the latter two when the result must be comparable with a printed chart: the letter set uses the screen's own monospace font, whose stroke width is not a certified Sloan typeface.
+
+Each line is generated from a seed, so a new seed reshuffles the letters between eyes and between visits and a patient cannot recite a line from memory. Recorded results can be written straight into the linked consultation's pre-test acuity grid, and from there they feed the clinical trends.
 
 ## Architecture
 

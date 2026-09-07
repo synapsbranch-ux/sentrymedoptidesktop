@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Truck,
+  MonitorPlay,
   Users,
   WalletCards,
   X,
@@ -46,6 +47,7 @@ const nav = [
   {
     section: "Clinical",
     items: [
+      { to: "/vision-test", label: "Vision testing", icon: MonitorPlay },
       { to: "/prescriptions", label: "Prescriptions", icon: Glasses },
       { to: "/lab", label: "Optical / Lab", icon: FlaskConical },
       { to: "/documents", label: "Documents", icon: FileText },

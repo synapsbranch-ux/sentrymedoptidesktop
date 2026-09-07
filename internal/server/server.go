@@ -60,6 +60,7 @@ func (s *Server) routes() chi.Router {
 		api.Get("/public/localization", s.handlePublicLocalization)
 		api.Get("/public/display", s.handlePublicDisplay)
 		api.Get("/public/events", s.handlePublicEvents)
+		s.registerKioskRoutes(api)
 		api.Group(func(protected chi.Router) {
 			protected.Use(s.authenticate)
 			protected.Post("/auth/logout", s.handleLogout)

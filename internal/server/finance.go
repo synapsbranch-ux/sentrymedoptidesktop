@@ -79,9 +79,10 @@ func (s *Server) handleFinanceSummary(w http.ResponseWriter, r *http.Request) {
 	if baseCurrency == "" {
 		baseCurrency = "HTG"
 	}
-	var grossSales, payments, expenses, outstanding, cost int64
+	var grossSales, payments, refunds, expenses, outstanding, cost int64
 	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(total_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status NOT IN ('cancelled')", from, to).Scan(&grossSales)
 	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)>=? AND substr(received_at,1,10)<=?", from, to).Scan(&payments)
+	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)>=? AND substr(r.refunded_at,1,10)<=?", from, to).Scan(&refunds)
 	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM expenses WHERE expense_date>=? AND expense_date<=?", from, to).Scan(&expenses)
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0)+COALESCE(ref.refunded,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding)
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND(ii.cost_minor*ii.quantity*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE substr(i.created_at,1,10)>=? AND substr(i.created_at,1,10)<=? AND i.status<>'cancelled'`, from, to).Scan(&cost)
@@ -109,7 +110,7 @@ func (s *Server) handleFinanceSummary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "baseCurrency": baseCurrency, "grossSalesMinor": grossSales, "paymentsReceivedMinor": payments, "expensesMinor": expenses, "outstandingReceivablesMinor": outstanding, "estimatedCostMinor": cost, "estimatedGrossMarginMinor": grossSales - cost, "paymentsByMethod": byMethod, "salesByCurrency": byCurrency})
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "baseCurrency": baseCurrency, "grossSalesMinor": grossSales, "paymentsReceivedMinor": payments - refunds, "refundsMinor": refunds, "expensesMinor": expenses, "outstandingReceivablesMinor": outstanding, "estimatedCostMinor": cost, "estimatedGrossMarginMinor": grossSales - cost, "paymentsByMethod": byMethod, "salesByCurrency": byCurrency})
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +129,8 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		query = `SELECT status,COUNT(*),0 FROM appointments WHERE substr(starts_at,1,10)>=? AND substr(starts_at,1,10)<=? GROUP BY status ORDER BY status`
 	case "sales":
 		query = `SELECT substr(created_at,1,10)||' · '||currency,COUNT(*),SUM(total_minor) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status<>'cancelled' GROUP BY substr(created_at,1,10),currency ORDER BY 1`
+	case "refunds":
+		query = `SELECT substr(r.refunded_at,1,10)||' · '||p.currency,COUNT(*),SUM(r.amount_minor) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)>=? AND substr(r.refunded_at,1,10)<=? GROUP BY substr(r.refunded_at,1,10),p.currency ORDER BY 1`
 	case "inventory":
 		query = `SELECT category||' · '||currency,COUNT(*),SUM(quantity*cost_minor) FROM inventory_items WHERE archived_at IS NULL GROUP BY category,currency ORDER BY category,currency`
 	case "lab":

@@ -6,6 +6,7 @@ import { AppShell } from "./components/app-shell";
 import { LoginScreen, SetupScreen } from "./components/auth-screens";
 import { RealtimeProvider } from "./realtime";
 import { PublicDisplayPage } from "./pages/public-display";
+import { KioskPage } from "./pages/kiosk";
 import { useI18n } from "./i18n";
 
 const AuditPage = React.lazy(() => import("./pages/audit").then((module) => ({ default: module.AuditPage })));
@@ -35,6 +36,7 @@ export default function App() {
   const auth = useAuth();
   const { t } = useI18n();
   if (window.location.pathname === "/display") return <PublicDisplayPage />;
+  if (window.location.pathname === "/kiosk") return <KioskPage />;
   if (auth.loading)
     return (
       <div className="grid min-h-screen place-items-center bg-white">

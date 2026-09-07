@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -438,6 +439,29 @@ func TestAppointmentRangeRescheduleAndConcurrency(t *testing.T) {
 	}
 }
 
+func TestAppointmentConflictWithoutPractitioner(t *testing.T) {
+	a := newTestApp(t)
+	first := a.createPatient(a.nurse, "First", "Patient")
+	second := a.createPatient(a.nurse, "Second", "Patient")
+	created := a.request(http.MethodPost, "/api/v1/appointments", map[string]any{"patientId": first.ID, "practitionerId": "", "startsAt": "2026-10-01T09:00:00Z", "durationMinutes": 30, "type": "eye_exam", "reason": "Exam", "notes": ""}, a.nurse)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("first appointment create: %d %s", created.Code, created.Body.String())
+	}
+	overlapping := a.request(http.MethodPost, "/api/v1/appointments", map[string]any{"patientId": second.ID, "practitionerId": "", "startsAt": "2026-10-01T09:00:00Z", "durationMinutes": 30, "type": "eye_exam", "reason": "Exam", "notes": ""}, a.nurse)
+	if overlapping.Code != http.StatusConflict || !bytes.Contains(overlapping.Body.Bytes(), []byte("APPOINTMENT_CONFLICT")) {
+		t.Fatalf("expected 409 APPOINTMENT_CONFLICT for identical unassigned slot, got %d %s", overlapping.Code, overlapping.Body.String())
+	}
+	nonOverlapping := a.request(http.MethodPost, "/api/v1/appointments", map[string]any{"patientId": second.ID, "practitionerId": "", "startsAt": "2026-10-01T10:00:00Z", "durationMinutes": 30, "type": "eye_exam", "reason": "Exam", "notes": ""}, a.nurse)
+	if nonOverlapping.Code != http.StatusCreated {
+		t.Fatalf("non-overlapping appointment create: %d %s", nonOverlapping.Code, nonOverlapping.Body.String())
+	}
+	id := decodeResponse[map[string]any](t, created)["id"].(string)
+	rescheduleIntoConflict := a.request(http.MethodPut, "/api/v1/appointments/"+id, map[string]any{"patientId": first.ID, "practitionerId": "", "startsAt": "2026-10-01T10:15:00Z", "durationMinutes": 30, "type": "eye_exam", "reason": "Exam", "notes": "", "version": 1}, a.nurse)
+	if rescheduleIntoConflict.Code != http.StatusConflict {
+		t.Fatalf("expected 409 rescheduling into an occupied unassigned slot, got %d %s", rescheduleIntoConflict.Code, rescheduleIntoConflict.Body.String())
+	}
+}
+
 func TestUserPasswordResetInvalidatesSessions(t *testing.T) {
 	a := newTestApp(t)
 	users := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/users", nil, a.doctor))["items"].([]any)
@@ -661,6 +685,192 @@ func TestRefundCreatesCreditNoteAndRestocksAtomically(t *testing.T) {
 	_ = a.server.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM stock_movements WHERE item_id=? AND movement_type='return'", itemID).Scan(&returns)
 	if quantity != 2 || credits != 1 || returns != 1 {
 		t.Fatalf("quantity=%d credits=%d returns=%d", quantity, credits, returns)
+	}
+}
+
+func TestFinanceAndDashboardAccountForRefunds(t *testing.T) {
+	a := newTestApp(t)
+	item := a.request(http.MethodPost, "/api/v1/inventory", map[string]any{"sku": "REF-1", "barcode": "", "category": "frame", "name": "Refund Frame", "brand": "", "model": "", "attributes": map[string]any{}, "supplierId": "", "costMinor": 1000, "salePriceMinor": 10000, "currency": "HTG", "quantity": 2, "reorderLevel": 0, "trackStock": true}, a.nurse)
+	itemID := decodeResponse[map[string]any](t, item)["id"].(string)
+	checkout := a.request(http.MethodPost, "/api/v1/pos/checkout", map[string]any{"invoice": map[string]any{"patientId": "", "currency": "HTG", "exchangeRate": "1", "discountMinor": 0, "taxMinor": 0, "dueAt": "", "notes": "", "items": []map[string]any{{"inventoryItemId": itemID, "description": "Refund Frame", "quantity": 1, "unitPriceMinor": 10000, "discountMinor": 0, "taxMinor": 0}}}, "payment": map[string]any{"paymentMethodId": "pm_cash", "registerSessionId": "", "amountMinor": 8000, "currency": "HTG", "exchangeRate": "1", "reference": "", "notes": ""}}, a.nurse)
+	res := decodeResponse[map[string]any](t, checkout)
+	invoiceID, paymentID := res["invoiceId"].(string), res["paymentId"].(string)
+	if refund := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 3000, "reason": "Pricing correction", "restockItemIds": []string{}}, a.doctor); refund.Code != http.StatusCreated {
+		t.Fatalf("refund: %d %s", refund.Code, refund.Body.String())
+	}
+	invoice := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/invoices/"+invoiceID, nil, a.doctor))
+	if invoice["status"] != "partially_paid" || invoice["balanceMinor"].(float64) != 5000 {
+		t.Fatalf("invoice after refund: %v", invoice)
+	}
+	summary := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/finance/summary", nil, a.doctor))
+	if summary["refundsMinor"].(float64) != 3000 {
+		t.Fatalf("finance summary refundsMinor=%v, want 3000", summary["refundsMinor"])
+	}
+	if summary["paymentsReceivedMinor"].(float64) != 5000 {
+		t.Fatalf("finance summary paymentsReceivedMinor=%v, want 5000 (net of refund)", summary["paymentsReceivedMinor"])
+	}
+	dashboard := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/dashboard", nil, a.doctor))
+	finance := dashboard["finance"].(map[string]any)
+	if finance["outstandingMinor"].(float64) != 5000 {
+		t.Fatalf("dashboard outstandingMinor=%v, want 5000 (must add back the refund)", finance["outstandingMinor"])
+	}
+	if finance["monthRefundsMinor"].(float64) != 3000 {
+		t.Fatalf("dashboard monthRefundsMinor=%v, want 3000", finance["monthRefundsMinor"])
+	}
+}
+
+func TestClinicalMacrosCRUD(t *testing.T) {
+	a := newTestApp(t)
+	created := a.request(http.MethodPost, "/api/v1/macros", map[string]any{"label": "Normal exam", "category": "assessment", "body": "No abnormalities detected OU."}, a.nurse)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("macro create: %d %s", created.Code, created.Body.String())
+	}
+	id := decodeResponse[map[string]any](t, created)["id"].(string)
+	if bad := a.request(http.MethodPost, "/api/v1/macros", map[string]any{"label": "x", "category": "not_a_category", "body": "y"}, a.doctor); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid category status=%d, want 422", bad.Code)
+	}
+	list := a.request(http.MethodGet, "/api/v1/macros?category=assessment", nil, a.doctor)
+	if list.Code != http.StatusOK || !bytes.Contains(list.Body.Bytes(), []byte("Normal exam")) {
+		t.Fatalf("macro list: %d %s", list.Code, list.Body.String())
+	}
+	updated := a.request(http.MethodPut, "/api/v1/macros/"+id, map[string]any{"label": "Normal exam OU", "category": "assessment", "body": "No abnormalities detected OU.", "version": 1}, a.doctor)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("macro update: %d %s", updated.Code, updated.Body.String())
+	}
+	if deleted := a.request(http.MethodDelete, "/api/v1/macros/"+id+"?version=2", nil, a.doctor); deleted.Code != http.StatusNoContent {
+		t.Fatalf("macro delete: %d %s", deleted.Code, deleted.Body.String())
+	}
+}
+
+func TestEyeDiagramRBACAndLocking(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Eye", "Diagram")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Red eye", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("encounter create: %d %s", created.Code, created.Body.String())
+	}
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+	forbidden := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.nurse)
+	if forbidden.Code != http.StatusForbidden {
+		t.Fatalf("nurse eye diagram save status=%d, want 403", forbidden.Code)
+	}
+	saved := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{{"x": 50, "y": 50, "shape": "dot", "color": "#c00", "label": "nasal pterygium", "structure": "conjunctiva"}}, "notes": "Pterygium noted", "version": 0}, a.doctor)
+	if saved.Code != http.StatusCreated {
+		t.Fatalf("doctor eye diagram save: %d %s", saved.Code, saved.Body.String())
+	}
+	fetched := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID+"/eye-diagrams", nil, a.nurse)
+	if fetched.Code != http.StatusOK || !bytes.Contains(fetched.Body.Bytes(), []byte("nasal pterygium")) {
+		t.Fatalf("eye diagram get: %d %s", fetched.Code, fetched.Body.String())
+	}
+	diagnosis := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/diagnoses", map[string]any{"diagnosis": "Pterygium of right eye", "code": "H11.001", "laterality": "OD", "notes": "", "primary": true}, a.doctor)
+	if diagnosis.Code != http.StatusCreated {
+		t.Fatalf("diagnosis create: %d %s", diagnosis.Code, diagnosis.Body.String())
+	}
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	if finalized.Code != http.StatusOK {
+		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
+	}
+	locked := a.request(http.MethodPut, "/api/v1/encounters/"+encounterID+"/eye-diagrams/OD", map[string]any{"annotations": []map[string]any{}, "notes": "edit after lock", "version": 1}, a.doctor)
+	if locked.Code != http.StatusLocked {
+		t.Fatalf("locked eye diagram update status=%d, want 423", locked.Code)
+	}
+}
+
+func TestCodeSearchAndSuperbillGeneration(t *testing.T) {
+	a := newTestApp(t)
+	icd := a.request(http.MethodGet, "/api/v1/codes/icd10?q=myopia", nil, a.nurse)
+	if icd.Code != http.StatusOK || !bytes.Contains(icd.Body.Bytes(), []byte("H52.1")) {
+		t.Fatalf("icd10 search: %d %s", icd.Code, icd.Body.String())
+	}
+	procedures := a.request(http.MethodGet, "/api/v1/codes/procedures?q=92004", nil, a.nurse)
+	if procedures.Code != http.StatusOK || !bytes.Contains(procedures.Body.Bytes(), []byte("Comprehensive ophthalmological exam")) {
+		t.Fatalf("procedure search: %d %s", procedures.Code, procedures.Body.String())
+	}
+	patient := a.createPatient(a.nurse, "Super", "Bill")
+	encounterResponse := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Annual exam", "chiefComplaint": "Checkup", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, encounterResponse)["id"].(string)
+	a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/diagnoses", map[string]any{"diagnosis": "Myopia, bilateral", "code": "H52.13", "laterality": "OU", "notes": "", "primary": true}, a.doctor)
+	invoice := a.request(http.MethodPost, "/api/v1/invoices", map[string]any{"patientId": patient.ID, "currency": "HTG", "exchangeRate": "1", "discountMinor": 0, "taxMinor": 0, "dueAt": "", "notes": "", "items": []map[string]any{{"inventoryItemId": "", "description": "Comprehensive eye exam", "quantity": 1, "unitPriceMinor": 250000, "discountMinor": 0, "taxMinor": 0, "procedureCode": "92004"}}}, a.nurse)
+	if invoice.Code != http.StatusCreated {
+		t.Fatalf("invoice create: %d %s", invoice.Code, invoice.Body.String())
+	}
+	invoiceID := decodeResponse[map[string]any](t, invoice)["id"].(string)
+	forbiddenLink := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/superbill/link-invoice", map[string]any{"invoiceId": invoiceID}, a.nurse)
+	if forbiddenLink.Code != http.StatusForbidden {
+		t.Fatalf("nurse link invoice status=%d, want 403", forbiddenLink.Code)
+	}
+	link := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/superbill/link-invoice", map[string]any{"invoiceId": invoiceID}, a.doctor)
+	if link.Code != http.StatusOK {
+		t.Fatalf("link invoice: %d %s", link.Code, link.Body.String())
+	}
+	superbill := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID+"/superbill", nil, a.doctor)
+	if superbill.Code != http.StatusOK {
+		t.Fatalf("superbill get: %d %s", superbill.Code, superbill.Body.String())
+	}
+	body := superbill.Body.String()
+	for _, want := range []string{"H52.13", "Myopia, bilateral", "92004", "Comprehensive eye exam", "Super Bill"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("superbill missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestKioskSelfCheckIn(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.request(http.MethodPost, "/api/v1/patients", map[string]any{
+		"firstName": "Kiosk", "middleName": "", "lastName": "Walker", "preferredName": "", "sex": "", "dateOfBirth": "", "phone": "509-1234-5678", "alternatePhone": "", "email": "", "address": "", "city": "", "occupation": "", "employer": "", "preferredLanguage": "", "communicationPreference": "", "referralSource": "", "referringProvider": "", "notes": "", "tags": []string{},
+	}, a.nurse)
+	if patient.Code != http.StatusCreated {
+		t.Fatalf("create patient: %d %s", patient.Code, patient.Body.String())
+	}
+	patientID := decodeResponse[map[string]any](t, patient)["id"].(string)
+
+	wrongLastName := a.request(http.MethodPost, "/api/v1/public/kiosk/lookup", map[string]any{"phone": "(509) 1234-5678", "lastName": "NotAMatch"}, nil)
+	if wrongLastName.Code != http.StatusNotFound {
+		t.Fatalf("wrong last name lookup status=%d, want 404", wrongLastName.Code)
+	}
+
+	lookup := a.request(http.MethodPost, "/api/v1/public/kiosk/lookup", map[string]any{"phone": "(509) 1234-5678", "lastName": "walker"}, nil)
+	if lookup.Code != http.StatusOK {
+		t.Fatalf("kiosk lookup: %d %s", lookup.Code, lookup.Body.String())
+	}
+	found := decodeResponse[map[string]any](t, lookup)
+	if found["patientId"] != patientID || found["firstName"] != "Kiosk" || found["lastInitial"] != "W." {
+		t.Fatalf("kiosk lookup result mismatch: %v", found)
+	}
+
+	mismatchedCheckIn := a.request(http.MethodPost, "/api/v1/public/kiosk/checkin", map[string]any{"patientId": patientID, "phone": "509-0000-0000", "lastName": "Walker", "appointmentId": ""}, nil)
+	if mismatchedCheckIn.Code != http.StatusForbidden {
+		t.Fatalf("mismatched phone check-in status=%d, want 403", mismatchedCheckIn.Code)
+	}
+
+	checkIn := a.request(http.MethodPost, "/api/v1/public/kiosk/checkin", map[string]any{"patientId": patientID, "phone": "509-1234-5678", "lastName": "Walker", "appointmentId": ""}, nil)
+	if checkIn.Code != http.StatusCreated {
+		t.Fatalf("kiosk check-in: %d %s", checkIn.Code, checkIn.Body.String())
+	}
+
+	duplicate := a.request(http.MethodPost, "/api/v1/public/kiosk/checkin", map[string]any{"patientId": patientID, "phone": "509-1234-5678", "lastName": "Walker", "appointmentId": ""}, nil)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate kiosk check-in status=%d, want 409", duplicate.Code)
+	}
+
+	queue := a.request(http.MethodGet, "/api/v1/queue", nil, a.nurse)
+	if queue.Code != http.StatusOK || !bytes.Contains(queue.Body.Bytes(), []byte(`"source":"kiosk"`)) {
+		t.Fatalf("queue entry missing kiosk source: %d %s", queue.Code, queue.Body.String())
+	}
+}
+
+func TestKioskLookupIsRateLimited(t *testing.T) {
+	a := newTestApp(t)
+	for i := 0; i < kioskLookupMaxAttempts; i++ {
+		response := a.request(http.MethodPost, "/api/v1/public/kiosk/lookup", map[string]any{"phone": "000", "lastName": "Nobody"}, nil)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("attempt %d status=%d, want 404", i, response.Code)
+		}
+	}
+	limited := a.request(http.MethodPost, "/api/v1/public/kiosk/lookup", map[string]any{"phone": "000", "lastName": "Nobody"}, nil)
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("throttled lookup status=%d, want 429", limited.Code)
 	}
 }
 

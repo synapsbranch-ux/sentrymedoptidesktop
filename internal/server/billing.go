@@ -19,6 +19,7 @@ type invoiceLinePayload struct {
 	UnitPriceMinor  int64  `json:"unitPriceMinor"`
 	DiscountMinor   int64  `json:"discountMinor"`
 	TaxMinor        int64  `json:"taxMinor"`
+	ProcedureCode   string `json:"procedureCode"`
 }
 
 type invoicePayload struct {
@@ -92,15 +93,15 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), "SELECT id,COALESCE(inventory_item_id,''),description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor FROM invoice_items WHERE invoice_id=?", id)
+	rows, _ := s.db.QueryContext(r.Context(), "SELECT id,COALESCE(inventory_item_id,''),description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor,COALESCE(procedure_code,'') FROM invoice_items WHERE invoice_id=?", id)
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
-			var itemID, inventoryID, description string
+			var itemID, inventoryID, description, procedureCode string
 			var quantity int
 			var price, itemDiscount, itemTax, lineTotal, cost int64
-			if rows.Scan(&itemID, &inventoryID, &description, &quantity, &price, &itemDiscount, &itemTax, &lineTotal, &cost) == nil {
-				items = append(items, map[string]any{"id": itemID, "inventoryItemId": inventoryID, "description": description, "quantity": quantity, "unitPriceMinor": price, "discountMinor": itemDiscount, "taxMinor": itemTax, "lineTotalMinor": lineTotal, "costMinor": cost})
+			if rows.Scan(&itemID, &inventoryID, &description, &quantity, &price, &itemDiscount, &itemTax, &lineTotal, &cost, &procedureCode) == nil {
+				items = append(items, map[string]any{"id": itemID, "inventoryItemId": inventoryID, "description": description, "quantity": quantity, "unitPriceMinor": price, "discountMinor": itemDiscount, "taxMinor": itemTax, "lineTotalMinor": lineTotal, "costMinor": cost, "procedureCode": procedureCode})
 			}
 		}
 	}
@@ -188,12 +189,16 @@ func (s *Server) createInvoiceTx(ctx *http.Request, tx *sql.Tx, input invoicePay
 	}
 	for _, item := range input.Items {
 		var cost int64
+		procedureCode := strings.TrimSpace(item.ProcedureCode)
 		if item.InventoryItemID != "" {
 			var trackStock bool
 			var quantity int
-			var itemCurrency string
-			if err = tx.QueryRowContext(ctx.Context(), "SELECT cost_minor,track_stock,quantity,currency FROM inventory_items WHERE id=? AND archived_at IS NULL", item.InventoryItemID).Scan(&cost, &trackStock, &quantity, &itemCurrency); err != nil {
+			var itemCurrency, itemProcedureCode string
+			if err = tx.QueryRowContext(ctx.Context(), "SELECT cost_minor,track_stock,quantity,currency,COALESCE(procedure_code,'') FROM inventory_items WHERE id=? AND archived_at IS NULL", item.InventoryItemID).Scan(&cost, &trackStock, &quantity, &itemCurrency, &itemProcedureCode); err != nil {
 				return "", "", 0, err
+			}
+			if procedureCode == "" {
+				procedureCode = itemProcedureCode
 			}
 			if itemCurrency != input.Currency {
 				return "", "", 0, &APIError{Code: "MIXED_INVOICE_CURRENCY", Message: "Inventory items on an invoice must use the invoice currency."}
@@ -212,7 +217,7 @@ func (s *Server) createInvoiceTx(ctx *http.Request, tx *sql.Tx, input invoicePay
 			}
 		}
 		lineTotal := int64(item.Quantity)*item.UnitPriceMinor - item.DiscountMinor + item.TaxMinor
-		if _, err = tx.ExecContext(ctx.Context(), `INSERT INTO invoice_items(id,invoice_id,inventory_item_id,description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor) VALUES(?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), id, nilIfEmpty(item.InventoryItemID), strings.TrimSpace(item.Description), item.Quantity, item.UnitPriceMinor, item.DiscountMinor, item.TaxMinor, lineTotal, cost); err != nil {
+		if _, err = tx.ExecContext(ctx.Context(), `INSERT INTO invoice_items(id,invoice_id,inventory_item_id,description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor,procedure_code) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), id, nilIfEmpty(item.InventoryItemID), strings.TrimSpace(item.Description), item.Quantity, item.UnitPriceMinor, item.DiscountMinor, item.TaxMinor, lineTotal, cost, nilIfEmpty(procedureCode)); err != nil {
 			return "", "", 0, err
 		}
 	}

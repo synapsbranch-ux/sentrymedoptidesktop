@@ -136,27 +136,33 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if baseCurrency == "" {
 			baseCurrency = "HTG"
 		}
-		var todayRevenue, monthRevenue, outstanding, expenses int64
-		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)=?", today).Scan(&todayRevenue)
-		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,7)=?", month).Scan(&monthRevenue)
-		_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i
+		var todayPayments, todayRefunds, monthPayments, monthRefunds, outstanding, expenses int64
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)=?", today).Scan(&todayPayments)
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)=?", today).Scan(&todayRefunds)
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,7)=?", month).Scan(&monthPayments)
+		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,7)=?", month).Scan(&monthRefunds)
+		todayRevenue, monthRevenue := todayPayments-todayRefunds, monthPayments-monthRefunds
+		_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0)+COALESCE(ref.refunded,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i
 			LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id
+			LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id
 			WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding)
 		_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM expenses WHERE substr(expense_date,1,7)=?", month).Scan(&expenses)
-		response["finance"] = map[string]any{"baseCurrency": baseCurrency, "todayRevenueMinor": todayRevenue, "monthRevenueMinor": monthRevenue, "outstandingMinor": outstanding, "monthExpensesMinor": expenses}
+		response["finance"] = map[string]any{"baseCurrency": baseCurrency, "todayRevenueMinor": todayRevenue, "monthRevenueMinor": monthRevenue, "monthRefundsMinor": monthRefunds, "outstandingMinor": outstanding, "monthExpensesMinor": expenses}
 		dailyRevenue := []map[string]any{}
 		for offset := 6; offset >= 0; offset-- {
 			day := time.Now().UTC().AddDate(0, 0, -offset).Format("2006-01-02")
-			var value int64
-			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)=?", day).Scan(&value)
-			dailyRevenue = append(dailyRevenue, map[string]any{"label": day, "value": value})
+			var payments, refunds int64
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)=?", day).Scan(&payments)
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)=?", day).Scan(&refunds)
+			dailyRevenue = append(dailyRevenue, map[string]any{"label": day, "value": payments - refunds})
 		}
 		monthlyRevenue := []map[string]any{}
 		for offset := 5; offset >= 0; offset-- {
 			period := time.Now().UTC().AddDate(0, -offset, 0).Format("2006-01")
-			var value int64
-			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,7)=?", period).Scan(&value)
-			monthlyRevenue = append(monthlyRevenue, map[string]any{"label": period, "value": value})
+			var payments, refunds int64
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,7)=?", period).Scan(&payments)
+			_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,7)=?", period).Scan(&refunds)
+			monthlyRevenue = append(monthlyRevenue, map[string]any{"label": period, "value": payments - refunds})
 		}
 		salesDistribution := []map[string]any{}
 		salesRows, _ := s.db.QueryContext(r.Context(), `SELECT COALESCE(ii.category,'service'),COALESCE(SUM(li.line_total_minor),0) FROM invoice_items li JOIN invoices inv ON inv.id=li.invoice_id LEFT JOIN inventory_items ii ON ii.id=li.inventory_item_id WHERE inv.status NOT IN ('cancelled','refunded') AND substr(inv.created_at,1,7)=? GROUP BY COALESCE(ii.category,'service') ORDER BY 2 DESC`, month)

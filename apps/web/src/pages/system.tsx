@@ -2,7 +2,7 @@ import * as React from "react";
 import { DatabaseBackup, ExternalLink, FolderOpen, HardDrive, ImageUp, KeyRound, Languages, MonitorUp, Palette, Pencil, Power, Plus, RotateCcw, Save, ShieldCheck, UserCog, Wifi } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
-import { api } from "../api";
+import { api, APIError } from "../api";
 import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
 import { dateTime } from "../lib";
@@ -52,7 +52,57 @@ function ClinicSettings({ data, onSaved }: { data: SettingsResponse; onSaved(): 
   const initial = (data.settings.clinic ?? {}) as Record<string, string>; const [form, setForm] = React.useState({ name: initial.name ?? "", address: initial.address ?? "", phone: initial.phone ?? "", email: initial.email ?? "", timezone: initial.timezone ?? "America/Port-au-Prince", currency: initial.currency ?? "HTG", nif: initial.nif ?? "" }); const [saving, setSaving] = React.useState(false); const [logoVersion, setLogoVersion] = React.useState(Date.now()); const [logoAvailable, setLogoAvailable] = React.useState(true);
   const save = async () => { setSaving(true); try { await api.put("/settings/clinic", { value: form, version: data.versions.clinic }); toast.success("Clinic settings saved"); onSaved(); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not save settings"); } finally { setSaving(false); } };
   const uploadLogo = async (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; const body = new FormData(); body.append("logo", file); setSaving(true); try { await api.post("/branding/logo", body); setLogoVersion(Date.now()); setLogoAvailable(true); toast.success("Clinic logo updated"); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not upload logo"); } finally { setSaving(false); event.target.value = ""; } };
-  return <div className="grid gap-4 lg:grid-cols-[260px_1fr]"><Card><CardHeader><CardTitle>Clinic logo</CardTitle><CardDescription>PNG or JPEG, up to 3 MB. It appears in the app, public display and printed documents.</CardDescription></CardHeader><CardContent className="grid gap-4"><div className="grid aspect-square place-items-center overflow-hidden rounded-xl border bg-zinc-50">{logoAvailable ? <img className="max-h-full max-w-full object-contain p-4" src={`/api/v1/public/branding/logo?v=${logoVersion}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <div className="text-center text-sm text-zinc-400"><ImageUp className="mx-auto mb-2 h-8 w-8" />No logo uploaded</div>}</div><label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--input)] bg-[var(--card)] px-4 text-sm font-semibold hover:bg-[var(--muted)]"><ImageUp className="h-4 w-4" />{saving ? "Uploading…" : "Upload logo"}<input className="sr-only" type="file" accept="image/png,image/jpeg" onChange={uploadLogo} disabled={saving} /></label></CardContent></Card><Card><CardHeader><CardTitle>Clinic identity</CardTitle><CardDescription>Used on prescriptions, invoices, receipts and reports.</CardDescription></CardHeader><CardContent className="grid gap-4"><div className="grid gap-4 sm:grid-cols-2"><Field label="Clinic name"><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field><Field label="NIF / tax information"><Input value={form.nif} onChange={(event) => setForm({ ...form, nif: event.target.value })} /></Field><Field label="Phone"><Input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field><Field label="Email"><Input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field><Field label="Timezone"><Input value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Field label="Base currency"><Select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })}><option>HTG</option><option>USD</option></Select></Field></div><Field label="Address"><Input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></Field><div className="flex justify-end"><Button disabled={saving} onClick={save}><Save className="h-4 w-4" />{saving ? "Saving…" : "Save settings"}</Button></div></CardContent></Card></div>;
+  return <><div className="grid gap-4 lg:grid-cols-[260px_1fr]"><Card><CardHeader><CardTitle>Clinic logo</CardTitle><CardDescription>PNG or JPEG, up to 3 MB. It appears in the app, public display and printed documents.</CardDescription></CardHeader><CardContent className="grid gap-4"><div className="grid aspect-square place-items-center overflow-hidden rounded-xl border bg-zinc-50">{logoAvailable ? <img className="max-h-full max-w-full object-contain p-4" src={`/api/v1/public/branding/logo?v=${logoVersion}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <div className="text-center text-sm text-zinc-400"><ImageUp className="mx-auto mb-2 h-8 w-8" />No logo uploaded</div>}</div><label className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius)] border border-[var(--input)] bg-[var(--card)] px-4 text-sm font-semibold hover:bg-[var(--muted)]"><ImageUp className="h-4 w-4" />{saving ? "Uploading…" : "Upload logo"}<input className="sr-only" type="file" accept="image/png,image/jpeg" onChange={uploadLogo} disabled={saving} /></label></CardContent></Card><Card><CardHeader><CardTitle>Clinic identity</CardTitle><CardDescription>Used on prescriptions, invoices, receipts and reports.</CardDescription></CardHeader><CardContent className="grid gap-4"><div className="grid gap-4 sm:grid-cols-2"><Field label="Clinic name"><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field><Field label="NIF / tax information"><Input value={form.nif} onChange={(event) => setForm({ ...form, nif: event.target.value })} /></Field><Field label="Phone"><Input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field><Field label="Email"><Input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></Field><Field label="Timezone"><Input value={form.timezone} onChange={(event) => setForm({ ...form, timezone: event.target.value })} /></Field><Field label="Base currency"><Select value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value })}><option>HTG</option><option>USD</option></Select></Field></div><Field label="Address"><Input value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} /></Field><div className="flex justify-end"><Button disabled={saving} onClick={save}><Save className="h-4 w-4" />{saving ? "Saving…" : "Save settings"}</Button></div></CardContent></Card></div><TranscriptionSettings data={data} onSaved={onSaved} /></>;
+}
+
+function TranscriptionSettings({ data, onSaved }: { data: SettingsResponse; onSaved(): void }) {
+  const initial = (data.settings.clinical ?? {}) as { transcriptionEnabled?: boolean; transcriptionCommand?: string; appointmentDuration?: number; enabledSections?: string[] };
+  const [enabled, setEnabled] = React.useState(Boolean(initial.transcriptionEnabled));
+  const [command, setCommand] = React.useState(initial.transcriptionCommand ?? "");
+  const [saving, setSaving] = React.useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/settings/clinical", {
+        value: { appointmentDuration: initial.appointmentDuration ?? 30, enabledSections: initial.enabledSections ?? [], transcriptionEnabled: enabled, transcriptionCommand: command },
+        version: data.versions.clinical,
+      });
+      toast.success("Consultation recording settings saved");
+      onSaved();
+    } catch (reason) {
+      toast.error(reason instanceof APIError ? reason.body.message : "Could not save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle>Consultation recording & transcription</CardTitle>
+        <CardDescription>
+          Doctors can record a consultation with the patient's confirmed consent. Audio is always kept on this
+          computer. Transcription is optional and fully local: it runs a command you configure here, on this
+          machine — nothing is ever sent to a cloud service. See scripts/transcribe_pocketsphinx.py for a
+          ready-to-use offline (English-only) reference implementation and setup instructions.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <label className="flex min-h-11 items-start gap-3 rounded-[var(--radius)] border border-[var(--border)] p-4">
+          <input className="mt-1" type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          <span>
+            <strong>Enable local transcription</strong>
+            <span className="block text-xs text-[var(--muted-foreground)]">Recording and playback always work even if this is off; only automatic transcription is gated.</span>
+          </span>
+        </label>
+        <Field label="Transcription command" hint="Runs locally on this server. The recording's file path is appended as the last argument.">
+          <Input className="font-mono" placeholder="python3 /path/to/scripts/transcribe_pocketsphinx.py" value={command} onChange={(event) => setCommand(event.target.value)} />
+        </Field>
+        <div className="flex justify-end">
+          <Button disabled={saving} onClick={save}><Save className="h-4 w-4" />{saving ? "Saving…" : "Save recording settings"}</Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function AppearanceSettings({ data, onSaved }: { data: SettingsResponse; onSaved(): void }) {

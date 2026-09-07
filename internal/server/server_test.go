@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/app"
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/database"
@@ -871,6 +872,166 @@ func TestKioskLookupIsRateLimited(t *testing.T) {
 	limited := a.request(http.MethodPost, "/api/v1/public/kiosk/lookup", map[string]any{"phone": "000", "lastName": "Nobody"}, nil)
 	if limited.Code != http.StatusTooManyRequests {
 		t.Fatalf("throttled lookup status=%d, want 429", limited.Code)
+	}
+}
+
+func multipartAudioRequest(t *testing.T, path, mediaType, filename string, audioBytes []byte, extraFields map[string]string) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range extraFields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	header := make(map[string][]string)
+	header["Content-Disposition"] = []string{`form-data; name="audio"; filename="` + filename + `"`}
+	header["Content-Type"] = []string{mediaType}
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(audioBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, path, &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.RemoteAddr = "127.0.0.1:1234"
+	return request
+}
+
+func (a *testApp) requestRaw(request *http.Request, cookie *http.Cookie) *httptest.ResponseRecorder {
+	a.t.Helper()
+	if cookie != nil {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	a.handler.ServeHTTP(response, request)
+	return response
+}
+
+func waitForTranscriptStatus(t *testing.T, a *testApp, recordingID string, want string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last map[string]any
+	for time.Now().Before(deadline) {
+		var status string
+		var raw string
+		row := a.server.db.QueryRowContext(context.Background(), "SELECT transcript_status,COALESCE(transcript_text,'') FROM consultation_recordings WHERE id=?", recordingID)
+		if err := row.Scan(&status, &raw); err == nil && status == want {
+			return map[string]any{"transcriptStatus": status, "transcriptText": raw}
+		}
+		last = map[string]any{"transcriptStatus": status}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("recording %s did not reach status %q in time, last=%v", recordingID, want, last)
+	return nil
+}
+
+func TestConsultationRecordingRequiresConsentAndLocksAfterFinalize(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Recorded", "Patient")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Cough", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+
+	withoutConsent := multipartAudioRequest(t, "/api/v1/encounters/"+encounterID+"/recordings", "audio/wav", "rec.wav", []byte("RIFF0000WAVEfmt "), map[string]string{"durationSeconds": "5"})
+	if response := a.requestRaw(withoutConsent, a.nurse); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("recording without consent status=%d, want 422: %s", response.Code, response.Body.String())
+	}
+
+	unsupported := multipartAudioRequest(t, "/api/v1/encounters/"+encounterID+"/recordings", "text/plain", "rec.txt", []byte("not audio"), map[string]string{"consentConfirmed": "true", "durationSeconds": "5"})
+	if response := a.requestRaw(unsupported, a.nurse); response.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("unsupported media status=%d, want 415: %s", response.Code, response.Body.String())
+	}
+
+	diagnosis := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/diagnoses", map[string]any{"diagnosis": "Acute bronchitis", "code": "", "laterality": "", "notes": "", "primary": true}, a.doctor)
+	if diagnosis.Code != http.StatusCreated {
+		t.Fatalf("diagnosis: %d %s", diagnosis.Code, diagnosis.Body.String())
+	}
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	if finalized.Code != http.StatusOK {
+		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
+	}
+	afterLock := multipartAudioRequest(t, "/api/v1/encounters/"+encounterID+"/recordings", "audio/wav", "rec.wav", []byte("RIFF0000WAVEfmt "), map[string]string{"consentConfirmed": "true", "durationSeconds": "5"})
+	if response := a.requestRaw(afterLock, a.doctor); response.Code != http.StatusLocked {
+		t.Fatalf("recording after finalize status=%d, want 423: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestConsultationRecordingUnavailableWithoutTranscriptionConfigured(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Untranscribed", "Patient")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Cough", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+
+	req := multipartAudioRequest(t, "/api/v1/encounters/"+encounterID+"/recordings", "audio/wav", "rec.wav", []byte("RIFF0000WAVEfmt "), map[string]string{"consentConfirmed": "true", "durationSeconds": "12"})
+	response := a.requestRaw(req, a.nurse)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("recording create: %d %s", response.Code, response.Body.String())
+	}
+	recordingID := decodeResponse[map[string]any](t, response)["id"].(string)
+	result := waitForTranscriptStatus(t, a, recordingID, "unavailable")
+	if result["transcriptStatus"] != "unavailable" {
+		t.Fatalf("expected unavailable status, got %v", result)
+	}
+}
+
+func TestConsultationRecordingTranscriptionPipelineAndAudioPlayback(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Transcribed", "Patient")
+	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Cough", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
+	encounterID := decodeResponse[map[string]any](t, created)["id"].(string)
+
+	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
+	version := int(settings["versions"].(map[string]any)["clinical"].(float64))
+	configure := a.request(http.MethodPut, "/api/v1/settings/clinical", map[string]any{"value": map[string]any{"appointmentDuration": 30, "enabledSections": []string{}, "transcriptionEnabled": true, "transcriptionCommand": "echo mocked-transcript"}, "version": version}, a.doctor)
+	if configure.Code != http.StatusOK {
+		t.Fatalf("configure transcription: %d %s", configure.Code, configure.Body.String())
+	}
+
+	req := multipartAudioRequest(t, "/api/v1/encounters/"+encounterID+"/recordings", "audio/wav", "rec.wav", []byte("RIFF0000WAVEfmt "), map[string]string{"consentConfirmed": "true", "durationSeconds": "8"})
+	response := a.requestRaw(req, a.doctor)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("recording create: %d %s", response.Code, response.Body.String())
+	}
+	recordingID := decodeResponse[map[string]any](t, response)["id"].(string)
+
+	result := waitForTranscriptStatus(t, a, recordingID, "done")
+	if !strings.Contains(result["transcriptText"].(string), "mocked-transcript") {
+		t.Fatalf("transcript text=%v, want to contain mocked-transcript", result["transcriptText"])
+	}
+
+	list := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID+"/recordings", nil, a.nurse)
+	if list.Code != http.StatusOK || !bytes.Contains(list.Body.Bytes(), []byte("mocked-transcript")) {
+		t.Fatalf("recording list: %d %s", list.Code, list.Body.String())
+	}
+
+	audio := a.request(http.MethodGet, "/api/v1/recordings/"+recordingID+"/audio", nil, a.nurse)
+	if audio.Code != http.StatusOK || audio.Header().Get("Content-Type") != "audio/wav" || audio.Body.Len() == 0 {
+		t.Fatalf("recording audio playback: %d content-type=%s len=%d", audio.Code, audio.Header().Get("Content-Type"), audio.Body.Len())
+	}
+
+	corrected := a.request(http.MethodPut, "/api/v1/recordings/"+recordingID+"/transcript", map[string]any{"text": "Patient reports a persistent dry cough for two weeks."}, a.doctor)
+	if corrected.Code != http.StatusOK {
+		t.Fatalf("transcript correction: %d %s", corrected.Code, corrected.Body.String())
+	}
+	var edited bool
+	var text string
+	_ = a.server.db.QueryRowContext(context.Background(), "SELECT transcript_edited,transcript_text FROM consultation_recordings WHERE id=?", recordingID).Scan(&edited, &text)
+	if !edited || text != "Patient reports a persistent dry cough for two weeks." {
+		t.Fatalf("transcript correction not persisted: edited=%v text=%q", edited, text)
+	}
+
+	forbiddenDelete := a.request(http.MethodDelete, "/api/v1/recordings/"+recordingID, nil, a.nurse)
+	if forbiddenDelete.Code != http.StatusForbidden {
+		t.Fatalf("nurse delete status=%d, want 403", forbiddenDelete.Code)
+	}
+	deleted := a.request(http.MethodDelete, "/api/v1/recordings/"+recordingID, nil, a.doctor)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("doctor delete: %d %s", deleted.Code, deleted.Body.String())
 	}
 }
 

@@ -342,6 +342,20 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if key == "clinical" {
+		var value struct {
+			TranscriptionEnabled bool   `json:"transcriptionEnabled"`
+			TranscriptionCommand string `json:"transcriptionCommand"`
+		}
+		if json.Unmarshal(raw, &value) != nil || len(value.TranscriptionCommand) > 1000 {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_SETTING", "Clinical settings are invalid.")
+			return
+		}
+		if value.TranscriptionEnabled && strings.TrimSpace(value.TranscriptionCommand) == "" {
+			writeError(w, http.StatusUnprocessableEntity, "TRANSCRIPTION_COMMAND_REQUIRED", "Set a transcription command before enabling transcription.")
+			return
+		}
+	}
 	if key == "backup" {
 		var value struct {
 			Directory string `json:"directory"`

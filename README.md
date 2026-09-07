@@ -33,6 +33,20 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - server-persisted shadcn base/accent themes with light, dark and device modes;
 - server-persisted language selection for English, French, Haitian Creole, Portuguese, Spanish, German, Simplified Chinese, Russian, Japanese, Korean and Indonesian;
 - a privacy-filtered live waiting-room display for a clinic TV or tablet at `/display`.
+- consultation audio recording (with confirmed patient consent) and optional, fully local transcription saved to the patient's chart — see [Consultation recording and transcription](#consultation-recording-and-transcription).
+
+## Consultation recording and transcription
+
+A doctor or nurse can record a consultation from the "Recording" tab of an encounter. The patient's consent must be confirmed with a checkbox before recording starts; every recording (and who confirmed consent) is written to the audit log. Audio is stored locally under the clinic data directory and is never uploaded anywhere by SentryMed itself.
+
+Automatic transcription is optional and off by default. When enabled (**System → Clinic → Consultation recording & transcription**), the server runs a command you configure entirely on the clinic computer — no cloud speech API is called. A ready-to-use, offline, English-language reference implementation is included at `scripts/transcribe_pocketsphinx.py`:
+
+```bash
+sudo dnf install ffmpeg        # or apt/brew/choco equivalent
+pip install pocketsphinx       # bundles its own small acoustic model, no extra download
+```
+
+Then set the transcription command to `python3 /path/to/scripts/transcribe_pocketsphinx.py` and enable transcription. Every transcript is shown as an editable draft — review and correct it before treating it as part of the official record; pocketsphinx is accurate enough to speed up note-taking but is not a substitute for clinician review, and currently only recognizes English. A clinic needing another language can point the setting at any other local command that reads an audio file path from `argv[1]` and prints the transcript to stdout.
 
 ## Architecture
 

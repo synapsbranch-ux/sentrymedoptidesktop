@@ -1,22 +1,22 @@
 import * as React from "react";
-import { toast } from "sonner";
+import { ChartSaveNotice, useChartSave, type ChartState, type Mark } from "./chart-drafts";
+import { ChartHistoryPanel } from "./chart-history";
 import { Trash2 } from "lucide-react";
-import { api, APIError } from "../api";
+import { api } from "../api";
 import { useLoad } from "../hooks";
 import { cn } from "../lib";
 import { AnteriorBackdrop, FundusBackdrop, fieldCells, fundusClockHour, motilityCells, type ChartCell, type Eye } from "./chart-backdrops";
 import { AmslerSurface } from "./vision-surfaces";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Badge, EmptyState, Skeleton } from "./ui/data";
+import { Badge, EmptyState, ErrorState, Skeleton } from "./ui/data";
 import { Field, Input, Select, Textarea } from "./ui/input";
 
-interface Mark { x: number; y: number; shape: string; color: string; label: string; structure: string; cell?: string; grade?: string; clockHour?: number }
-interface ChartState { annotations: Mark[]; notes: string; version: number }
 type ChartType = "anterior" | "fundus" | "field" | "amsler" | "motility";
 type Charts = Record<ChartType, Partial<Record<Eye, ChartState>>>;
 interface ChartsResponse {
   charts: Charts;
+  previousByChart?: Record<string, Record<string, { encounterNumber: string; date: string; chart: ChartState }>>;
   previous: { encounterNumber: string; date: string; charts: Charts } | null;
 }
 
@@ -58,19 +58,24 @@ const chartTabs: { type: ChartType; label: string; description: string }[] = [
 ];
 
 export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: string; canEdit: boolean }) {
+  return <ChartsEditor encounterId={encounterId} canEdit={canEdit} />;
+}
+
+function ChartsEditor({ encounterId, canEdit }: { encounterId: string; canEdit: boolean }) {
   const charts = useLoad(() => api.get<ChartsResponse>(`/encounters/${encounterId}/eye-diagrams`), [encounterId]);
   const [chartType, setChartType] = React.useState<ChartType>("anterior");
 
-  if (charts.loading) return <Skeleton className="h-96" />;
+  if (charts.loading && !charts.data) return <Skeleton className="h-96" />;
+  if (charts.error && !charts.data) return <ErrorState message={charts.error.message} retry={charts.reload} />;
   if (!charts.data) return null;
   const current = charts.data.charts;
-  const previous = charts.data.previous;
   const active = chartTabs.find((tab) => tab.type === chartType)!;
   const state = (type: ChartType, eye: Eye) => current[type]?.[eye] ?? emptyChart;
-  const previousMarks = (type: ChartType, eye: Eye) => previous?.charts[type]?.[eye]?.annotations ?? [];
+  const prior = (type: ChartType, eye: Eye) => charts.data?.previousByChart?.[type]?.[eye];
+  const previousMarks = (type: ChartType, eye: Eye) => prior(type,eye)?.chart.annotations ?? [];
 
   return (
-    <div className="grid gap-4">
+    <div role="region" aria-label="Clinical charts" className="grid min-w-0 gap-4">
       <div className="flex flex-wrap gap-1 border-b pb-2">
         {chartTabs.map((tab) => (
           <button
@@ -88,6 +93,8 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
         ))}
       </div>
       <p className="-mt-2 text-xs text-zinc-500">{active.description}</p>
+      <p className="text-xs text-zinc-500">2D schematic coordinates — not physical measurements. Drafts are retained while switching chart tabs; save before leaving the consultation.</p>
+      <ChartHistoryPanel key={chartType} encounterId={encounterId} chartType={chartType} eyes={chartType === "motility" ? ["OU"] : ["OD","OS"]} charts={current[chartType]} canEdit={canEdit} onSaved={charts.reload} />
 
       {chartType === "anterior" && (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -141,7 +148,7 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
               layout="radial"
               state={state("field", eye)}
               previousMarks={previousMarks("field", eye)}
-              previousLabel={previous?.encounterNumber ?? null}
+              previousLabel={prior("field",eye)?.encounterNumber ?? null}
               canEdit={canEdit}
               onSaved={charts.reload}
             />
@@ -157,7 +164,7 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
               title={eye === "OD" ? "Right eye (OD)" : "Left eye (OS)"}
               state={state("amsler", eye)}
               previousMarks={previousMarks("amsler", eye)}
-              previousLabel={previous?.encounterNumber ?? null}
+              previousLabel={prior("amsler",eye)?.encounterNumber ?? null}
             />
           ))}
         </div>
@@ -174,7 +181,7 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
           layout="grid"
           state={state("motility", "OU")}
           previousMarks={previousMarks("motility", "OU")}
-          previousLabel={previous?.encounterNumber ?? null}
+          previousLabel={prior("motility","OU")?.encounterNumber ?? null}
           canEdit={canEdit}
           showCoverTest
           onSaved={charts.reload}
@@ -184,43 +191,11 @@ export function ClinicalChartsPanel({ encounterId, canEdit }: { encounterId: str
   );
 }
 
-/**
- * Shared save behaviour for every chart: optimistic-locking version handling,
- * conflict reporting and dirty tracking against the last loaded server state.
- */
-function useChartSave(encounterId: string, chartType: ChartType, eye: Eye, state: ChartState, onSaved: () => void) {
-  const [annotations, setAnnotations] = React.useState(state.annotations);
-  const [notes, setNotes] = React.useState(state.notes);
-  const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    setAnnotations(state.annotations);
-    setNotes(state.notes);
-  }, [state]);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api.put(`/encounters/${encounterId}/eye-diagrams/${chartType}/${eye}`, { annotations, notes, version: state.version });
-      toast.success("Chart saved");
-      onSaved();
-    } catch (reason) {
-      if (reason instanceof APIError && reason.isConflict) toast.error("This chart changed since it was opened. Reload before saving.");
-      else toast.error(reason instanceof Error ? reason.message : "Could not save the chart");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const dirty = JSON.stringify(annotations) !== JSON.stringify(state.annotations) || notes !== state.notes;
-  return { annotations, setAnnotations, notes, setNotes, saving, dirty, save };
-}
-
-function ChartFooter({ notes, setNotes, canEdit, dirty, saving, save }: { notes: string; setNotes(value: string): void; canEdit: boolean; dirty: boolean; saving: boolean; save(): void }) {
+function ChartFooter({ title, notes, setNotes, canEdit, dirty, saving, save }: { title: string; notes: string; setNotes(value: string): void; canEdit: boolean; dirty: boolean; saving: boolean; save(): void }) {
   return (
     <>
       <Field label="Notes">
-        <Textarea disabled={!canEdit} value={notes} onChange={(event) => setNotes(event.target.value)} />
+        <Textarea aria-label={`${title} notes`} disabled={!canEdit} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
       {canEdit && (
         <div className="flex justify-end">
@@ -242,7 +217,8 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
   canEdit: boolean;
   onSaved(): void;
 }) {
-  const { annotations, setAnnotations, notes, setNotes, saving, dirty, save } = useChartSave(encounterId, chartType, eye, state, onSaved);
+  const editor = useChartSave(encounterId, chartType, eye, state, onSaved);
+  const { annotations, setAnnotations, notes, setNotes, saving, dirty, save } = editor;
   const [pending, setPending] = React.useState<{ x: number; y: number } | null>(null);
   const [label, setLabel] = React.useState("");
   const [structure, setStructure] = React.useState(available[0]);
@@ -271,10 +247,10 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
         <CardTitle>{title}</CardTitle>
         <CardDescription>{canEdit ? "Click the diagram to mark a finding." : "Read-only findings from this consultation."}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent className="grid min-w-0 gap-3">
         <svg
           viewBox="0 0 100 100"
-          className={cn("w-full rounded-md border bg-zinc-50", canEdit && "cursor-crosshair")}
+          className={cn("min-w-0 w-full rounded-md border bg-zinc-50", canEdit && "cursor-crosshair")}
           onClick={handleClick}
           role="img"
           aria-label={`${title} schematic diagram`}
@@ -340,7 +316,8 @@ function FreeChartEditor({ encounterId, chartType, eye, title, structures: avail
             </div>
           </div>
         )}
-        <ChartFooter notes={notes} setNotes={setNotes} canEdit={canEdit} dirty={dirty} saving={saving} save={save} />
+        <ChartSaveNotice editor={editor} canEdit={canEdit} />
+        <ChartFooter title={title} notes={notes} setNotes={setNotes} canEdit={canEdit} dirty={dirty && !editor.remote} saving={saving} save={save} />
       </CardContent>
     </Card>
   );
@@ -361,7 +338,8 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
   showCoverTest?: boolean;
   onSaved(): void;
 }) {
-  const { annotations, setAnnotations, notes, setNotes, saving, dirty, save } = useChartSave(encounterId, chartType, eye, state, onSaved);
+  const editor = useChartSave(encounterId, chartType, eye, state, onSaved);
+  const { annotations, setAnnotations, notes, setNotes, saving, dirty, save } = editor;
   const [focused, setFocused] = React.useState<string | null>(null);
   const [showPrevious, setShowPrevious] = React.useState(true);
   const marked = new Map(annotations.map((mark) => [mark.cell ?? "", mark]));
@@ -371,7 +349,7 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
   const setCoverValue = (cell: string, grade: string) => {
     const existing = marked.get(cell);
     if (!grade) { setAnnotations(annotations.filter((mark) => mark.cell !== cell)); return; }
-    const updated: Mark = { x: 50, y: 50, shape: "field", color: "#52525b", label: existing?.label ?? "", structure: "cover_test", cell, grade };
+    const updated: Mark = { ...existing, x: 50, y: 50, shape: "field", color: "#52525b", label: existing?.label ?? "", structure: "cover_test", cell, grade };
     setAnnotations(existing ? annotations.map((mark) => mark.cell === cell ? updated : mark) : [...annotations, updated]);
   };
 
@@ -385,7 +363,7 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
       setAnnotations(annotations.filter((mark) => mark.cell !== cell.id));
       return;
     }
-    const updated: Mark = { x: cell.cx, y: cell.cy, shape: "cell", color: next.color, label: existing?.label ?? "", structure: chartType, cell: cell.id, grade: next.value };
+    const updated: Mark = { ...existing, x: cell.cx, y: cell.cy, shape: "cell", color: next.color, label: existing?.label ?? "", structure: chartType, cell: cell.id, grade: next.value };
     setAnnotations(existing ? annotations.map((mark) => (mark.cell === cell.id ? updated : mark)) : [...annotations, updated]);
   };
 
@@ -518,7 +496,8 @@ function GridChartEditor({ encounterId, chartType, eye, title, cells, grades, la
             })}
           </ul>
         )}
-        <ChartFooter notes={notes} setNotes={setNotes} canEdit={canEdit} dirty={dirty} saving={saving} save={save} />
+        <ChartSaveNotice editor={editor} canEdit={canEdit} />
+        <ChartFooter title={title} notes={notes} setNotes={setNotes} canEdit={canEdit} dirty={dirty && !editor.remote} saving={saving} save={save} />
       </CardContent>
     </Card>
   );

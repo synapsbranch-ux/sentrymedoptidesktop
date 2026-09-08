@@ -17,6 +17,55 @@ async function put<T>(page: Page, path: string, data: unknown): Promise<T> {
   return json<T>(await page.request.put(`/api/v1${path}`, { data }));
 }
 
+test("chart drafts survive consultation tabs and require explicit conflict review", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Email or username").fill("doctor.dev");
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill("Doctor-Development-Only-2026");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: /Good day/ })).toBeVisible();
+  const lastName = `Chart-${Date.now()}`;
+  const patient = await post<{id:string}>(page,"/patients",{firstName:"Test",lastName,tags:[]});
+  const visit = await post<{id:string}>(page,"/encounters",{patientId:patient.id,visitReason:"Chart review"});
+  await page.goto("/clinical");
+  await page.getByRole("button",{name:new RegExp(lastName)}).click();
+  const dialog=page.getByRole("dialog");
+  await dialog.getByRole("button",{name:"Charts",exact:true}).click();
+  await dialog.getByRole("button",{name:"Fundus",exact:true}).click();
+  await dialog.getByRole("textbox",{name:"Right fundus (OD) notes",exact:true}).fill("My retinal observation");
+  await dialog.getByLabel("Examination status").first().selectOption("findings");
+  await dialog.getByRole("button",{name:"Anterior segment",exact:true}).click();
+  await expect(dialog.getByRole("textbox",{name:"Right eye (OD) notes",exact:true})).toHaveValue("");
+  await dialog.getByRole("button",{name:"Fundus",exact:true}).click();
+  await expect(dialog.getByRole("textbox",{name:"Right fundus (OD) notes",exact:true})).toHaveValue("My retinal observation");
+  await dialog.getByRole("button",{name:"Doctor exam",exact:true}).click();
+  await dialog.getByRole("button",{name:"Charts",exact:true}).click();
+  await dialog.getByRole("button",{name:"Fundus",exact:true}).click();
+  await expect(dialog.getByRole("textbox",{name:"Right fundus (OD) notes",exact:true})).toHaveValue("My retinal observation");
+  page.once("dialog",confirmation=>confirmation.dismiss());
+  await dialog.getByRole("button",{name:"Close",exact:true}).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button",{name:"Save chart",exact:true}).first().click();
+  await expect(dialog.getByRole("button",{name:"Save chart",exact:true}).first()).toBeDisabled();
+  const path=`/encounters/${visit.id}/eye-diagrams/fundus/OD`;
+  await put(page,path,{version:1,annotations:[],notes:"Other device observation",examStatus:"findings"});
+  await dialog.getByRole("textbox",{name:"Right fundus (OD) notes",exact:true}).fill("Reviewed local observation");
+  await dialog.getByRole("button",{name:"Save chart",exact:true}).first().click();
+  await expect(dialog.getByText("Another version exists. Compare before saving.")).toBeVisible();
+  await expect(dialog.getByText("Other device observation",{exact:true})).toBeVisible();
+  await expect(dialog.getByRole("textbox",{name:"Right fundus (OD) notes",exact:true})).toHaveValue("Reviewed local observation");
+  page.once("dialog",confirmation=>confirmation.accept());
+  await dialog.getByRole("button",{name:"I reviewed it — keep my draft for the next save"}).click();
+  await dialog.getByRole("button",{name:"Save chart",exact:true}).first().click();
+  await expect(dialog.getByRole("button",{name:"Save chart",exact:true}).first()).toBeDisabled();
+  await dialog.getByRole("button",{name:"Chart history and finding follow-up"}).click();
+  await expect(dialog.locator("summary")).toHaveCount(3);
+  const chartRegion=dialog.getByRole("region",{name:"Clinical charts"});
+  expect(await chartRegion.evaluate(element=>element.scrollWidth<=element.clientWidth+1)).toBe(true);
+  const history=await json<{items:Array<{notes:string;version:number}>}>(await page.request.get(`/api/v1${path}/history`));
+  expect(history.items.map(item=>item.notes)).toEqual(["Reviewed local observation","Other device observation","My retinal observation"]);
+  await page.screenshot({path:"test-results/chart-history-mobile.png",fullPage:true});
+});
+
 test("mobile clinic flow persists from arrival through optical delivery", async ({ page }) => {
   const suffix = Date.now().toString();
   const patientName = `Marie Joseph ${suffix}`;

@@ -343,7 +343,69 @@ them takes anything down.
 5. **Where should bugs be tracked?** Section 0 left this blank. This file is the
    log until a tracker is named.
 
-## 6. Definition of done — status
+## 6. Security review of this round's changes
+
+This round added file serving, credential-adjacent signature storage, dynamic SQL
+and client-side storage of patient audio to an application that holds patient
+data, so the diff was reviewed on those axes and the conclusions pinned with
+tests in `internal/server/security_review_test.go`.
+
+**Checked and sound.**
+
+- **SQL.** Every user-supplied value in the new patient search reaches the
+  database as a bound parameter. Only fixed clause fragments and constant column
+  names are concatenated into the statement — including the phone-digit
+  expression, whose `%s` substitutes a hardcoded column, never input.
+- **FTS query injection.** The MATCH argument is parsed by FTS5 as a query
+  expression, not as SQL, so the risk is a malformed expression erroring rather
+  than data disclosure. Terms are individually quoted, so `AND`, `OR`, `NOT`,
+  `NEAR` and `*` typed by a user are matched literally. Sixteen adversarial
+  inputs — SQL fragments, unbalanced quotes and parentheses, bare operators, a
+  5,000-character term, a NUL byte — all return results rather than an error, and
+  the table is intact afterwards.
+- **Path traversal.** Stored filenames are server-generated UUIDs plus a
+  validated extension; user filenames are never used as paths. Reads still wrap
+  the stored name in `filepath.Base`, so even a poisoned database value cannot
+  escape the directory. Writes use `O_EXCL` at 0600, in a 0700 directory.
+- **Upload content.** Both document and signature uploads are validated on
+  sniffed content, not on extension: PHP, HTML, shell and SVG payloads renamed to
+  an allowed extension are all rejected with 415. SVG matters specifically
+  because a signature is rendered onto a printed prescription. Size caps hold at
+  25 MB and 2 MB.
+- **Signature ownership.** The brief requires that a signature never be
+  applicable by anyone but its owner. It is only writable through `/me/signature`,
+  which resolves the owner from the session — there is no user parameter to
+  point elsewhere — and the signature stamped on a prescription is looked up by
+  the issuing doctor's own session id. Tests assert that one user's save, and
+  their delete, leave another user's signature untouched.
+- **Response headers.** Stored files are served with `nosniff` from the global
+  middleware and `Cache-Control: private, no-store`, so patient content is not
+  left in a shared cache.
+- **CSP.** `frame-src blob:` was added for the document viewer. It cannot be used
+  to run script in the application's origin: the upload allow-list has no HTML
+  type, the stored media type comes from a fixed set, `nosniff` is set, and the
+  viewer only frames `application/pdf` — a PDF renders in the browser's own
+  sandboxed viewer. `object-src 'none'` was added at the same time.
+
+**Two things the clinic should know, neither a defect introduced here.**
+
+1. **There is no per-patient authorisation anywhere in this application.** Any
+   signed-in staff member can read any patient's record, documents included, by
+   ID. That is the pre-existing model — both roles are clinical staff in one
+   small practice — and this round did not widen it: the new inline document
+   route carries exactly the same guard as the download route it sits beside. It
+   is worth a deliberate decision before this is deployed anywhere with a larger
+   or less trusted staff.
+2. **D5 stores consultation audio in the browser's IndexedDB**, which is the
+   direct consequence of the requirement that interrupted audio must not be lost.
+   It is cleared when the recording uploads successfully, when it is discarded,
+   and when a new recording starts — but a recording that is interrupted and then
+   never revisited stays in that device's storage indefinitely. On a shared
+   clinic tablet that is patient audio at rest outside the server. Options are a
+   retention cut-off or a prompt on the next sign-in; both are design decisions
+   rather than bug fixes, so neither was built unasked.
+
+## 7. Definition of done — status
 
 - No screen crashes and none produces an uncaught console error or framework
   warning: **enforced by a test that walks every route, both waiting-room screens

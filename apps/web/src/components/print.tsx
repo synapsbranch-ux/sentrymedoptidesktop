@@ -13,6 +13,20 @@ export function PrintHeader({ documentTitle, number, date }: { documentTitle: st
   </header>;
 }
 
-export function SignatureArea({ doctor }: { doctor?: string }) { return <div className="ml-auto mt-14 w-64 border-t border-black pt-2 text-center text-xs"><strong>{doctor || "Doctor"}</strong><div className="mt-1 text-zinc-500">Signature</div></div>; }
+/**
+ * D3: when the document carries a signature, the image applied at issue time is
+ * shown above the line, with who signed and when. `signatureSource` is a URL the
+ * caller has already fetched through the authenticated client.
+ */
+export function SignatureArea({ doctor, signatureSource, signedAt }: { doctor?: string; signatureSource?: string; signedAt?: string }) {
+  return <div className="ml-auto mt-14 w-64 text-center text-xs">
+    <div className="flex h-16 items-end justify-center">
+      {signatureSource && <img alt="" src={signatureSource} className="max-h-16 w-auto object-contain" />}
+    </div>
+    <div className="border-t border-black pt-2"><strong>{doctor || "Doctor"}</strong>
+      <div className="mt-1 text-zinc-500">{signedAt ? `Signed ${signedAt}` : "Signature"}</div>
+    </div>
+  </div>;
+}
 
 export function triggerPrint() { window.setTimeout(() => window.print(), 50); }

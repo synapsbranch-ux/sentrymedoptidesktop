@@ -467,7 +467,7 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 		where += " AND p.patient_id=?"
 		args = append(args, patientID)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id WHERE `+where+` ORDER BY p.issued_at DESC`, args...)
+	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name,COALESCE(signer.display_name,''),COALESCE(p.signed_at,''),CASE WHEN COALESCE(p.signature_storage_name,'')='' THEN 0 ELSE 1 END FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id LEFT JOIN users signer ON signer.id=p.signed_by WHERE `+where+` ORDER BY p.issued_at DESC`, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
 		return
@@ -475,10 +475,10 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor string
-		var version int
-		if rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor) == nil {
-			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor})
+		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor, signedBy, signedAt string
+		var version, signed int
+		if rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor, &signedBy, &signedAt, &signed) == nil {
+			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -516,13 +516,17 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	var number string
+	signatureStorage, signatureMediaType := s.signatureForIssuer(r, user.ID)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
 		number, err = s.nextNumber(r.Context(), tx, "prescription", "RX", true)
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), now, now, user.ID)
+		// D3: the issuing doctor's own signature is stamped onto the document,
+		// together with who signed and when. It is looked up by the session's
+		// user id, so no one can apply another clinician's signature.
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,signed_by,signed_at,signature_storage_name,signature_media_type,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?,?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), user.ID, now, nilIfEmpty(signatureStorage), nilIfEmpty(signatureMediaType), now, now, user.ID)
 		return err
 	})
 	if err != nil {
@@ -531,7 +535,7 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 	}
 	s.audit(r.Context(), &user, "issue", "prescription", id, "Issued "+input.Type+" prescription "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "prescription.created", EntityType: "prescription", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName})
 }
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {

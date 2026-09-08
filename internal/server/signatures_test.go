@@ -163,3 +163,50 @@ func TestReplacingASignatureDoesNotAlterAnAlreadyIssuedPrescription(t *testing.T
 		t.Fatalf("signature was not removed: %v", current)
 	}
 }
+
+// Regression: the client's api.put() helper used to JSON.stringify() every
+// body unconditionally, including a FormData signature upload — which
+// serializes to "{}" and is sent as application/json, never reaching the
+// server as multipart at all. ParseMultipartForm's error for "this isn't
+// multipart" and its error for "the body exceeded the byte limit" used to be
+// handled identically, so a doctor drawing a normal, small signature was told
+// their (nonexistent) file was over 2 MB — a message that sent them looking
+// for a problem that did not exist, while masking the real one (a client bug
+// that meant no signature was ever actually sent). This pins both the fixed
+// client behavior (api.test.ts) and this server-side distinction.
+func TestSignatureSaveDistinguishesWrongContentTypeFromTooLarge(t *testing.T) {
+	a := newTestApp(t)
+
+	// Exactly what the pre-fix client bug produced: a PUT with a JSON body
+	// instead of multipart/form-data, for an ordinary, small signature.
+	jsonRequest := httptest.NewRequest(http.MethodPut, "/api/v1/me/signature", bytes.NewBufferString("{}"))
+	jsonRequest.Header.Set("Content-Type", "application/json")
+	jsonRequest.RemoteAddr = "127.0.0.1:1234"
+	response := a.requestRaw(jsonRequest, a.doctor)
+
+	if response.Code == http.StatusRequestEntityTooLarge {
+		t.Fatalf("a non-multipart request was reported as too large, which is not what happened: %d %s", response.Code, response.Body.String())
+	}
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("non-multipart signature save = %d, want 400: %s", response.Code, response.Body.String())
+	}
+	body := decodeResponse[map[string]any](t, response)
+	if body["code"] == "SIGNATURE_TOO_LARGE" {
+		t.Fatalf("error code still misreports content-type mismatch as size: %v", body)
+	}
+
+	// A genuinely oversized multipart upload must still be reported as too large.
+	oversized := append(append([]byte{}, signaturePNG...), make([]byte, maxSignatureBytes+1024)...)
+	tooLarge := a.requestRaw(signatureRequest(t, "uploaded", oversized, "signature.png"), a.doctor)
+	if tooLarge.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("genuinely oversized signature = %d, want 413", tooLarge.Code)
+	}
+	if decodeResponse[map[string]any](t, tooLarge)["code"] != "SIGNATURE_TOO_LARGE" {
+		t.Fatalf("oversized signature did not report SIGNATURE_TOO_LARGE: %s", tooLarge.Body.String())
+	}
+
+	// And a normal, small signature must still save.
+	if saved := a.requestRaw(signatureRequest(t, "drawn", signaturePNG, "signature.png"), a.doctor); saved.Code != http.StatusOK {
+		t.Fatalf("ordinary signature save: %d %s", saved.Code, saved.Body.String())
+	}
+}

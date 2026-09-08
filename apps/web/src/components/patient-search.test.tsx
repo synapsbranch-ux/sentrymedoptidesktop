@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import { I18nProvider } from "../i18n";
+import { Field, FieldGroup } from "./ui/input";
 import { PatientPicker, activeFilterCount, emptyPatientFilters, patientAge, patientSearchQuery, type PatientSearchResult } from "./patient-search";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -78,8 +79,34 @@ describe("PatientPicker", () => {
     expect(option.textContent).toContain("PT-000001");
     expect(option.textContent).toContain("1985-03-04");
     expect(option.textContent).toContain("+509 3456 7890");
-    fireEvent.mouseDown(option);
+    fireEvent.click(option);
     expect(onChange).toHaveBeenCalledWith("p1", expect.objectContaining({ id: "p1" }));
+  });
+
+  it("selects on click, so keyboard and touch activation both work", async () => {
+    vi.spyOn(api, "get").mockResolvedValue({ items: [patient()], page: 1, limit: 10, total: 1, hasMore: false } as never);
+    const onChange = vi.fn();
+    render(<I18nProvider><PatientPicker value="" onChange={onChange} /></I18nProvider>);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "jean" } });
+    await act(async () => { vi.advanceTimersByTime(310); });
+    const option = await screen.findByRole("option");
+    // A keyboard activation produces click with no preceding mousedown.
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenCalledWith("p1", expect.objectContaining({ id: "p1" }));
+  });
+
+  it("is never wrapped in a label, which would send result clicks to the input", () => {
+    // A <label> may contain one labelable control and forwards clicks to it, so
+    // a composite control like this one belongs in FieldGroup.
+    const { container } = render(
+      <I18nProvider>
+        <FieldGroup label="Patient"><PatientPicker value="" onChange={() => undefined} /></FieldGroup>
+        <Field label="Plain"><input aria-label="Plain" /></Field>
+      </I18nProvider>,
+    );
+    const combobox = screen.getByRole("combobox");
+    expect(combobox.closest("label")).toBeNull();
+    expect(container.querySelector('[role="group"]')).toBeTruthy();
   });
 
   it("does not query the server for a single character", async () => {

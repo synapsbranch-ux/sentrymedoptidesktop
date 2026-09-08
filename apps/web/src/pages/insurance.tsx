@@ -32,7 +32,7 @@ import {
   Td,
   Th,
 } from "../components/ui/data";
-import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { PatientPicker } from "../components/patient-search";
 
 interface Payer {
@@ -403,13 +403,13 @@ function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
         </DialogDescription>
       </DialogHeader>
       <form className="grid gap-4" onSubmit={save}>
-        <Field label="Patient">
+        <FieldGroup label="Patient">
           <PatientPicker
             required
             value={f.patientId}
             onChange={(patientId) => setF({ ...f, patientId })}
           />
-        </Field>
+        </FieldGroup>
         <Field label="Insurer">
           <Select
             required

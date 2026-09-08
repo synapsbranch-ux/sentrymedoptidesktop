@@ -192,7 +192,11 @@ export function PatientPicker({ value, onChange, required, placeholder = "Search
               role="option"
               aria-selected={patient.id === value}
               className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--muted)]"
-              onMouseDown={() => { setSelected(patient); onChange(patient.id, patient); setOpen(false); }}
+              // mousedown only stops the input's blur from closing the list; the
+              // selection happens on click so that keyboard and assistive-technology
+              // activation, which never produces a mousedown, still works.
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { setSelected(patient); onChange(patient.id, patient); setOpen(false); }}
             >
               <span className="font-semibold">{patient.firstName} {patient.lastName}</span>
               <span className="ml-2 font-mono text-xs text-[var(--muted-foreground)]">{patient.medicalRecordNumber}</span>

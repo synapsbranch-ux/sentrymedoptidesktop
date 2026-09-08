@@ -20,3 +20,17 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   const { t } = useI18n();
   return <label className="grid gap-1.5 text-sm font-medium text-[var(--foreground)]"><span>{t(label)}</span>{children}{hint && <span className="text-xs font-normal text-[var(--muted-foreground)]">{t(hint)}</span>}</label>;
 }
+
+/**
+ * The same layout as Field, for a control made of more than one element — a
+ * search combobox with its result list, or a date paired with a time picker.
+ *
+ * A <label> may contain only one labelable control, and browsers forward a click
+ * anywhere inside it to that control. Wrapping a combobox in Field therefore made
+ * every result click land on the search input instead of selecting the result:
+ * the picker looked like it did nothing. Composite controls label themselves.
+ */
+export function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const { t } = useI18n();
+  return <div role="group" aria-label={t(label)} className="grid gap-1.5 text-sm font-medium text-[var(--foreground)]"><span>{t(label)}</span>{children}{hint && <span className="text-xs font-normal text-[var(--muted-foreground)]">{t(hint)}</span>}</div>;
+}

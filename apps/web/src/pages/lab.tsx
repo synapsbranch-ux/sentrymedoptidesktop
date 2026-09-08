@@ -21,7 +21,7 @@ import {
   DialogTrigger,
 } from "../components/ui/dialog";
 import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
-import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { DateTimeInput } from "../components/ui/date-time";
 import { useLoad } from "../hooks";
 import { dateTime } from "../lib";
@@ -358,13 +358,13 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
         </DialogDescription>
       </DialogHeader>
       <form className="grid gap-4" onSubmit={submit}>
-        <Field label="Patient">
+        <FieldGroup label="Patient">
           <PatientPicker
             required
             value={form.patientId}
             onChange={(patientId) => setForm({ ...form, patientId })}
           />
-        </Field>
+        </FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Lens type">
             <Select
@@ -386,7 +386,7 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
               }
             />
           </Field>
-          <Field label="Expected date">
+          <FieldGroup label="Expected date">
             {/* The field stores a local "YYYY-MM-DDTHH:MM" and converts to ISO on
                 submit. It previously held an ISO string, which no date/time input
                 accepts as a value, so the chosen date never redisplayed. */}
@@ -395,7 +395,7 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
               value={form.expectedAt}
               onChange={(expectedAt) => setForm({ ...form, expectedAt })}
             />
-          </Field>
+          </FieldGroup>
           {Object.entries(form.measurements).map(([key, value]) => (
             <Field key={key} label={key.replace(/([A-Z])/g, " $1")}>
               <Input

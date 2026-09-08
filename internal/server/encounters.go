@@ -478,7 +478,7 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor, signedBy, signedAt string
 		var version, signed int
 		if rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor, &signedBy, &signedAt, &signed) == nil {
-			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1})
+			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1, "standalone": encounterID == ""})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -513,6 +513,23 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	// D4: a prescription may be issued outside a consultation, in which case it
+	// simply has no encounter. When one is named it must belong to this patient,
+	// or the document would be filed against somebody else's visit.
+	if input.EncounterID != "" {
+		var owner string
+		switch err := s.db.QueryRowContext(r.Context(), "SELECT patient_id FROM encounters WHERE id=? AND archived_at IS NULL", input.EncounterID).Scan(&owner); {
+		case err == sql.ErrNoRows:
+			writeError(w, http.StatusUnprocessableEntity, "ENCOUNTER_NOT_FOUND", "That consultation was not found.")
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "PRESCRIPTION_CREATE_FAILED", "Could not issue the prescription.")
+			return
+		case owner != input.PatientID:
+			writeError(w, http.StatusUnprocessableEntity, "ENCOUNTER_PATIENT_MISMATCH", "That consultation belongs to a different patient.")
+			return
+		}
+	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	var number string
@@ -535,7 +552,7 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 	}
 	s.audit(r.Context(), &user, "issue", "prescription", id, "Issued "+input.Type+" prescription "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "prescription.created", EntityType: "prescription", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName, "encounterId": input.EncounterID, "standalone": input.EncounterID == ""})
 }
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {

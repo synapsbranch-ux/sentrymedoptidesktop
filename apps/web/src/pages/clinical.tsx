@@ -11,7 +11,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Badge, EmptyState, ErrorState, Skeleton, Table, Td, Th } from "../components/ui/data";
-import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { MacroTextarea } from "../components/macro-field";
 import { ClinicalChartsPanel } from "../components/clinical-charts";
 import { ChartDraftProvider } from "../components/chart-drafts";
@@ -47,7 +47,7 @@ export function ClinicalPage() {
 function StartEncounter({ onSaved }: { onSaved(id: string): void }) {
   const [patientId, setPatientId] = React.useState(""); const [reason, setReason] = React.useState(""); const [complaint, setComplaint] = React.useState(""); const [saving, setSaving] = React.useState(false);
   const submit = async (event: React.FormEvent) => { event.preventDefault(); setSaving(true); try { const result = await api.post<{ id: string }>("/encounters", { patientId, appointmentId: "", visitReason: reason, chiefComplaint: complaint, hpi: "", assessment: "", treatmentPlan: "", followUp: "" }); toast.success("Consultation started"); onSaved(result.id); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not start consultation"); } finally { setSaving(false); } };
-  return <DialogContent><DialogHeader><DialogTitle>Start consultation</DialogTitle><DialogDescription>This creates a draft encounter and an independent nurse pre-test section.</DialogDescription></DialogHeader><form className="grid gap-4" onSubmit={submit}><Field label="Patient"><PatientPicker required value={patientId} onChange={setPatientId} /></Field><Field label="Visit reason"><Input value={reason} onChange={(event) => setReason(event.target.value)} /></Field><Field label="Chief complaint"><Textarea value={complaint} onChange={(event) => setComplaint(event.target.value)} /></Field><DialogFooter><Button type="submit" disabled={saving}>{saving ? "Starting…" : "Start consultation"}</Button></DialogFooter></form></DialogContent>;
+  return <DialogContent><DialogHeader><DialogTitle>Start consultation</DialogTitle><DialogDescription>This creates a draft encounter and an independent nurse pre-test section.</DialogDescription></DialogHeader><form className="grid gap-4" onSubmit={submit}><FieldGroup label="Patient"><PatientPicker required value={patientId} onChange={setPatientId} /></FieldGroup><Field label="Visit reason"><Input value={reason} onChange={(event) => setReason(event.target.value)} /></Field><Field label="Chief complaint"><Textarea value={complaint} onChange={(event) => setComplaint(event.target.value)} /></Field><DialogFooter><Button type="submit" disabled={saving}>{saving ? "Starting…" : "Start consultation"}</Button></DialogFooter></form></DialogContent>;
 }
 
 function EncounterWorkspace({ id, onChanged }: { id: string; onChanged(): void }) {

@@ -6,7 +6,7 @@ import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
-import type { EncounterSummary, Patient } from "../types";
+import type { EncounterSummary } from "../types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";

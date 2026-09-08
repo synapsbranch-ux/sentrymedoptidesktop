@@ -35,6 +35,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Patch("/appointments/{id}/status", s.handleAppointmentStatus)
 	r.Get("/queue", s.handleQueueList)
 	r.Post("/queue/check-in", s.handleQueueCheckIn)
+	r.Post("/queue/walk-in", s.handleQueueWalkIn)
 	r.Patch("/queue/{id}", s.handleQueueStage)
 	r.Get("/encounters", s.handleEncountersList)
 	r.Post("/encounters", s.handleEncounterCreate)
@@ -476,7 +477,9 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.source,q.version,q.updated_at,
-		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at)
+		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at),
+		COALESCE(q.visit_reason,(SELECT a.reason FROM appointments a WHERE a.id=q.appointment_id),''),
+		COALESCE(p.phone,'')
 		FROM queue_entries q JOIN patients p ON p.id=q.patient_id LEFT JOIN users u ON u.id=q.assigned_doctor_id WHERE q.completed_at IS NULL ORDER BY q.priority DESC,q.arrived_at`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
@@ -485,14 +488,14 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt, stageEnteredAt string
+		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt, stageEnteredAt, visitReason, phone string
 		var priority, version int
-		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt, &stageEnteredAt); err != nil {
+		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt, &stageEnteredAt, &visitReason, &phone); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
 			return
 		}
 		estimate, samples := estimatedQueueWait(stage, stageEnteredAt, averages)
-		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "stageEnteredAt": stageEnteredAt, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
+		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "phone": phone, "visitReason": visitReason, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "stageEnteredAt": stageEnteredAt, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -501,6 +504,7 @@ type checkInPayload struct {
 	PatientID      string `json:"patientId"`
 	AppointmentID  string `json:"appointmentId"`
 	AssignedDoctor string `json:"assignedDoctorId"`
+	VisitReason    string `json:"visitReason"`
 	Priority       int    `json:"priority"`
 }
 
@@ -519,8 +523,8 @@ func (s *Server) handleQueueCheckIn(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(r.Context(), `INSERT INTO queue_entries(id,patient_id,appointment_id,assigned_doctor_id,arrived_at,stage,priority,created_at,updated_at,updated_by)
-			VALUES(?,?,?,?,?,'waiting_nurse',?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.AppointmentID), nilIfEmpty(input.AssignedDoctor), now, input.Priority, now, now, user.ID); err != nil {
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO queue_entries(id,patient_id,appointment_id,assigned_doctor_id,arrived_at,stage,priority,visit_reason,created_at,updated_at,updated_by)
+			VALUES(?,?,?,?,?,'waiting_nurse',?,?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.AppointmentID), nilIfEmpty(input.AssignedDoctor), now, input.Priority, nilIfEmpty(strings.TrimSpace(input.VisitReason)), now, now, user.ID); err != nil {
 			return err
 		}
 		if input.AppointmentID != "" {

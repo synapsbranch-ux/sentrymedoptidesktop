@@ -1,6 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
-import { Mic, Save, Square, Trash2 } from "lucide-react";
+import { Mic, MicOff, Save, Square, Trash2 } from "lucide-react";
 import { api, APIError } from "../api";
 import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
@@ -9,6 +9,7 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge, EmptyState, Skeleton } from "./ui/data";
 import { Textarea } from "./ui/input";
+import { inspectMicrophoneEnvironment, requestMicrophone, type MicrophoneProblem } from "../microphone";
 
 interface Recording {
   id: string;
@@ -61,10 +62,19 @@ export function ConsultationRecorder({ encounterId, canRecord }: { encounterId: 
   const [recording, setRecording] = React.useState(false);
   const [elapsed, setElapsed] = React.useState(0);
   const [uploading, setUploading] = React.useState(false);
+  const [problem, setProblem] = React.useState<MicrophoneProblem | null>(null);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
   const streamRef = React.useRef<MediaStream | null>(null);
   const timerRef = React.useRef<number | null>(null);
+  // `recorder.onstop` is assigned once, so it would otherwise close over the
+  // elapsed value from the render that started the recording — always zero.
+  const elapsedRef = React.useRef(0);
+
+  // Report an environment that cannot record before staff confirm consent and
+  // press a button that was never going to work.
+  const environmentProblem = React.useMemo(() => (canRecord ? inspectMicrophoneEnvironment() : null), [canRecord]);
+  const blocking = problem ?? environmentProblem;
 
   React.useEffect(() => () => {
     if (timerRef.current) window.clearInterval(timerRef.current);
@@ -74,34 +84,43 @@ export function ConsultationRecorder({ encounterId, canRecord }: { encounterId: 
   const startRecording = async () => {
     const mimeType = pickMimeType();
     if (!mimeType) {
-      toast.error("This browser cannot record audio (MediaRecorder unsupported).");
+      setProblem({ reason: "unsupported_browser", message: "This browser cannot record audio (MediaRecorder is unavailable).", guidance: "Use Chrome, Edge or Safari, kept up to date, or record from the SentryMed desktop application." });
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
-      recorder.onstop = () => void uploadRecording(mimeType);
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-      setElapsed(0);
-      timerRef.current = window.setInterval(() => setElapsed((value) => value + 1), 1000);
-    } catch (reason) {
-      toast.error(reason instanceof Error ? reason.message : "Microphone access was denied.");
+    const result = await requestMicrophone();
+    if ("problem" in result) {
+      setProblem(result.problem);
+      return;
     }
+    setProblem(null);
+    streamRef.current = result.stream;
+    const recorder = new MediaRecorder(result.stream, { mimeType });
+    chunksRef.current = [];
+    recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
+    recorder.onstop = () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      void uploadRecording(mimeType, elapsedRef.current);
+    };
+    mediaRecorderRef.current = recorder;
+    // A one-second timeslice keeps completed chunks in hand, so an interrupted
+    // recording still has everything captured up to the interruption.
+    recorder.start(1000);
+    setRecording(true);
+    setElapsed(0);
+    elapsedRef.current = 0;
+    timerRef.current = window.setInterval(() => { elapsedRef.current += 1; setElapsed(elapsedRef.current); }, 1000);
   };
 
   const stopRecording = () => {
+    // The tracks are stopped in `onstop`; stopping them here can truncate the
+    // final chunk before the recorder has flushed it.
     mediaRecorderRef.current?.stop();
-    streamRef.current?.getTracks().forEach((track) => track.stop());
     if (timerRef.current) { window.clearInterval(timerRef.current); timerRef.current = null; }
     setRecording(false);
   };
 
-  const uploadRecording = async (mimeType: string) => {
+  const uploadRecording = async (mimeType: string, durationSeconds: number) => {
     const blob = new Blob(chunksRef.current, { type: mimeType });
     if (blob.size === 0) {
       toast.error("The recording was empty and was not saved.");
@@ -111,7 +130,7 @@ export function ConsultationRecorder({ encounterId, canRecord }: { encounterId: 
     try {
       const form = new FormData();
       form.append("consentConfirmed", "true");
-      form.append("durationSeconds", String(elapsed));
+      form.append("durationSeconds", String(durationSeconds));
       const extension = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
       form.append("audio", blob, `consultation.${extension}`);
       await api.post(`/encounters/${encounterId}/recordings`, form);
@@ -136,11 +155,12 @@ export function ConsultationRecorder({ encounterId, canRecord }: { encounterId: 
           <CardContent className="grid gap-4">
             {!recording ? (
               <>
+                {blocking && <MicrophoneNotice problem={blocking} />}
                 <label className="flex min-h-11 items-start gap-3 rounded-md border p-3 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
                   <span>The patient has been informed that this consultation may be recorded for clinical documentation, and consents.</span>
                 </label>
-                <Button disabled={!consent || uploading} onClick={startRecording}>
+                <Button disabled={!consent || uploading || Boolean(environmentProblem)} onClick={startRecording}>
                   <Mic className="h-4 w-4" />
                   {uploading ? "Saving previous recording…" : "Start recording"}
                 </Button>
@@ -179,6 +199,19 @@ export function ConsultationRecorder({ encounterId, canRecord }: { encounterId: 
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function MicrophoneNotice({ problem }: { problem: MicrophoneProblem }) {
+  return (
+    <div role="alert" className="grid gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+      <div className="flex items-center gap-2 font-semibold">
+        <MicOff className="h-4 w-4 shrink-0" />
+        Recording is not available on this device yet
+      </div>
+      <p>{problem.message}</p>
+      <p className="text-xs opacity-90">{problem.guidance}</p>
     </div>
   );
 }

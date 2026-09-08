@@ -51,6 +51,8 @@ type visionTestResult struct {
 	Test       string  `json:"test"`
 	Detail     string  `json:"detail"`
 	RecordedAt string  `json:"recordedAt"`
+	Plate      int     `json:"plate,omitempty"`
+	Correct    *bool   `json:"correct,omitempty"`
 }
 
 var (
@@ -95,6 +97,17 @@ func defaultVisionState() visionTestState {
 	}
 }
 
+func validVisionCalibration(display visionDisplayInfo) bool {
+	if display.DistanceMm < 250 || display.DistanceMm > 20000 || display.PixelsPerMm < 0.5 || display.PixelsPerMm > 50 {
+		return false
+	}
+	if len([]rune(display.Label)) > 60 {
+		return false
+	}
+	_, err := time.Parse(time.RFC3339, display.CalibratedAt)
+	return err == nil
+}
+
 // sanitiseVisionState keeps the shared state inside the values both screens agree on,
 // so a stale or malformed phone cannot leave the exam-lane display in a broken mode.
 func sanitiseVisionState(state visionTestState) (visionTestState, string) {
@@ -116,11 +129,9 @@ func sanitiseVisionState(state visionTestState) (visionTestState, string) {
 	if state.Plate < 1 || state.Plate > 24 {
 		return state, "Plate number must be between 1 and 24."
 	}
-	if state.Display.DistanceMm < 0 || state.Display.DistanceMm > 20000 {
-		return state, "Test distance must be between 0 and 20000 mm."
-	}
-	if state.Display.PixelsPerMm < 0 || state.Display.PixelsPerMm > 200 {
-		return state, "Screen calibration is out of range."
+	displayConfigured := state.Display.DistanceMm != 0 || state.Display.PixelsPerMm != 0 || state.Display.CalibratedAt != "" || state.Display.Label != ""
+	if displayConfigured && !validVisionCalibration(state.Display) {
+		return state, "A calibrated screen needs 0.5–50 px/mm, a 0.25–20 m distance and a valid calibration time."
 	}
 	if state.Results == nil {
 		state.Results = []visionTestResult{}
@@ -138,13 +149,32 @@ func sanitiseVisionState(state visionTestState) (visionTestState, string) {
 		if len(marks) > maxChartMarks {
 			return state, "An Amsler grid holds at most 200 marks."
 		}
+		if err := validateChartMarks("amsler", marks); err != nil {
+			return state, "Amsler marks contain invalid coordinates."
+		}
 	}
 	state.LogMAR = round2(state.LogMAR)
 	for index, result := range state.Results {
-		state.Results[index].LogMAR = round2(result.LogMAR)
-		if strings.TrimSpace(result.Snellen) == "" {
-			state.Results[index].Snellen = snellenFromLogMAR(result.LogMAR)
+		if !visionEyes[result.Eye] || len([]rune(result.Detail)) > 500 {
+			return state, "A recorded result has an invalid eye or detail."
 		}
+		if _, err := time.Parse(time.RFC3339, result.RecordedAt); err != nil {
+			return state, "A recorded result has an invalid timestamp."
+		}
+		switch result.Test {
+		case "acuity":
+			if result.Eye == "OU" || !visionCorrection[result.Correction] || result.LogMAR < -0.3 || result.LogMAR > 1.6 || !validVisionCalibration(state.Display) {
+				return state, "Acuity results require OD or OS, a valid correction and a calibrated screen."
+			}
+			state.Results[index].Snellen = snellenFromLogMAR(result.LogMAR)
+		case "colour":
+			if result.Plate < 1 || result.Plate > 24 || result.Correct == nil {
+				return state, "Colour results require a plate number and correct/misread outcome."
+			}
+		default:
+			return state, "Result test must be acuity or colour."
+		}
+		state.Results[index].LogMAR = round2(result.LogMAR)
 	}
 	return state, ""
 }
@@ -233,14 +263,15 @@ func (s *Server) handleVisionTestCreate(w http.ResponseWriter, r *http.Request) 
 	user, _ := userFromContext(r.Context())
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	id := uuid.NewString()
+	state := defaultVisionState()
 	if _, err := s.db.ExecContext(r.Context(), `INSERT INTO vision_test_sessions(id,room,encounter_id,state_json,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?)`,
-		id, input.Room, nilIfEmpty(input.EncounterID), marshalJSON(defaultVisionState()), now, now, user.ID, user.ID); err != nil {
+		id, input.Room, nilIfEmpty(input.EncounterID), marshalJSON(state), now, now, user.ID, user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "VISION_TEST_CREATE_FAILED", "Could not open the vision test session.")
 		return
 	}
 	s.audit(r.Context(), &user, "create", "vision_test", id, "Opened vision test in "+input.Room, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "vision_test.updated", EntityType: "vision_test", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "room": input.Room, "state": defaultVisionState(), "revision": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "room": input.Room, "state": state, "revision": 1})
 }
 
 func (s *Server) loadVisionSession(r *http.Request, id string) (visionSessionRow, error) {
@@ -258,10 +289,11 @@ func (s *Server) handleVisionTestGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVisionTestStateSave(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		State visionTestState `json:"state"`
+		State    visionTestState `json:"state"`
+		Revision int             `json:"revision"`
 	}
-	if err := decodeJSON(r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Vision test state is required.")
+	if err := decodeJSON(r, &input); err != nil || input.Revision < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Vision test state and current revision are required.")
 		return
 	}
 	state, problem := sanitiseVisionState(input.State)
@@ -271,14 +303,19 @@ func (s *Server) handleVisionTestStateSave(w http.ResponseWriter, r *http.Reques
 	}
 	id := chi.URLParam(r, "id")
 	user, _ := userFromContext(r.Context())
-	result, err := s.db.ExecContext(r.Context(), `UPDATE vision_test_sessions SET state_json=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND closed_at IS NULL`,
-		marshalJSON(state), time.Now().UTC().Format(time.RFC3339Nano), user.ID, id)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE vision_test_sessions SET state_json=?,revision=revision+1,updated_at=?,updated_by=? WHERE id=? AND closed_at IS NULL AND revision=?`,
+		marshalJSON(state), time.Now().UTC().Format(time.RFC3339Nano), user.ID, id, input.Revision)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "VISION_TEST_SAVE_FAILED", "Could not update the vision test session.")
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		writeError(w, http.StatusNotFound, "VISION_TEST_NOT_FOUND", "The vision test session is closed or was not found.")
+		var closedAt any
+		if err := s.db.QueryRowContext(r.Context(), "SELECT closed_at FROM vision_test_sessions WHERE id=?", id).Scan(&closedAt); err == nil && closedAt == nil {
+			writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "The vision test changed on the other device. Reload before sending another command.")
+		} else {
+			writeError(w, http.StatusNotFound, "VISION_TEST_NOT_FOUND", "The vision test session is closed or was not found.")
+		}
 		return
 	}
 	s.broker.Publish(realtime.Event{Type: "vision_test.updated", EntityType: "vision_test", EntityID: id})
@@ -321,9 +358,8 @@ func visionAcuityField(eye, correction string) string {
 	}
 }
 
-// handleVisionTestApply writes the measured acuity into the linked consultation's
-// pre-test. Only the acuity fields this session measured are touched; everything else
-// the nurse entered is read back and written out unchanged.
+// handleVisionTestApply writes measured acuity and colour-screening results into the
+// linked pre-test. Fields the session did not measure are read back and preserved.
 func (s *Server) handleVisionTestApply(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	row, err := s.loadVisionSession(r, id)
@@ -336,13 +372,17 @@ func (s *Server) handleVisionTestApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acuityResults := []visionTestResult{}
+	colourResults := []visionTestResult{}
 	for _, result := range row.State.Results {
 		if result.Test == "acuity" && visionEyes[result.Eye] && result.Eye != "OU" {
 			acuityResults = append(acuityResults, result)
 		}
+		if result.Test == "colour" && visionEyes[result.Eye] && result.Correct != nil {
+			colourResults = append(colourResults, result)
+		}
 	}
-	if len(acuityResults) == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "NO_ACUITY_RESULTS", "Record at least one acuity result before writing it to the pre-test.")
+	if len(acuityResults) == 0 && len(colourResults) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "NO_VISION_RESULTS", "Record at least one acuity or colour result before writing it to the pre-test.")
 		return
 	}
 	var status string
@@ -354,9 +394,9 @@ func (s *Server) handleVisionTestApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "The linked consultation is finalized and locked.")
 		return
 	}
-	var acuityJSON string
+	var acuityJSON, colourVision string
 	var version int
-	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(visual_acuity_json,'{}'),version FROM pretests WHERE encounter_id=?", row.EncounterID).Scan(&acuityJSON, &version); err != nil {
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(visual_acuity_json,'{}'),COALESCE(color_vision,''),version FROM pretests WHERE encounter_id=?", row.EncounterID).Scan(&acuityJSON, &colourVision, &version); err != nil {
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusUnprocessableEntity, "PRETEST_MISSING", "The linked consultation has no pre-test section.")
 			return
@@ -372,9 +412,29 @@ func (s *Server) handleVisionTestApply(w http.ResponseWriter, r *http.Request) {
 		acuity[field] = result.Snellen
 		applied = append(applied, result.Eye+" "+result.Correction+" "+result.Snellen)
 	}
+	if len(colourResults) > 0 {
+		type tally struct{ correct, total int }
+		byEye := map[string]tally{}
+		for _, result := range colourResults {
+			value := byEye[result.Eye]
+			value.total++
+			if *result.Correct {
+				value.correct++
+			}
+			byEye[result.Eye] = value
+		}
+		parts := []string{}
+		for _, eye := range []string{"OD", "OS", "OU"} {
+			if value := byEye[eye]; value.total > 0 {
+				parts = append(parts, fmt.Sprintf("%s %d/%d generated colour-screening plates correct", eye, value.correct, value.total))
+			}
+		}
+		colourVision = strings.Join(parts, "; ")
+		applied = append(applied, colourVision)
+	}
 	user, _ := userFromContext(r.Context())
-	update, err := s.db.ExecContext(r.Context(), "UPDATE pretests SET visual_acuity_json=?,version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND version=?",
-		marshalJSON(acuity), time.Now().UTC().Format(time.RFC3339Nano), user.ID, row.EncounterID, version)
+	update, err := s.db.ExecContext(r.Context(), "UPDATE pretests SET visual_acuity_json=?,color_vision=?,version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND version=?",
+		marshalJSON(acuity), nilIfEmpty(colourVision), time.Now().UTC().Format(time.RFC3339Nano), user.ID, row.EncounterID, version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "VISION_TEST_APPLY_FAILED", "Could not write the results to the pre-test.")
 		return
@@ -383,7 +443,7 @@ func (s *Server) handleVisionTestApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "The pre-test changed while the test was running. Reopen it and try again.")
 		return
 	}
-	s.audit(r.Context(), &user, "update", "pretest", row.EncounterID, "Recorded vision test acuity: "+strings.Join(applied, ", "), "", "", r)
+	s.audit(r.Context(), &user, "update", "pretest", row.EncounterID, "Recorded vision test results: "+strings.Join(applied, ", "), "", "", r)
 	s.broker.Publish(realtime.Event{Type: "pretest.changed", EntityType: "encounter", EntityID: row.EncounterID})
-	writeJSON(w, http.StatusOK, map[string]any{"encounterId": row.EncounterID, "applied": applied, "visualAcuity": acuity})
+	writeJSON(w, http.StatusOK, map[string]any{"encounterId": row.EncounterID, "applied": applied, "visualAcuity": acuity, "colorVision": colourVision})
 }

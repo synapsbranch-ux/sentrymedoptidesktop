@@ -88,9 +88,10 @@ export function VisionDisplayPage() {
     if (!session || !calibration) return;
     const current = session.state.display;
     if (current.pixelsPerMm === calibration.pixelsPerMm && current.distanceMm === calibration.distanceMm) return;
-    void api.put(`/vision-tests/${id}/state`, {
+    void api.put<Session>(`/vision-tests/${id}/state`, {
       state: { ...session.state, display: { ...calibration } },
-    }).catch(() => undefined);
+      revision: session.revision,
+    }).then(setSession).catch(() => { void load(); });
   }, [session, calibration, id]);
 
   if (error) {
@@ -122,9 +123,10 @@ export function VisionDisplayPage() {
         calibration={calibration}
         onAmslerMarks={(marks) => {
           const eye = session.state.eye === "OU" ? "OD" : session.state.eye;
-          void api.put(`/vision-tests/${id}/state`, {
+          void api.put<Session>(`/vision-tests/${id}/state`, {
             state: { ...session.state, amsler: { ...session.state.amsler, [eye]: marks } },
-          }).catch(() => undefined);
+            revision: session.revision,
+          }).then(setSession).catch(() => { void load(); });
         }}
       />
     </Fullscreen>

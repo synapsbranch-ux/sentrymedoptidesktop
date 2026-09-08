@@ -1,7 +1,7 @@
 -- A vision test session is the shared state between the screen in the exam lane and
--- the phone driving it. Both devices read and write the same row, so `revision` is a
--- change counter the display watches, not an optimistic lock: two devices writing in
--- turn is the intended use, and a lock would only manufacture conflicts.
+-- the phone driving it. `revision` is both the SSE-visible change counter and an
+-- optimistic lock: a delayed command must not overwrite a calibration or patient trace
+-- that the other device has just written.
 CREATE TABLE vision_test_sessions (
     id TEXT PRIMARY KEY,
     room TEXT NOT NULL,

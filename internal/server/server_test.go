@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -578,6 +579,90 @@ func TestPublicDisplayIsDisabledByDefaultAndPrivacyFiltered(t *testing.T) {
 	queue := decoded["queue"].([]any)
 	if len(queue) != 1 || queue[0].(map[string]any)["patientLabel"] == "" {
 		t.Fatalf("public queue response invalid: %v", queue)
+	}
+}
+
+func TestOperationsAnalyticsAndQueueEstimateUseRecordedStageHistory(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.nurse, "Flow", "Patient")
+	var doctorID string
+	if err := a.server.db.QueryRowContext(context.Background(), "SELECT id FROM users WHERE username='doctor.dev'").Scan(&doctorID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for index := 0; index < 3; index++ {
+		appointmentID := "flow-appointment-" + strconv.Itoa(index)
+		queueID := "flow-queue-" + strconv.Itoa(index)
+		arrived := now.AddDate(0, 0, -index-1).Add(-50 * time.Minute)
+		appointmentStart := arrived.Add(20 * time.Minute)
+		if _, err := a.server.db.ExecContext(context.Background(), `INSERT INTO appointments(id,patient_id,practitioner_id,starts_at,duration_minutes,type,reason,notes,status,created_at,updated_at,created_by,updated_by)
+			VALUES(?,?,?,?,30,'exam','','','completed',?,?,?,?)`, appointmentID, patient.ID, doctorID, appointmentStart.Format(time.RFC3339Nano), arrived.Format(time.RFC3339Nano), arrived.Format(time.RFC3339Nano), doctorID, doctorID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.server.db.ExecContext(context.Background(), `INSERT INTO queue_entries(id,patient_id,appointment_id,assigned_doctor_id,arrived_at,stage,priority,created_at,updated_at,updated_by)
+			VALUES(?,?,?,?,?,'waiting_nurse',0,?,?,?)`, queueID, patient.ID, appointmentID, doctorID, arrived.Format(time.RFC3339Nano), arrived.Format(time.RFC3339Nano), arrived.Format(time.RFC3339Nano), doctorID); err != nil {
+			t.Fatal(err)
+		}
+		for _, transition := range []struct {
+			stage   string
+			minutes int
+		}{{"waiting_doctor", 10}, {"in_consultation", 20}, {"completed", 50}} {
+			at := arrived.Add(time.Duration(transition.minutes) * time.Minute).Format(time.RFC3339Nano)
+			var completed any
+			if transition.stage == "completed" {
+				completed = at
+			}
+			if _, err := a.server.db.ExecContext(context.Background(), "UPDATE queue_entries SET stage=?,completed_at=?,updated_at=? WHERE id=?", transition.stage, completed, at, queueID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	noShowAt := now.Add(-24 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := a.server.db.ExecContext(context.Background(), `INSERT INTO appointments(id,patient_id,practitioner_id,starts_at,duration_minutes,type,reason,notes,status,created_at,updated_at,created_by,updated_by)
+		VALUES('flow-no-show',?,?,?,30,'exam','','','no_show',?,?,?,?)`, patient.ID, doctorID, noShowAt, noShowAt, noShowAt, doctorID, doctorID); err != nil {
+		t.Fatal(err)
+	}
+
+	activeAt := now.Add(-2 * time.Minute).Format(time.RFC3339Nano)
+	if _, err := a.server.db.ExecContext(context.Background(), `INSERT INTO queue_entries(id,patient_id,assigned_doctor_id,arrived_at,stage,priority,created_at,updated_at,updated_by)
+		VALUES('flow-active',?,?,?,'waiting_doctor',0,?,?,?)`, patient.ID, doctorID, activeAt, activeAt, activeAt, doctorID); err != nil {
+		t.Fatal(err)
+	}
+
+	response := a.request(http.MethodGet, "/api/v1/operations/analytics?days=28", nil, a.nurse)
+	if response.Code != http.StatusOK {
+		t.Fatalf("operations analytics: %d %s", response.Code, response.Body.String())
+	}
+	analytics := decodeResponse[operationsAnalytics](t, response)
+	if analytics.Duration.MatchedAppointments != 3 || analytics.Duration.ActualAverageMinutes != 30 || analytics.Duration.PlannedAverageMinutes != 30 {
+		t.Fatalf("duration analytics = %+v", analytics.Duration)
+	}
+	if len(analytics.Heatmap) == 0 || len(analytics.NoShowSlots) == 0 || len(analytics.NoShowPatients) != 1 || analytics.NoShowPatients[0].NoShows != 1 {
+		t.Fatalf("incomplete operations analytics: %+v", analytics)
+	}
+	stageFound := false
+	for _, stage := range analytics.Stages {
+		if stage.Stage == "waiting_doctor" && stage.Samples == 3 && stage.AverageMinutes == 10 && stage.CurrentCount == 1 {
+			stageFound = true
+		}
+	}
+	if !stageFound {
+		t.Fatalf("waiting-doctor stage metric missing: %+v", analytics.Stages)
+	}
+
+	queue := decodeResponse[struct {
+		Items []struct {
+			ID                   string `json:"id"`
+			EstimatedWaitMinutes *int   `json:"estimatedWaitMinutes"`
+			WaitEstimateSamples  int    `json:"waitEstimateSamples"`
+		} `json:"items"`
+	}](t, a.request(http.MethodGet, "/api/v1/queue", nil, a.nurse))
+	if len(queue.Items) != 1 || queue.Items[0].ID != "flow-active" || queue.Items[0].EstimatedWaitMinutes == nil || *queue.Items[0].EstimatedWaitMinutes < 6 || *queue.Items[0].EstimatedWaitMinutes > 9 || queue.Items[0].WaitEstimateSamples != 3 {
+		t.Fatalf("queue estimate = %+v", queue.Items)
+	}
+	if invalid := a.request(http.MethodGet, "/api/v1/operations/analytics?days=400", nil, a.nurse); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid analytics period status=%d, want 400", invalid.Code)
 	}
 }
 
@@ -1333,7 +1418,7 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 		"display": map[string]any{"distanceMm": 4000, "pixelsPerMm": 3.78, "calibratedAt": "2026-09-07T10:00:00Z", "label": "Lane 1"},
 		"results": []map[string]any{},
 	}
-	saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated}, a.nurse)
+	saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated, "revision": 1}, a.nurse)
 	if saved.Code != http.StatusOK {
 		t.Fatalf("vision state save: %d %s", saved.Code, saved.Body.String())
 	}
@@ -1350,6 +1435,9 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 	if afterSave.Revision != 2 || afterSave.State.Mode != "acuity" || afterSave.State.LogMAR != 0.3 {
 		t.Fatalf("vision state after save = %+v", afterSave)
 	}
+	if stale := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated, "revision": 1}, a.nurse); stale.Code != http.StatusConflict {
+		t.Fatalf("stale vision command status=%d, want 409", stale.Code)
+	}
 
 	// Values outside the chart are refused rather than left to break the lane screen.
 	for _, broken := range []map[string]any{
@@ -1362,7 +1450,7 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 		for key, value := range broken {
 			state[key] = value
 		}
-		if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": state}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
+		if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": state, "revision": 2}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("state %v status=%d, want 422", broken, rejected.Code)
 		}
 	}
@@ -1379,8 +1467,9 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 	withResults["results"] = []map[string]any{
 		{"eye": "OD", "correction": "uncorrected", "logMar": 0.3, "snellen": "", "test": "acuity", "detail": "", "recordedAt": "2026-09-07T10:05:00Z"},
 		{"eye": "OS", "correction": "corrected", "logMar": 0, "snellen": "", "test": "acuity", "detail": "", "recordedAt": "2026-09-07T10:06:00Z"},
+		{"eye": "OU", "correction": "uncorrected", "logMar": 0, "snellen": "", "test": "colour", "detail": "Plate 1 read correctly", "plate": 1, "correct": true, "recordedAt": "2026-09-07T10:07:00Z"},
 	}
-	if recorded := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": withResults}, a.nurse); recorded.Code != http.StatusOK {
+	if recorded := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": withResults, "revision": 2}, a.nurse); recorded.Code != http.StatusOK {
 		t.Fatalf("vision results save: %d %s", recorded.Code, recorded.Body.String())
 	}
 
@@ -1390,6 +1479,7 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 	}
 	var outcome struct {
 		VisualAcuity map[string]string `json:"visualAcuity"`
+		ColorVision  string            `json:"colorVision"`
 	}
 	if err := json.Unmarshal(applied.Body.Bytes(), &outcome); err != nil {
 		t.Fatalf("apply decode: %v", err)
@@ -1402,17 +1492,20 @@ func TestVisionTestSessionDrivesDisplayAndRecordsAcuity(t *testing.T) {
 	if outcome.VisualAcuity["oscorrecteddistance"] != "20/20" {
 		t.Fatalf("OS corrected = %q, want 20/20 (%v)", outcome.VisualAcuity["oscorrecteddistance"], outcome.VisualAcuity)
 	}
+	if outcome.ColorVision != "OU 1/1 generated colour-screening plates correct" {
+		t.Fatalf("colour vision = %q", outcome.ColorVision)
+	}
 
 	// The pre-test really holds it, and the acuity now feeds the trend endpoints.
 	detail := a.request(http.MethodGet, "/api/v1/encounters/"+encounterID, nil, a.nurse)
-	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte("20/40")) {
+	if detail.Code != http.StatusOK || !bytes.Contains(detail.Body.Bytes(), []byte("20/40")) || !bytes.Contains(detail.Body.Bytes(), []byte("generated colour-screening")) {
 		t.Fatalf("encounter detail: %d %s", detail.Code, detail.Body.String())
 	}
 
 	if closed := a.request(http.MethodPost, "/api/v1/vision-tests/"+sessionID+"/close", map[string]any{}, a.nurse); closed.Code != http.StatusOK {
 		t.Fatalf("vision close: %d %s", closed.Code, closed.Body.String())
 	}
-	if again := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated}, a.nurse); again.Code != http.StatusNotFound {
+	if again := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": calibrated, "revision": 3}, a.nurse); again.Code != http.StatusNotFound {
 		t.Fatalf("state save on closed session status=%d, want 404", again.Code)
 	}
 	listed := a.request(http.MethodGet, "/api/v1/vision-tests", nil, a.nurse)
@@ -1456,7 +1549,7 @@ func TestVisionAmslerReachesTheChart(t *testing.T) {
 		wrongEye[key] = value
 	}
 	wrongEye["amsler"] = map[string]any{"OU": []map[string]any{{"x": 10, "y": 10, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler"}}}
-	if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": wrongEye}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
+	if rejected := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": wrongEye, "revision": 1}, a.nurse); rejected.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("amsler OU status=%d, want 422", rejected.Code)
 	}
 
@@ -1469,7 +1562,7 @@ func TestVisionAmslerReachesTheChart(t *testing.T) {
 		{"x": 42.5, "y": 47.1, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
 		{"x": 46.0, "y": 44.8, "shape": "amsler", "color": "#dc2626", "label": "", "structure": "amsler", "grade": "distorted"},
 	}}
-	if saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": traced}, a.nurse); saved.Code != http.StatusOK {
+	if saved := a.request(http.MethodPut, "/api/v1/vision-tests/"+sessionID+"/state", map[string]any{"state": traced, "revision": 1}, a.nurse); saved.Code != http.StatusOK {
 		t.Fatalf("amsler state save: %d %s", saved.Code, saved.Body.String())
 	}
 

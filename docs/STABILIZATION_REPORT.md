@@ -51,6 +51,7 @@ defect with a workaround, **S4** is cosmetic or hygiene.
 | Q1-b | Patient picker (introduced by B1) | S3 | Select a result with the keyboard | Selection works | Selection was bound to `mousedown` only, which keyboard and assistive-technology activation never produce | Fixed |
 | Q2 | Prescriptions | S2 | `POST /prescriptions` with an `encounterId` belonging to another patient | Rejected | Accepted — the document was filed against someone else's visit | Fixed |
 | Q3 | Consultations → Evolution | S4 | Read the IOP chart legend in the English UI | English | French: "— seuil 21 mmHg" | Fixed |
+| U1 | System → My signature | **S2** | Draw a signature and press "Save drawn signature" | Signature saves | "A signature image must be 2 MB or smaller" for an ordinary, tiny drawn signature — reported directly by the user, who could not add a signature at all | Fixed |
 
 ### Found outside the brief's list — N1, N2, N5, N6 and N7 have since been fixed on request; see §4
 
@@ -227,6 +228,49 @@ JPEG, content-sniffed rather than trusted by extension, capped at 2 MB, stored
 finger take one path — which is what makes it work on a tablet — with
 `touch-action: none` so the page does not scroll instead of drawing. 4 Go tests,
 8 component tests.
+
+### U1 — signature save reported "2 MB" for a normal, tiny signature
+Reported directly: drawing a signature and pressing Save always failed with "A
+signature image must be 2 MB or smaller", regardless of how small the drawing
+was — the system would not let a doctor add their own signature at all.
+
+**Root cause, two layers, both now fixed.** `api.put()`, the client's helper for
+every PUT request, unconditionally `JSON.stringify()`'d its body. `api.post()`
+already special-cased `FormData`; `api.put()` never did, because until D3 no
+screen ever sent a file through PUT — `/me/signature` was the first. A `FormData`
+instance run through `JSON.stringify()` silently serializes to `"{}"` (it has no
+enumerable own properties), so the drawn PNG was replaced with the literal text
+`{}` and sent as `application/json` — no file, no `method` field, nothing
+resembling a signature ever left the browser. On the server,
+`ParseMultipartForm` was handed a request that was never multipart to begin
+with, and every error it could return — "not multipart", "no boundary", "body
+too large" — was reported identically as `SIGNATURE_TOO_LARGE`, which is how an
+empty JSON object became "must be 2 MB or smaller".
+
+**Changed.** `api.put()` now matches `api.post()`: a `FormData` body is sent
+as-is. The server-side handler distinguishes a genuine `*http.MaxBytesError`
+(Go 1.19+) from every other parse failure, so a wrong-content-type request now
+reports `INVALID_SIGNATURE_REQUEST` — a message that does not send anyone
+looking for a smaller file that was never the problem.
+
+**Why this got past D3's own tests.** Both the component test and the Go
+handler tests were structurally unable to catch it: the component test mocks
+`api.put` itself, so the bug living inside `api.put`'s body-encoding was never
+exercised; the Go tests build multipart requests directly with Go's own
+`multipart.Writer`, bypassing the browser `fetch`/`FormData` path entirely.
+Neither reproduces what an actual browser does with a `FormData` object.
+
+**Verified** three ways, each closing one of those gaps: `api.test.ts` drives
+the real `request()` transport against a mocked `fetch` and asserts a `FormData`
+body reaches `fetch` untouched (proven to fail against the reverted code —
+`expected '{}' to be FormData{...}`); a new Go test drives the exact malformed
+request the old client produced and confirms it is never reported as
+`SIGNATURE_TOO_LARGE`, while a genuinely oversized upload still is; and a new
+end-to-end test drives the actual on-screen pad — real pointer events on a real
+canvas, in a real browser, through the app's real `fetch` — confirming a doctor
+can draw and save a signature and it persists after a reload. All three were
+confirmed to fail against the pre-fix code before being confirmed to pass
+against the fix.
 
 ### D4 — Prescription outside a consultation
 The server already accepted a prescription with no encounter, but nothing could

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -109,7 +110,17 @@ func (s *Server) handleSignatureSave(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	r.Body = http.MaxBytesReader(w, r.Body, maxSignatureBytes)
 	if err := r.ParseMultipartForm(maxSignatureBytes); err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, "SIGNATURE_TOO_LARGE", "A signature image must be 2 MB or smaller.")
+		// A request that actually exceeds the limit surfaces a *http.MaxBytesError
+		// (Go 1.19+); anything else — most commonly a request that never reached
+		// us as multipart/form-data at all — is a different failure and must not
+		// be reported as "too large", which sends staff hunting for a smaller
+		// file when the real problem is the request itself.
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "SIGNATURE_TOO_LARGE", "A signature image must be 2 MB or smaller.")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "INVALID_SIGNATURE_REQUEST", "Could not read the signature upload.")
 		return
 	}
 	method := r.FormValue("method")

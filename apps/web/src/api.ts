@@ -68,7 +68,12 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   blob: requestBlob,
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+  // Symmetric with post(): a signature upload/draw sends FormData through PUT
+  // (it replaces the one existing record rather than creating a new one), and
+  // JSON.stringify()-ing a FormData instance silently serializes to "{}" and
+  // sends it as JSON — the server then fails to parse it as multipart and the
+  // caller sees an unrelated "too large" error instead of the real problem.
+  put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };

@@ -35,9 +35,11 @@ func (s *Server) handleStockTakesList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, number, takeStatus, category, notes, startedAt, completedAt, createdBy string
 		var version, itemCount, countedCount, differenceCount int
-		if rows.Scan(&id, &number, &takeStatus, &category, &notes, &version, &startedAt, &completedAt, &createdBy, &itemCount, &countedCount, &differenceCount) == nil {
-			items = append(items, map[string]any{"id": id, "stockTakeNumber": number, "status": takeStatus, "category": category, "notes": notes, "version": version, "startedAt": startedAt, "completedAt": completedAt, "createdBy": createdBy, "itemCount": itemCount, "countedCount": countedCount, "differenceCount": differenceCount})
+		if err := rows.Scan(&id, &number, &takeStatus, &category, &notes, &version, &startedAt, &completedAt, &createdBy, &itemCount, &countedCount, &differenceCount); err != nil {
+			writeError(w, http.StatusInternalServerError, "STOCK_TAKE_LIST_FAILED", "Could not load stock takes.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "stockTakeNumber": number, "status": takeStatus, "category": category, "notes": notes, "version": version, "startedAt": startedAt, "completedAt": completedAt, "createdBy": createdBy, "itemCount": itemCount, "countedCount": countedCount, "differenceCount": differenceCount})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -66,15 +68,17 @@ func (s *Server) handleStockTakeGet(w http.ResponseWriter, r *http.Request) {
 		var lineID, inventoryID, sku, name, itemCategory, reason, countedAt, countedBy string
 		var expected, lineVersion int
 		var counted sql.NullInt64
-		if rows.Scan(&lineID, &inventoryID, &sku, &name, &itemCategory, &expected, &counted, &reason, &lineVersion, &countedAt, &countedBy) == nil {
-			var countedValue any
-			var difference any
-			if counted.Valid {
-				countedValue = int(counted.Int64)
-				difference = int(counted.Int64) - expected
-			}
-			items = append(items, map[string]any{"id": lineID, "inventoryItemId": inventoryID, "sku": sku, "name": name, "category": itemCategory, "expectedQuantity": expected, "countedQuantity": countedValue, "difference": difference, "reason": reason, "version": lineVersion, "countedAt": countedAt, "countedBy": countedBy})
+		if err := rows.Scan(&lineID, &inventoryID, &sku, &name, &itemCategory, &expected, &counted, &reason, &lineVersion, &countedAt, &countedBy); err != nil {
+			writeError(w, http.StatusInternalServerError, "STOCK_TAKE_LOAD_FAILED", "Could not load stock-take items.")
+			return
 		}
+		var countedValue any
+		var difference any
+		if counted.Valid {
+			countedValue = int(counted.Int64)
+			difference = int(counted.Int64) - expected
+		}
+		items = append(items, map[string]any{"id": lineID, "inventoryItemId": inventoryID, "sku": sku, "name": name, "category": itemCategory, "expectedQuantity": expected, "countedQuantity": countedValue, "difference": difference, "reason": reason, "version": lineVersion, "countedAt": countedAt, "countedBy": countedBy})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "stockTakeNumber": number, "status": status, "category": category, "notes": notes, "version": version, "startedAt": startedAt, "completedAt": completedAt, "createdBy": createdBy, "items": items})
 }

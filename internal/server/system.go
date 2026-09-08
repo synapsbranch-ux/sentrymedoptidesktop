@@ -117,14 +117,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		visits = append(visits, map[string]any{"label": day, "value": count})
 	}
 	appointmentStatuses := []map[string]any{}
-	statusRows, _ := s.db.QueryContext(r.Context(), "SELECT status,COUNT(*) FROM appointments WHERE substr(starts_at,1,10)=? AND archived_at IS NULL GROUP BY status ORDER BY status", today)
+	statusRows, statusRowsErr := s.db.QueryContext(r.Context(), "SELECT status,COUNT(*) FROM appointments WHERE substr(starts_at,1,10)=? AND archived_at IS NULL GROUP BY status ORDER BY status", today)
+	if statusRowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "DASHBOARD_FAILED", "Could not load dashboard metrics.")
+		return
+	}
 	if statusRows != nil {
 		for statusRows.Next() {
 			var label string
 			var value int64
-			if statusRows.Scan(&label, &value) == nil {
-				appointmentStatuses = append(appointmentStatuses, map[string]any{"label": label, "value": value})
+			if err := statusRows.Scan(&label, &value); err != nil {
+				writeError(w, http.StatusInternalServerError, "DASHBOARD_FAILED", "Could not load dashboard metrics.")
+				return
 			}
+			appointmentStatuses = append(appointmentStatuses, map[string]any{"label": label, "value": value})
 		}
 		_ = statusRows.Close()
 	}
@@ -165,14 +171,20 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			monthlyRevenue = append(monthlyRevenue, map[string]any{"label": period, "value": payments - refunds})
 		}
 		salesDistribution := []map[string]any{}
-		salesRows, _ := s.db.QueryContext(r.Context(), `SELECT COALESCE(ii.category,'service'),COALESCE(SUM(li.line_total_minor),0) FROM invoice_items li JOIN invoices inv ON inv.id=li.invoice_id LEFT JOIN inventory_items ii ON ii.id=li.inventory_item_id WHERE inv.status NOT IN ('cancelled','refunded') AND substr(inv.created_at,1,7)=? GROUP BY COALESCE(ii.category,'service') ORDER BY 2 DESC`, month)
+		salesRows, salesRowsErr := s.db.QueryContext(r.Context(), `SELECT COALESCE(ii.category,'service'),COALESCE(SUM(li.line_total_minor),0) FROM invoice_items li JOIN invoices inv ON inv.id=li.invoice_id LEFT JOIN inventory_items ii ON ii.id=li.inventory_item_id WHERE inv.status NOT IN ('cancelled','refunded') AND substr(inv.created_at,1,7)=? GROUP BY COALESCE(ii.category,'service') ORDER BY 2 DESC`, month)
+		if salesRowsErr != nil {
+			writeError(w, http.StatusInternalServerError, "DASHBOARD_FAILED", "Could not load dashboard metrics.")
+			return
+		}
 		if salesRows != nil {
 			for salesRows.Next() {
 				var label string
 				var value int64
-				if salesRows.Scan(&label, &value) == nil {
-					salesDistribution = append(salesDistribution, map[string]any{"label": label, "value": value})
+				if err := salesRows.Scan(&label, &value); err != nil {
+					writeError(w, http.StatusInternalServerError, "DASHBOARD_FAILED", "Could not load dashboard metrics.")
+					return
 				}
+				salesDistribution = append(salesDistribution, map[string]any{"label": label, "value": value})
 			}
 			_ = salesRows.Close()
 		}

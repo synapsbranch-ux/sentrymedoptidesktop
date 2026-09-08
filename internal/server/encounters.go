@@ -131,20 +131,36 @@ func (s *Server) handleEncounterGet(w http.ResponseWriter, r *http.Request) {
 		response["pretest"] = map[string]any{"id": pretestID, "chiefComplaint": complaint, "vitals": rawJSON(vitals), "visualAcuity": rawJSON(acuity), "autorefraction": rawJSON(autoRefraction), "keratometry": rawJSON(keratometry), "iop": rawJSON(iop), "pupils": pupils, "eom": eom, "coverTest": cover, "confrontationFields": fields, "colorVision": color, "stereopsis": stereo, "pachymetry": rawJSON(pachy), "lensometry": rawJSON(lensometry), "completedAt": completedAt, "version": pretestVersion, "updatedAt": updatedAt}
 	}
 	sections := map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), "SELECT section_type,data_json,version,updated_at FROM encounter_sections WHERE encounter_id=?", id)
+	rows, rowsErr := s.db.QueryContext(r.Context(), "SELECT section_type,data_json,version,updated_at FROM encounter_sections WHERE encounter_id=?", id)
+	if rowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var kind, raw, at string
 			var version int
-			if rows.Scan(&kind, &raw, &version, &at) == nil {
-				sections[kind] = map[string]any{"data": rawJSON(raw), "version": version, "updatedAt": at}
+			if err := rows.Scan(&kind, &raw, &version, &at); err != nil {
+				writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+				return
 			}
+			sections[kind] = map[string]any{"data": rawJSON(raw), "version": version, "updatedAt": at}
 		}
 	}
 	response["sections"] = sections
-	response["diagnoses"] = s.loadDiagnoses(r, id)
-	response["addenda"] = s.loadAddenda(r, id)
+	diagnoses, err := s.loadDiagnoses(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
+	addenda, err := s.loadAddenda(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
+	response["diagnoses"] = diagnoses
+	response["addenda"] = addenda
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -390,37 +406,39 @@ func (s *Server) handleAddendumCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "createdAt": now})
 }
 
-func (s *Server) loadDiagnoses(r *http.Request, encounterID string) []map[string]any {
+func (s *Server) loadDiagnoses(r *http.Request, encounterID string) ([]map[string]any, error) {
 	rows, err := s.db.QueryContext(r.Context(), "SELECT id,diagnosis,COALESCE(code,''),COALESCE(laterality,''),COALESCE(notes,''),is_primary,created_at FROM diagnoses WHERE encounter_id=? ORDER BY is_primary DESC,created_at", encounterID)
 	if err != nil {
-		return []map[string]any{}
+		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
 		var id, diagnosis, code, laterality, notes, createdAt string
 		var primary bool
-		if rows.Scan(&id, &diagnosis, &code, &laterality, &notes, &primary, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "diagnosis": diagnosis, "code": code, "laterality": laterality, "notes": notes, "primary": primary, "createdAt": createdAt})
+		if err := rows.Scan(&id, &diagnosis, &code, &laterality, &notes, &primary, &createdAt); err != nil {
+			return nil, err
 		}
+		items = append(items, map[string]any{"id": id, "diagnosis": diagnosis, "code": code, "laterality": laterality, "notes": notes, "primary": primary, "createdAt": createdAt})
 	}
-	return items
+	return items, rows.Err()
 }
 
-func (s *Server) loadAddenda(r *http.Request, encounterID string) []map[string]string {
+func (s *Server) loadAddenda(r *http.Request, encounterID string) ([]map[string]string, error) {
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.body,a.created_at,u.display_name FROM encounter_addenda a JOIN users u ON u.id=a.created_by WHERE a.encounter_id=? ORDER BY a.created_at`, encounterID)
 	if err != nil {
-		return []map[string]string{}
+		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]string{}
 	for rows.Next() {
 		var id, body, createdAt, author string
-		if rows.Scan(&id, &body, &createdAt, &author) == nil {
-			items = append(items, map[string]string{"id": id, "body": body, "createdAt": createdAt, "author": author})
+		if err := rows.Scan(&id, &body, &createdAt, &author); err != nil {
+			return nil, err
 		}
+		items = append(items, map[string]string{"id": id, "body": body, "createdAt": createdAt, "author": author})
 	}
-	return items
+	return items, rows.Err()
 }
 
 func doctorIDFor(user AuthUser) any {
@@ -477,9 +495,11 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor, signedBy, signedAt string
 		var version, signed int
-		if rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor, &signedBy, &signedAt, &signed) == nil {
-			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1, "standalone": encounterID == ""})
+		if err := rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor, &signedBy, &signedAt, &signed); err != nil {
+			writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1, "standalone": encounterID == ""})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -567,9 +587,11 @@ func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, patient, encounter, category, name, mediaType, createdAt string
 		var size int64
-		if rows.Scan(&id, &patient, &encounter, &category, &name, &mediaType, &size, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "patientId": patient, "encounterId": encounter, "category": category, "displayName": name, "mediaType": mediaType, "sizeBytes": size, "createdAt": createdAt})
+		if err := rows.Scan(&id, &patient, &encounter, &category, &name, &mediaType, &size, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "DOCUMENT_LIST_FAILED", "Could not load documents.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "patientId": patient, "encounterId": encounter, "category": category, "displayName": name, "mediaType": mediaType, "sizeBytes": size, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

@@ -58,9 +58,11 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 		var cost, price int64
 		var quantity, reorder, version int
 		var tracked bool
-		if rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &procedureCode, &version, &updatedAt) == nil {
-			items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
+		if err := rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &procedureCode, &version, &updatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -184,9 +186,11 @@ func (s *Server) handleStockMovementsList(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var id, kind, reason, referenceType, referenceID, user, createdAt string
 		var previous, change, resulting int
-		if rows.Scan(&id, &kind, &previous, &change, &resulting, &reason, &referenceType, &referenceID, &user, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "type": kind, "previousQuantity": previous, "quantityChange": change, "resultingQuantity": resulting, "reason": reason, "referenceType": referenceType, "referenceId": referenceID, "user": user, "createdAt": createdAt})
+		if err := rows.Scan(&id, &kind, &previous, &change, &resulting, &reason, &referenceType, &referenceID, &user, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "MOVEMENT_LIST_FAILED", "Could not load stock movements.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "type": kind, "previousQuantity": previous, "quantityChange": change, "resultingQuantity": resulting, "reason": reason, "referenceType": referenceType, "referenceId": referenceID, "user": user, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

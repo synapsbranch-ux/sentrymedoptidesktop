@@ -35,9 +35,11 @@ func (s *Server) handleExpensesList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, category, description, currency, rate, date, method, vendor, documentID, user, createdAt string
 		var amount int64
-		if rows.Scan(&id, &category, &description, &amount, &currency, &rate, &date, &method, &vendor, &documentID, &user, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "category": category, "description": description, "amountMinor": amount, "currency": currency, "exchangeRate": rate, "expenseDate": date, "paymentMethod": method, "vendor": vendor, "documentId": documentID, "createdBy": user, "createdAt": createdAt})
+		if err := rows.Scan(&id, &category, &description, &amount, &currency, &rate, &date, &method, &vendor, &documentID, &user, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "EXPENSE_LIST_FAILED", "Could not load expenses.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "category": category, "description": description, "amountMinor": amount, "currency": currency, "exchangeRate": rate, "expenseDate": date, "paymentMethod": method, "vendor": vendor, "documentId": documentID, "createdBy": user, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "from": from, "to": to})
 }
@@ -87,27 +89,39 @@ func (s *Server) handleFinanceSummary(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0)+COALESCE(ref.refunded,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding)
 	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND(ii.cost_minor*ii.quantity*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE substr(i.created_at,1,10)>=? AND substr(i.created_at,1,10)<=? AND i.status<>'cancelled'`, from, to).Scan(&cost)
 	byMethod := []map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), `SELECT pm.name,COALESCE(SUM(CAST(ROUND(p.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND substr(p.received_at,1,10)>=? AND substr(p.received_at,1,10)<=? GROUP BY pm.id,pm.name ORDER BY 2 DESC`, from, to)
+	rows, rowsErr := s.db.QueryContext(r.Context(), `SELECT pm.name,COALESCE(SUM(CAST(ROUND(p.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND substr(p.received_at,1,10)>=? AND substr(p.received_at,1,10)<=? GROUP BY pm.id,pm.name ORDER BY 2 DESC`, from, to)
+	if rowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Could not load the record.")
+		return
+	}
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var name string
 			var amount int64
-			if rows.Scan(&name, &amount) == nil {
-				byMethod = append(byMethod, map[string]any{"name": name, "amountMinor": amount})
+			if err := rows.Scan(&name, &amount); err != nil {
+				writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Could not load the record.")
+				return
 			}
+			byMethod = append(byMethod, map[string]any{"name": name, "amountMinor": amount})
 		}
 	}
 	byCurrency := []map[string]any{}
-	currencyRows, _ := s.db.QueryContext(r.Context(), `SELECT currency,COUNT(*),COALESCE(SUM(total_minor),0) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status<>'cancelled' GROUP BY currency ORDER BY currency`, from, to)
+	currencyRows, currencyRowsErr := s.db.QueryContext(r.Context(), `SELECT currency,COUNT(*),COALESCE(SUM(total_minor),0) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status<>'cancelled' GROUP BY currency ORDER BY currency`, from, to)
+	if currencyRowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Could not load the record.")
+		return
+	}
 	if currencyRows != nil {
 		defer currencyRows.Close()
 		for currencyRows.Next() {
 			var currency string
 			var count, amount int64
-			if currencyRows.Scan(&currency, &count, &amount) == nil {
-				byCurrency = append(byCurrency, map[string]any{"currency": currency, "count": count, "amountMinor": amount})
+			if err := currencyRows.Scan(&currency, &count, &amount); err != nil {
+				writeError(w, http.StatusInternalServerError, "REQUEST_FAILED", "Could not load the record.")
+				return
 			}
+			byCurrency = append(byCurrency, map[string]any{"currency": currency, "count": count, "amountMinor": amount})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "baseCurrency": baseCurrency, "grossSalesMinor": grossSales, "paymentsReceivedMinor": payments - refunds, "refundsMinor": refunds, "expensesMinor": expenses, "outstandingReceivablesMinor": outstanding, "estimatedCostMinor": cost, "estimatedGrossMarginMinor": grossSales - cost, "paymentsByMethod": byMethod, "salesByCurrency": byCurrency})
@@ -161,9 +175,11 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var item row
-		if rows.Scan(&item.Label, &item.Count, &item.Amount) == nil {
-			rowsOut = append(rowsOut, item)
+		if err := rows.Scan(&item.Label, &item.Count, &item.Amount); err != nil {
+			writeError(w, http.StatusInternalServerError, "REPORT_FAILED", "Could not generate report.")
+			return
 		}
+		rowsOut = append(rowsOut, item)
 	}
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")

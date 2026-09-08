@@ -17,7 +17,7 @@ func TestPatientRecordsAcceptAwkwardRealNames(t *testing.T) {
 		{"O'Brien", "D'Argenson"},                          // apostrophes
 		{"Ñuño", "Müller-Ødegård"},                         // mixed diacritics
 		{strings.Repeat("Maximilian", 12), "Verylongname"}, // 120 characters
-		{"李", "王"},                                          // non-Latin script
+		{"李", "王"},                                         // non-Latin script
 	}
 	for _, name := range names {
 		created := a.request(http.MethodPost, "/api/v1/patients", map[string]any{"firstName": name.first, "lastName": name.last, "tags": []string{}}, a.doctor)

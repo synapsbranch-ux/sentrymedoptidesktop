@@ -215,27 +215,37 @@ type patientListEntry struct {
 // handlePatientFilterOptions feeds the filter controls without the client having
 // to load every patient to discover which insurers and practitioners exist.
 func (s *Server) handlePatientFilterOptions(w http.ResponseWriter, r *http.Request) {
+	// A filter list that quietly loses an insurer or a practitioner sends the
+	// front desk looking for a patient under a filter that can never match.
 	payers := []map[string]string{}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT DISTINCT COALESCE(NULLIF(payer_id,''), payer_name) AS value, payer_name FROM patient_insurance ORDER BY payer_name`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var value, name string
-			if rows.Scan(&value, &name) == nil {
-				payers = append(payers, map[string]string{"value": value, "label": name})
-			}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "FILTER_OPTIONS_FAILED", "Could not load the filter options.")
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var value, name string
+		if err := rows.Scan(&value, &name); err != nil {
+			writeError(w, http.StatusInternalServerError, "FILTER_OPTIONS_FAILED", "Could not load the filter options.")
+			return
 		}
+		payers = append(payers, map[string]string{"value": value, "label": name})
 	}
 	practitioners := []map[string]string{}
 	staff, err := s.db.QueryContext(r.Context(), `SELECT id, display_name FROM users WHERE active=1 ORDER BY display_name`)
-	if err == nil {
-		defer staff.Close()
-		for staff.Next() {
-			var id, name string
-			if staff.Scan(&id, &name) == nil {
-				practitioners = append(practitioners, map[string]string{"value": id, "label": name})
-			}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "FILTER_OPTIONS_FAILED", "Could not load the filter options.")
+		return
+	}
+	defer staff.Close()
+	for staff.Next() {
+		var id, name string
+		if err := staff.Scan(&id, &name); err != nil {
+			writeError(w, http.StatusInternalServerError, "FILTER_OPTIONS_FAILED", "Could not load the filter options.")
+			return
 		}
+		practitioners = append(practitioners, map[string]string{"value": id, "label": name})
 	}
 	options := map[string]any{"insurers": payers, "practitioners": practitioners}
 	for key, value := range s.demographicOptions() {

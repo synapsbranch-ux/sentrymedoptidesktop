@@ -110,11 +110,19 @@ func (s *Server) handleKioskLookup(w http.ResponseWriter, r *http.Request) {
 	appointments := []map[string]any{}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT id,starts_at,COALESCE(reason,''),status FROM appointments
 		WHERE patient_id=? AND substr(starts_at,1,10)=? AND archived_at IS NULL AND status NOT IN ('cancelled','no_show','completed') ORDER BY starts_at`, patientID, today)
-	if err == nil {
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "KIOSK_LOOKUP_FAILED", "Could not look up today's appointments.")
+		return
+	}
+	{
 		defer rows.Close()
 		for rows.Next() {
 			var id, startsAt, reason, status string
-			if rows.Scan(&id, &startsAt, &reason, &status) == nil {
+			if err := rows.Scan(&id, &startsAt, &reason, &status); err != nil {
+				writeError(w, http.StatusInternalServerError, "KIOSK_LOOKUP_FAILED", "Could not look up today's appointments.")
+				return
+			}
+			{
 				appointments = append(appointments, map[string]any{"id": id, "startsAt": startsAt, "reason": reason, "status": status})
 			}
 		}

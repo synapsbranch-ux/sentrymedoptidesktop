@@ -532,23 +532,26 @@ type visitChange struct {
 	Severity   string `json:"severity"`
 }
 
-func (s *Server) diagnosesFor(r *http.Request, encounterID string) []string {
+// A diagnosis dropped here would show in the visit delta as one the patient no
+// longer has, so a read failure is reported rather than absorbed.
+func (s *Server) diagnosesFor(r *http.Request, encounterID string) ([]string, error) {
 	labels := []string{}
 	rows, err := s.db.QueryContext(r.Context(), "SELECT diagnosis,COALESCE(code,'') FROM diagnoses WHERE encounter_id=? ORDER BY is_primary DESC,created_at", encounterID)
 	if err != nil {
-		return labels
+		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var diagnosis, code string
-		if rows.Scan(&diagnosis, &code) == nil {
-			if code != "" {
-				diagnosis += " (" + code + ")"
-			}
-			labels = append(labels, diagnosis)
+		if err := rows.Scan(&diagnosis, &code); err != nil {
+			return nil, err
 		}
+		if code != "" {
+			diagnosis += " (" + code + ")"
+		}
+		labels = append(labels, diagnosis)
 	}
-	return labels
+	return labels, rows.Err()
 }
 
 func (s *Server) medicationsFor(r *http.Request, encounterID string) []string {
@@ -743,7 +746,17 @@ func (s *Server) handleEncounterDelta(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	changes = appendSetChanges(changes, "Diagnosis", s.diagnosesFor(r, previous.EncounterID), s.diagnosesFor(r, current.EncounterID))
+	previousDiagnoses, err := s.diagnosesFor(r, previous.EncounterID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DELTA_FAILED", "Could not compare this visit with the previous one.")
+		return
+	}
+	currentDiagnoses, err := s.diagnosesFor(r, current.EncounterID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DELTA_FAILED", "Could not compare this visit with the previous one.")
+		return
+	}
+	changes = appendSetChanges(changes, "Diagnosis", previousDiagnoses, currentDiagnoses)
 	changes = appendSetChanges(changes, "Medication", s.medicationsFor(r, previous.EncounterID), s.medicationsFor(r, current.EncounterID))
 	previousPlan, currentPlan := s.treatmentPlanFor(r, previous.EncounterID), s.treatmentPlanFor(r, current.EncounterID)
 	if previousPlan != currentPlan {

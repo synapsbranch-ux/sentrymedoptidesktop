@@ -25,9 +25,11 @@ func (s *Server) handlePayersList(w http.ResponseWriter, r *http.Request) {
 		var id, name, contact, phone, email, address, created, updated string
 		var active bool
 		var version int
-		if rows.Scan(&id, &name, &contact, &phone, &email, &address, &active, &version, &created, &updated) == nil {
-			items = append(items, map[string]any{"id": id, "name": name, "contactName": contact, "phone": phone, "email": email, "address": address, "active": active, "version": version, "createdAt": created, "updatedAt": updated})
+		if err := rows.Scan(&id, &name, &contact, &phone, &email, &address, &active, &version, &created, &updated); err != nil {
+			writeError(w, http.StatusInternalServerError, "PAYERS_FAILED", "Could not load insurers.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "name": name, "contactName": contact, "phone": phone, "email": email, "address": address, "active": active, "version": version, "createdAt": created, "updatedAt": updated})
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
 }
@@ -91,21 +93,23 @@ func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 		var id, mrn, name, patientID, payer, payerID, inv, invID, auth, member, policy, currency, exchangeRate, status, submitted, created, updated string
 		var claim, patient, payerPart, paid int64
 		var version int
-		if rows.Scan(&id, &mrn, &name, &patientID, &payer, &payerID, &inv, &invID, &auth, &member, &policy, &currency, &exchangeRate, &claim, &patient, &payerPart, &paid, &status, &submitted, &version, &created, &updated) == nil {
-			age := 0
-			if t, e := time.Parse(time.RFC3339Nano, created); e == nil {
-				age = int(now.Sub(t).Hours() / 24)
-			}
-			bucket := "0-30"
-			if age > 90 {
-				bucket = "90+"
-			} else if age > 60 {
-				bucket = "61-90"
-			} else if age > 30 {
-				bucket = "31-60"
-			}
-			items = append(items, map[string]any{"id": id, "medicalRecordNumber": mrn, "patientName": name, "patientId": patientID, "payerName": payer, "payerId": payerID, "invoiceNumber": inv, "invoiceId": invID, "authorization": auth, "memberNumber": member, "policyNumber": policy, "currency": currency, "exchangeRate": exchangeRate, "claimAmountMinor": claim, "patientPortionMinor": patient, "payerPortionMinor": payerPart, "paidMinor": paid, "outstandingMinor": payerPart - paid, "status": status, "submittedAt": submitted, "version": version, "createdAt": created, "updatedAt": updated, "agingBucket": bucket})
+		if err := rows.Scan(&id, &mrn, &name, &patientID, &payer, &payerID, &inv, &invID, &auth, &member, &policy, &currency, &exchangeRate, &claim, &patient, &payerPart, &paid, &status, &submitted, &version, &created, &updated); err != nil {
+			writeError(w, http.StatusInternalServerError, "CLAIMS_FAILED", "Could not load insurance claims.")
+			return
 		}
+		age := 0
+		if t, e := time.Parse(time.RFC3339Nano, created); e == nil {
+			age = int(now.Sub(t).Hours() / 24)
+		}
+		bucket := "0-30"
+		if age > 90 {
+			bucket = "90+"
+		} else if age > 60 {
+			bucket = "61-90"
+		} else if age > 30 {
+			bucket = "31-60"
+		}
+		items = append(items, map[string]any{"id": id, "medicalRecordNumber": mrn, "patientName": name, "patientId": patientID, "payerName": payer, "payerId": payerID, "invoiceNumber": inv, "invoiceId": invID, "authorization": auth, "memberNumber": member, "policyNumber": policy, "currency": currency, "exchangeRate": exchangeRate, "claimAmountMinor": claim, "patientPortionMinor": patient, "payerPortionMinor": payerPart, "paidMinor": paid, "outstandingMinor": payerPart - paid, "status": status, "submittedAt": submitted, "version": version, "createdAt": created, "updatedAt": updated, "agingBucket": bucket})
 	}
 	writeJSON(w, 200, map[string]any{"items": items})
 }

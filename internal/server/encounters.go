@@ -579,16 +579,23 @@ func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix = prefix[:prefixLength]
 	detected := http.DetectContentType(prefix)
+	if isTIFF(prefix) {
+		// Go's content sniffer has no TIFF entry and reports application/octet-stream,
+		// so scanners' TIFF output is recognised from its own magic number here.
+		detected = tiffMediaType
+	}
 	allowed := map[string]map[string]bool{
 		".pdf":  {"application/pdf": true},
 		".jpg":  {"image/jpeg": true},
 		".jpeg": {"image/jpeg": true},
 		".png":  {"image/png": true},
+		".tif":  {tiffMediaType: true},
+		".tiff": {tiffMediaType: true},
 		".doc":  {"application/octet-stream": true, "application/x-ole-storage": true},
 		".docx": {"application/zip": true},
 	}
 	if !allowed[extension][detected] {
-		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_DOCUMENT_TYPE", "Supported formats are PDF, JPG, PNG, DOC, and DOCX.")
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_DOCUMENT_TYPE", "Supported formats are PDF, JPG, PNG, TIFF, DOC, and DOCX.")
 		return
 	}
 	mediaType := detected
@@ -625,7 +632,23 @@ func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "displayName": filepath.Base(header.Filename), "category": category, "mediaType": mediaType, "sizeBytes": size, "createdAt": now})
 }
 
+const tiffMediaType = "image/tiff"
+
+func isTIFF(prefix []byte) bool {
+	return len(prefix) >= 4 && (string(prefix[:4]) == "II\x2a\x00" || string(prefix[:4]) == "MM\x00\x2a")
+}
+
 func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) {
+	s.serveDocument(w, r, "attachment")
+}
+
+// The in-app viewer needs the file inline; a browser will not preview a response
+// sent as an attachment. The route is otherwise identical and equally protected.
+func (s *Server) handleDocumentContent(w http.ResponseWriter, r *http.Request) {
+	s.serveDocument(w, r, "inline")
+}
+
+func (s *Server) serveDocument(w http.ResponseWriter, r *http.Request, disposition string) {
 	var storage, name, mediaType string
 	err := s.db.QueryRowContext(r.Context(), "SELECT storage_name,display_name,media_type FROM documents WHERE id=? AND archived_at IS NULL", chi.URLParam(r, "id")).Scan(&storage, &name, &mediaType)
 	if err == sql.ErrNoRows {
@@ -637,7 +660,8 @@ func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", mediaType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(name)}))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(name)}))
 	http.ServeFile(w, r, filepath.Join(s.config.DataDir, "documents", filepath.Base(storage)))
 }
 

@@ -50,6 +50,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/documents", s.handleDocumentsList)
 	r.Post("/documents", s.handleDocumentUpload)
 	r.Get("/documents/{id}/download", s.handleDocumentDownload)
+	r.Get("/documents/{id}/content", s.handleDocumentContent)
 	r.Delete("/documents/{id}", s.handleDocumentArchive)
 }
 

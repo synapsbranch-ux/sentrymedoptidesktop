@@ -38,8 +38,35 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+/**
+ * Fetches a stored file as a Blob. Plain <a href> and <img src> cannot carry the
+ * desktop shell's in-memory Authorization header, so every document the viewer
+ * shows is retrieved here and rendered from an object URL.
+ */
+async function requestBlob(path: string, signal?: AbortSignal): Promise<{ blob: Blob; filename: string }> {
+  const headers = new Headers({ Accept: "*/*" });
+  if (desktopSessionToken) headers.set("Authorization", `SentryMed ${desktopSessionToken}`);
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1${path}`, { headers, credentials: "same-origin", signal });
+  } catch {
+    throw new APIError(0, { code: "CLINIC_SERVER_UNREACHABLE", message: "Cannot reach the clinic server. Check that this device is on the clinic Wi-Fi and that SentryMed is running." });
+  }
+  if (!response.ok) {
+    const type = response.headers.get("content-type") ?? "";
+    const body: unknown = type.includes("application/json") ? await response.json() : await response.text();
+    const error = typeof body === "object" && body !== null && "message" in body ? body as APIErrorBody : { code: "REQUEST_FAILED", message: String(body) };
+    if (response.status === 401) window.dispatchEvent(new CustomEvent("sentrymed:session-expired"));
+    throw new APIError(response.status, error);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(disposition);
+  return { blob: await response.blob(), filename: match ? decodeURIComponent(match[1]) : "" };
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  blob: requestBlob,
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),

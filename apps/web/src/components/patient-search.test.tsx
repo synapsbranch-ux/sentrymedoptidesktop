@@ -12,7 +12,7 @@ function patient(overrides: Partial<PatientSearchResult> = {}): PatientSearchRes
     id: "p1", medicalRecordNumber: "PT-000001", firstName: "Jéan", middleName: "", lastName: "Étienne", preferredName: "",
     sex: "male", dateOfBirth: "1985-03-04", phone: "+509 3456 7890", alternatePhone: "", email: "", address: "", city: "",
     occupation: "", employer: "", preferredLanguage: "", communicationPreference: "", referralSource: "", referringProvider: "",
-    notes: "", tags: [], version: 1, createdAt: "", updatedAt: "", updatedBy: "", lastVisitAt: "2026-01-05T10:00:00Z", ...overrides,
+    civilStatus: "", religion: "", religionOther: "", notes: "", tags: [], version: 1, createdAt: "", updatedAt: "", updatedBy: "", lastVisitAt: "2026-01-05T10:00:00Z", ...overrides,
   };
 }
 

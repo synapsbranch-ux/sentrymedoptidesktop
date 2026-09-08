@@ -5,7 +5,8 @@ export interface Patient {
   id: string; medicalRecordNumber: string; firstName: string; middleName: string; lastName: string; preferredName: string;
   sex: string; dateOfBirth: string; phone: string; alternatePhone: string; email: string; address: string; city: string;
   occupation: string; employer: string; preferredLanguage: string; communicationPreference: string; referralSource: string;
-  referringProvider: string; notes: string; tags: string[]; version: number; createdAt: string; updatedAt: string; updatedBy: string;
+  referringProvider: string; civilStatus: string; religion: string; religionOther: string;
+  notes: string; tags: string[]; version: number; createdAt: string; updatedAt: string; updatedBy: string;
 }
 export interface Appointment { id: string; patientId: string; medicalRecordNumber: string; patientName: string; practitionerId: string; practitionerName: string; startsAt: string; durationMinutes: number; type: string; reason: string; notes: string; status: string; version: number }
 export interface QueueEntry { id: string; patientId: string; medicalRecordNumber: string; patientName: string; phone: string; visitReason: string; appointmentId: string; encounterId: string; assignedDoctorId: string; assignedDoctorName: string; arrivedAt: string; stage: string; stageEnteredAt: string; estimatedWaitMinutes: number | null; waitEstimateSamples: number; priority: number; source: string; version: number; updatedAt: string }

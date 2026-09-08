@@ -73,6 +73,9 @@ type patientPayload struct {
 	CommunicationPreference string   `json:"communicationPreference"`
 	ReferralSource          string   `json:"referralSource"`
 	ReferringProvider       string   `json:"referringProvider"`
+	CivilStatus             string   `json:"civilStatus"`
+	Religion                string   `json:"religion"`
+	ReligionOther           string   `json:"religionOther"`
 	Notes                   string   `json:"notes"`
 	Tags                    []string `json:"tags"`
 	Version                 int      `json:"version,omitempty"`
@@ -98,6 +101,9 @@ type patientRecord struct {
 	CommunicationPreference string   `json:"communicationPreference"`
 	ReferralSource          string   `json:"referralSource"`
 	ReferringProvider       string   `json:"referringProvider"`
+	CivilStatus             string   `json:"civilStatus"`
+	Religion                string   `json:"religion"`
+	ReligionOther           string   `json:"religionOther"`
 	Notes                   string   `json:"notes"`
 	Tags                    []string `json:"tags"`
 	Version                 int      `json:"version"`
@@ -115,7 +121,7 @@ func scanPatient(scanner interface{ Scan(...any) error }) (patientRecord, error)
 func scanPatientWithExtras(scanner interface{ Scan(...any) error }, extras ...any) (patientRecord, error) {
 	var item patientRecord
 	var tags string
-	targets := []any{&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy}
+	targets := []any{&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.CivilStatus, &item.Religion, &item.ReligionOther, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy}
 	err := scanner.Scan(append(targets, extras...)...)
 	if err == nil {
 		_ = json.Unmarshal([]byte(tags), &item.Tags)
@@ -127,9 +133,9 @@ func scanPatientWithExtras(scanner interface{ Scan(...any) error }, extras ...an
 }
 
 // Qualified with the patients alias for queries that join the search index.
-const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COALESCE(p.middle_name,''), p.last_name, COALESCE(p.preferred_name,''), COALESCE(p.sex,''), COALESCE(p.date_of_birth,''), COALESCE(p.phone,''), COALESCE(p.alternate_phone,''), COALESCE(p.email,''), COALESCE(p.address,''), COALESCE(p.city,''), COALESCE(p.occupation,''), COALESCE(p.employer,''), COALESCE(p.preferred_language,''), COALESCE(p.communication_preference,''), COALESCE(p.referral_source,''), COALESCE(p.referring_provider,''), COALESCE(p.notes,''), p.tags_json, p.version, p.created_at, p.updated_at, p.updated_by`
+const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COALESCE(p.middle_name,''), p.last_name, COALESCE(p.preferred_name,''), COALESCE(p.sex,''), COALESCE(p.date_of_birth,''), COALESCE(p.phone,''), COALESCE(p.alternate_phone,''), COALESCE(p.email,''), COALESCE(p.address,''), COALESCE(p.city,''), COALESCE(p.occupation,''), COALESCE(p.employer,''), COALESCE(p.preferred_language,''), COALESCE(p.communication_preference,''), COALESCE(p.referral_source,''), COALESCE(p.referring_provider,''), COALESCE(p.civil_status,''), COALESCE(p.religion,''), COALESCE(p.religion_other,''), COALESCE(p.notes,''), p.tags_json, p.version, p.created_at, p.updated_at, p.updated_by`
 
-const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
+const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(civil_status,''), COALESCE(religion,''), COALESCE(religion_other,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
 
 func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 	var input patientPayload
@@ -148,6 +154,10 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if message := normaliseDemographics(&input); message != "" {
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+		return
+	}
 	var duplicateID, duplicateNumber string
 	duplicateErr := s.db.QueryRowContext(r.Context(), `SELECT id, medical_record_number FROM patients WHERE archived_at IS NULL
 		AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
@@ -165,8 +175,8 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,notes,tags_json,created_at,updated_at,created_by,updated_by)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
 		if err != nil {
 			return err
 		}
@@ -212,9 +222,13 @@ func (s *Server) handlePatientUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	if message := normaliseDemographics(&input); message != "" {
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+		return
+	}
 	user, _ := userFromContext(r.Context())
 	tags, _ := json.Marshal(input.Tags)
-	result, err := s.db.ExecContext(r.Context(), `UPDATE patients SET first_name=?,middle_name=?,last_name=?,preferred_name=?,sex=?,date_of_birth=?,phone=?,alternate_phone=?,email=?,address=?,city=?,occupation=?,employer=?,preferred_language=?,communication_preference=?,referral_source=?,referring_provider=?,notes=?,tags_json=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.Notes), string(tags), time.Now().UTC().Format(time.RFC3339Nano), user.ID, chi.URLParam(r, "id"), input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE patients SET first_name=?,middle_name=?,last_name=?,preferred_name=?,sex=?,date_of_birth=?,phone=?,alternate_phone=?,email=?,address=?,city=?,occupation=?,employer=?,preferred_language=?,communication_preference=?,referral_source=?,referring_provider=?,civil_status=?,religion=?,religion_other=?,notes=?,tags_json=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), time.Now().UTC().Format(time.RFC3339Nano), user.ID, chi.URLParam(r, "id"), input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PATIENT_UPDATE_FAILED", "Could not update the patient.")
 		return

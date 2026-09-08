@@ -43,6 +43,7 @@ func buildMatchExpression(query string) string {
 type patientFilters struct {
 	query          string
 	sex            string
+	civilStatus    string
 	insurance      string
 	practitioner   string
 	status         string
@@ -58,6 +59,7 @@ func readPatientFilters(r *http.Request) patientFilters {
 	return patientFilters{
 		query:          get("q"),
 		sex:            get("sex"),
+		civilStatus:    get("civilStatus"),
 		insurance:      get("insurance"),
 		practitioner:   get("practitioner"),
 		status:         get("status"),
@@ -86,6 +88,10 @@ func (f patientFilters) conditions() (string, []any) {
 	if f.sex != "" {
 		clauses = append(clauses, "p.sex = ?")
 		args = append(args, f.sex)
+	}
+	if f.civilStatus != "" {
+		clauses = append(clauses, "p.civil_status = ?")
+		args = append(args, f.civilStatus)
 	}
 	// Age is derived from the date of birth so that no stored age can go stale.
 	// A minimum age is an upper bound on the birth date, and vice versa.
@@ -231,5 +237,9 @@ func (s *Server) handlePatientFilterOptions(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"insurers": payers, "practitioners": practitioners})
+	options := map[string]any{"insurers": payers, "practitioners": practitioners}
+	for key, value := range s.demographicOptions() {
+		options[key] = value
+	}
+	writeJSON(w, http.StatusOK, options)
 }

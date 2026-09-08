@@ -210,6 +210,7 @@ func (s *Server) handlePatientGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "PATIENT_LOAD_FAILED", "Could not load the patient.")
 		return
 	}
+	s.recordPatientAccess(r, id, "patient_record", "Opened the record of "+item.FirstName+" "+item.LastName+" ("+item.MedicalRecordNumber+")")
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -289,6 +290,7 @@ func (s *Server) handlePatientTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]string{"type": kind, "id": entityID, "at": at, "title": title})
 	}
+	s.recordPatientAccess(r, id, "patient_timeline", "Read the clinical timeline of patient "+id)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 

@@ -692,8 +692,8 @@ func (s *Server) handleDocumentContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveDocument(w http.ResponseWriter, r *http.Request, disposition string) {
-	var storage, name, mediaType string
-	err := s.db.QueryRowContext(r.Context(), "SELECT storage_name,display_name,media_type FROM documents WHERE id=? AND archived_at IS NULL", chi.URLParam(r, "id")).Scan(&storage, &name, &mediaType)
+	var storage, name, mediaType, patientID string
+	err := s.db.QueryRowContext(r.Context(), "SELECT storage_name,display_name,media_type,COALESCE(patient_id,'') FROM documents WHERE id=? AND archived_at IS NULL", chi.URLParam(r, "id")).Scan(&storage, &name, &mediaType, &patientID)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "DOCUMENT_NOT_FOUND", "Document was not found.")
 		return
@@ -702,6 +702,8 @@ func (s *Server) serveDocument(w http.ResponseWriter, r *http.Request, dispositi
 		writeError(w, http.StatusInternalServerError, "DOCUMENT_LOAD_FAILED", "Could not load the document.")
 		return
 	}
+	// Scans and letters: every view and download is attributable.
+	s.recordPatientAccess(r, patientID, "patient_document", disposition+" the patient document "+filepath.Base(name))
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(name)}))

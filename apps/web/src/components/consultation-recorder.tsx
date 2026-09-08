@@ -46,7 +46,7 @@ export function ConsultationRecorder({ canRecord }: { canRecord: boolean }) {
   const { user } = useAuth();
   const { revision } = useRealtime();
   const {
-    encounterId, recording, paused, uploading, elapsed, problem, recovered,
+    encounterId, recording, paused, uploading, elapsed, problem, recovered, retentionDays,
     start, stop, saveRecovered, discardRecovered, onSaved,
   } = useRecording();
   const recordings = useLoad(() => api.get<{ items: Recording[] }>(`/encounters/${encounterId}/recordings`), [encounterId, revision]);
@@ -72,6 +72,7 @@ export function ConsultationRecorder({ canRecord }: { canRecord: boolean }) {
               <div role="alert" className="grid gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 <strong>A recording from this consultation was interrupted.</strong>
                 <p>{formatDuration(recovered.durationSeconds)} of audio is still on this device. Nothing has been lost.</p>
+                <p className="text-xs">Audio waiting to be recovered is kept on this device for {retentionDays} days and then deleted, so it is not left on a shared tablet.</p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" disabled={uploading} onClick={() => void saveRecovered()}><Save className="h-3.5 w-3.5" />{uploading ? "Saving…" : "Save it to the chart"}</Button>
                   <Button size="sm" variant="outline" disabled={uploading} onClick={() => void discardRecovered()}>Discard</Button>

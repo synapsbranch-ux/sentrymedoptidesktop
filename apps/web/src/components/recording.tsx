@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, GripVertical, Mic, Pause, Play, Square } from "lucide-react";
 import { api, APIError } from "../api";
-import { clearRecovered, loadRecovered, persistChunk, type RecoveredRecording } from "../recording-store";
+import { clearRecovered, loadRecovered, persistChunk, purgeExpiredRecordings, recordingRetentionMs, type RecoveredRecording } from "../recording-store";
 import { requestMicrophone, type MicrophoneProblem } from "../microphone";
 import { Button } from "./ui/button";
 
@@ -42,6 +42,7 @@ interface RecordingValue {
   problem: MicrophoneProblem | null;
   canPause: boolean;
   recovered: RecoveredRecording | null;
+  retentionDays: number;
   start(): Promise<void>;
   pause(): void;
   resume(): void;
@@ -85,7 +86,12 @@ export function RecordingProvider({ encounterId, patientName, children }: { enco
   // consultation is opened.
   React.useEffect(() => {
     let active = true;
-    void loadRecovered(encounterId).then((found) => { if (active) setRecovered(found); });
+    // Opening any consultation also sweeps audio nobody came back for, so a
+    // recording is not left on a shared tablet because its own consultation was
+    // never reopened.
+    void purgeExpiredRecordings()
+      .then(() => loadRecovered(encounterId))
+      .then((found) => { if (active) setRecovered(found); });
     return () => { active = false; };
   }, [encounterId]);
 
@@ -202,6 +208,7 @@ export function RecordingProvider({ encounterId, patientName, children }: { enco
 
   const value = React.useMemo<RecordingValue>(() => ({
     encounterId, patientName, recording, paused, uploading, elapsed, problem, canPause, recovered,
+    retentionDays: Math.round(recordingRetentionMs / 86_400_000),
     start, pause, resume, stop, saveRecovered, discardRecovered, onSaved,
   }), [encounterId, patientName, recording, paused, uploading, elapsed, problem, canPause, recovered, start, pause, resume, stop, saveRecovered, discardRecovered, onSaved]);
 

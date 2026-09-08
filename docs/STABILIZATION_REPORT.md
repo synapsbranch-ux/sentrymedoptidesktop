@@ -52,17 +52,17 @@ defect with a workaround, **S4** is cosmetic or hygiene.
 | Q2 | Prescriptions | S2 | `POST /prescriptions` with an `encounterId` belonging to another patient | Rejected | Accepted — the document was filed against someone else's visit | Fixed |
 | Q3 | Consultations → Evolution | S4 | Read the IOP chart legend in the English UI | English | French: "— seuil 21 mmHg" | Fixed |
 
-### Found, not fixed — see §4 for the reasoning
+### Found outside the brief's list — N1, N2, N5, N6 and N7 have since been fixed on request; see §4
 
 | ID | Module | Sev | Steps to reproduce | Expected | Actual | Status |
 |---|---|---|---|---|---|---|
-| N1 | Consultation → diagnosis and procedure codes | S3 | Search a code, then select it with the keyboard | Selection works | `CodeCombobox` selects on `mousedown` only — the same defect as Q1-b, in a component outside this brief's scope | Logged |
-| N2 | Consultation → code search | S4 | Type in the code search box | One request when typing stops | One request per keystroke; no debounce | Logged |
+| N1 | Consultation → diagnosis and procedure codes | S3 | Search a code, then select it with the keyboard | Selection works | `CodeCombobox` selects on `mousedown` only — the same defect as Q1-b, in a component outside this brief's scope | **Fixed** |
+| N2 | Consultation → code search | S4 | Type in the code search box | One request when typing stops | One request per keystroke; no debounce | **Fixed** |
 | N3 | Documents, Prescriptions | S3 | Open either list in a clinic with years of records | A page at a time | Both endpoints return every row; no `limit`/`offset` | Logged |
 | N4 | Patients, appointments, medical history forms | S3 | Start editing, then navigate away without saving | A warning | None. Only the consultation's chart drafts warn | Logged |
-| N5 | Queue, documents and prescription list handlers | S4 | A row that fails to scan | An error | The row is silently dropped (`if rows.Scan(...) == nil`) | Logged |
-| N6 | Frontend test setup | S4 | Use a `@testing-library/jest-dom` matcher in a test | It works | "Invalid Chai property". The package is a dependency but is never loaded — `vitest.setupFiles` is not configured | Logged |
-| N7 | `chart-backdrops.tsx`, `inventory.tsx`, `stock-takes.tsx` | S4 | `tsc --noUnusedLocals` | Clean | Unused imports (`React`, `Boxes`, `CardContent`, `Eye`) | Logged |
+| N5 | 15 files, server-wide | **S2** | A row that fails to scan, or a query that fails | An error | 36 rows silently dropped and 11 query errors discarded — a list rendered as complete when it was not. Severity raised from S4 on the corrected scope | **Fixed** |
+| N6 | Frontend test setup | S4 | Use a `@testing-library/jest-dom` matcher in a test | It works | "Invalid Chai property". The package is a dependency but is never loaded — `vitest.setupFiles` is not configured | **Fixed** |
+| N7 | `chart-backdrops.tsx`, `inventory.tsx`, `stock-takes.tsx` | S4 | `tsc --noUnusedLocals` | Clean | Unused imports (`React`, `Boxes`, `CardContent`, `Eye`) | **Fixed** |
 | N8 | Build output | S4 | `npm run build` | Chunks under 500 kB | `chart-eye-3d` is 519 kB, over Vite's warning threshold | Logged |
 | N9 | `e2e/chart-multiview.spec.ts` | S4 | Run the suite where the installed Chromium differs from the pinned Playwright build | Runs | `test.use({ launchOptions })` replaces config-level launch options, so an `executablePath` override is discarded. Environment fragility, not an application defect | Logged |
 | N10 | e2e suite | S4 | Run the whole suite in one go | Order-independent | Specs share one server and one database, so any two that book the same appointment slot collide with a 409. Hit once during this round and fixed in the new sweep; the same trap remains for future specs | Fixed here, noted |
@@ -286,28 +286,45 @@ Automated rather than a one-off manual sweep, so the results stay true.
   non-2xx responses are `/auth/me` before login and the clinic logo in a clinic
   that has not uploaded one, which has an `onError` fallback.
 
-## 4. Found but not fixed, and why
+## 4. Findings outside the brief — what was fixed, what is still open
 
-Rule 7 of the brief: findings outside the list are logged with a severity, not
-silently fixed. Each of N1–N9 in §1 is outside the requested scope and none of
-them takes anything down.
+Rule 7 of the brief: findings outside the list go to the tracker with a severity
+rather than into a silent fix. They were logged on that basis and **N1, N2, N5,
+N6 and N7 have since been fixed on request.** What follows is why each was, or
+still is, treated the way it is.
 
-- **N1/N2 (code combobox).** N1 is genuinely the same defect as Q1-b and I would
-  fix it in one line. It is in the diagnosis/procedure code picker, which this
-  brief does not cover, and touching it would widen the diff into a module with no
-  acceptance test here. **Recommend fixing next; say the word.**
-- **N3 (unpaginated document and prescription lists).** Real, and it will bite at
-  the same scale B1 was about. It needs the same treatment B1 got — server paging
-  plus a paged UI — which is a piece of work, not a patch.
+- **N1/N2 (code combobox) — fixed.** N1 was the same defect as Q1-b: the
+  diagnosis and procedure code picker selected on `mousedown` only, so a
+  clinician working by keyboard could not choose a code at all. Selection moved
+  to `click`, the list is announced as a listbox of options, and N2's
+  request-per-keystroke now debounces at 300 ms like the patient search.
+- **N3 (unpaginated document and prescription lists).** Still open, and the one
+  I would do next. Real, and it will bite at the same scale B1 was about. It
+  needs the treatment B1 got — server paging plus a paged UI — which is a piece
+  of work, not a patch.
 - **N4 (no unsaved-changes warning on ordinary forms).** Section 6 lists it as
   something to check, not something to build; adding it across every form is a
   feature, and rule 1 says not to build what is not written down.
-- **N5 (silently dropped rows).** Pre-existing pattern in three list handlers.
-  Low risk, but it hides a real database problem behind a short list.
-- **N6–N8.** Hygiene: a test dependency that is installed but never loaded,
-  unused imports, and one oversized bundle chunk.
+- **N5 (silently dropped rows) — fixed, and my original entry was wrong.** I
+  logged it as three list handlers at S4. It was 36 dropped rows and 11 discarded
+  query errors across 15 files, which makes it S2: the caller is shown a list
+  that looks complete. A superbill missing a line item is a coding error, an
+  invoice detail rendering with no payments is a financial one, and a patient at
+  the kiosk shown a partial list of their own appointments checks in as a walk-in.
+  All 47 sites now report the failure, and a guard test — checked against a
+  deliberate reintroduction — keeps both patterns out of the package.
+- **N6/N7 — fixed.** `@testing-library/jest-dom` was installed but never loaded,
+  so its matchers failed with "Invalid Chai property"; it is wired in through
+  `vitest.setup.ts` and the workaround it forced has been replaced with the real
+  matchers to prove it works. Unused imports are gone, including two of my own
+  from this round, and `tsc --noUnusedLocals --noUnusedParameters` is clean.
+- **N8.** Still open: one 519 kB bundle chunk, over Vite's warning threshold.
 - **N9.** An environment fragility in an existing e2e file. Not an application
   defect; noted so the next person does not lose an hour to it.
+- **N11.** `coding.go`, `insurance.go` and `seed.go` do not satisfy `gofmt`, and
+  did not before this branch. Left alone rather than reformatted opportunistically,
+  since that would bury real changes in whitespace. One command fixes them when
+  you want it.
 - **N10.** Worth knowing before writing the next spec: the e2e suite shares one
   server and one database across all files, so fixed timestamps collide. This
   round's console sweep booked the same `now + 1 hour` slot as the existing
@@ -387,23 +404,58 @@ tests in `internal/server/security_review_test.go`.
   viewer only frames `application/pdf` — a PDF renders in the browser's own
   sandboxed viewer. `object-src 'none'` was added at the same time.
 
-**Two things the clinic should know, neither a defect introduced here.**
+**Two things raised for a decision, and since acted on.**
 
 1. **There is no per-patient authorisation anywhere in this application.** Any
    signed-in staff member can read any patient's record, documents included, by
-   ID. That is the pre-existing model — both roles are clinical staff in one
-   small practice — and this round did not widen it: the new inline document
-   route carries exactly the same guard as the download route it sits beside. It
-   is worth a deliberate decision before this is deployed anywhere with a larger
-   or less trusted staff.
-2. **D5 stores consultation audio in the browser's IndexedDB**, which is the
-   direct consequence of the requirement that interrupted audio must not be lost.
-   It is cleared when the recording uploads successfully, when it is discarded,
-   and when a new recording starts — but a recording that is interrupted and then
-   never revisited stays in that device's storage indefinitely. On a shared
-   clinic tablet that is patient audio at rest outside the server. Options are a
-   retention cut-off or a prompt on the next sign-in; both are design decisions
-   rather than bug fixes, so neither was built unasked.
+   ID. That is the pre-existing model, and this round did not widen it: the new
+   inline document route carries exactly the same guard as the download route
+   beside it.
+
+   **Restricting access by assignment was deliberately not the fix.** In a
+   single small practice, whoever is free sees whoever walks in; requiring a
+   patient to be assigned to a clinician before they can be opened would stop
+   the front desk registering a walk-in and stop a nurse pre-testing a patient
+   the doctor has not met. That would break the clinic to satisfy a control that
+   does not fit its trust model.
+
+   **The control that does fit is accountability**, which is what a clinical
+   record system is normally held to: access stays open, but every access is
+   attributable. Opening an individual patient's record, reading their clinical
+   timeline, and viewing or downloading one of their documents now each write a
+   `read` entry to the audit log — who, which patient, from which address, when
+   — visible on the Audit screen a doctor can already open. Searching or listing
+   patients is deliberately **not** logged: a search is not a record view, and
+   logging it would bury the entries that matter under polling noise. A record
+   left open on screen re-fetches on every live update, so the same clinician
+   reading the same patient is recorded once per ten-minute window rather than
+   once per request, and the window map drops aged entries so a long-running
+   clinic server cannot leak memory.
+
+   A true per-patient permission model remains a separate decision, and is now
+   a smaller one: the audit trail shows who actually looks at what, which is the
+   evidence you would want before restricting anybody.
+
+2. **D5 stored consultation audio in the browser's IndexedDB indefinitely.**
+   That buffer exists because you required that interrupted audio must not be
+   lost, and it cleared on successful upload, on discard and when a new
+   recording started — but never on a timer, so a recording nobody came back for
+   stayed on that device forever. On a shared clinic tablet that is patient
+   audio at rest outside the server.
+
+   There is now a **72-hour retention window**, swept whenever the store is
+   opened — which is on opening *any* consultation, not only the one that owns
+   the buffer, so audio is not kept alive by its own consultation never being
+   reopened. 72 hours is chosen to survive a weekend: a Friday-evening
+   interruption is still recoverable on Monday. A record whose timestamp cannot
+   be read is treated as expired rather than kept forever. The recovery notice
+   now states the retention period, so nobody assumes the audio is permanent.
+
+**Still deliberately not done.** The audio in that buffer is not encrypted at
+rest. Doing it properly needs key management the application has nowhere to put
+— a key in the same browser storage protects against nothing — so the retention
+window is the honest control. Full-disk encryption on the clinic device is the
+right answer to that threat.
 
 ## 7. Definition of done — status
 

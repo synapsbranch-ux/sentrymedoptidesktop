@@ -29,10 +29,13 @@ type Server struct {
 	maintenance sync.RWMutex
 	router      chi.Router
 	web         fs.FS
+	// Who has opened which patient record recently, so a record left open on
+	// screen is not logged once per live refresh.
+	patientAccess *patientAccessLog
 }
 
 func New(db *database.DB, config app.Config, logger *slog.Logger, webAssets ...fs.FS) *Server {
-	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger}
+	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog()}
 	if len(webAssets) > 0 {
 		server.web = webAssets[0]
 	}

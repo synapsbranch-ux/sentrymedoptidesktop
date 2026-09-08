@@ -4,7 +4,18 @@
  * crashing or the connection dropping. Nothing here talks to the network; the
  * chunks are uploaded by the recorder when it stops, or offered for recovery the
  * next time that consultation is opened.
+ *
+ * This is patient audio at rest on the device, so it does not live here
+ * indefinitely. Anything older than the retention window below is deleted
+ * whenever the store is opened, which on a shared clinic tablet bounds how long
+ * a recording nobody came back for can sit in the browser.
  */
+
+/**
+ * Long enough to survive a weekend, so a Friday-evening interruption is still
+ * recoverable on Monday; short enough that unrecovered audio does not accumulate.
+ */
+export const recordingRetentionMs = 72 * 60 * 60 * 1000;
 
 const databaseName = "sentrymed-recordings";
 const storeName = "chunks";
@@ -60,12 +71,35 @@ export async function persistChunk(encounterId: string, chunk: Blob, mimeType: s
   }
 }
 
-export async function loadRecovered(encounterId: string): Promise<RecoveredRecording | null> {
+export async function loadRecovered(encounterId: string, now = Date.now()): Promise<RecoveredRecording | null> {
   try {
+    await purgeExpiredRecordings(now);
     const record = await run<RecoveredRecording | undefined>("readonly", (store) => store.get(encounterId));
-    return record && record.chunks.length > 0 ? record : null;
+    return record && record.chunks.length > 0 && !hasExpired(record, now) ? record : null;
   } catch {
     return null;
+  }
+}
+
+export function hasExpired(record: Pick<RecoveredRecording, "startedAt">, now = Date.now()) {
+  const started = new Date(record.startedAt).getTime();
+  // A record with no usable timestamp is treated as expired rather than kept
+  // forever, since it cannot be shown to be within the window.
+  if (Number.isNaN(started)) return true;
+  return now - started > recordingRetentionMs;
+}
+
+/** Deletes audio nobody came back for. Called whenever the store is opened. */
+export async function purgeExpiredRecordings(now = Date.now()): Promise<number> {
+  try {
+    const records = await run<RecoveredRecording[]>("readonly", (store) => store.getAll());
+    const expired = records.filter((record) => hasExpired(record, now));
+    for (const record of expired) {
+      await run("readwrite", (store) => store.delete(record.encounterId));
+    }
+    return expired.length;
+  } catch {
+    return 0;
   }
 }
 

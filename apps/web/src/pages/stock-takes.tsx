@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CheckCircle2, ClipboardCheck, Eye, Plus, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Plus, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";

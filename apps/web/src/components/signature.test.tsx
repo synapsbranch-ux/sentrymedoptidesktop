@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import * as React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
@@ -52,11 +51,11 @@ describe("SignaturePad", () => {
     render(<I18nProvider><SignaturePad busy={false} onDrawn={onDrawn} /></I18nProvider>);
     const canvas = screen.getByLabelText("Signature pad");
     expect(canvas.className).toContain("touch-none");
-    expect((screen.getByRole("button", { name: "Save drawn signature" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Save drawn signature" })).toBeDisabled();
     fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 40, clientY: 30 });
     fireEvent.pointerUp(canvas, { pointerId: 1 });
-    await waitFor(() => expect((screen.getByRole("button", { name: "Save drawn signature" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save drawn signature" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save drawn signature" }));
     await waitFor(() => expect(onDrawn).toHaveBeenCalledWith(expect.any(Blob)));
   });
@@ -67,9 +66,9 @@ describe("SignaturePad", () => {
     fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(canvas, { pointerId: 1 });
     const clear = screen.getByRole("button", { name: "Clear" });
-    await waitFor(() => expect((clear as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(clear).toBeEnabled());
     fireEvent.click(clear);
-    await waitFor(() => expect((screen.getByRole("button", { name: "Save drawn signature" }) as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save drawn signature" })).toBeDisabled());
   });
 });
 

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Mic, MicOff, Save, Square, Trash2 } from "lucide-react";
-import { api, APIError } from "../api";
+import { api } from "../api";
 import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
 import { useRealtime } from "../realtime";

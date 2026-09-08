@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Clock3 } from "lucide-react";
 import { cn } from "../../lib";
 import { useI18n } from "../../i18n";

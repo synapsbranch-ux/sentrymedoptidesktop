@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Ban, CalendarClock, CheckCheck, CircleCheck, Clock3, Eye, Hourglass, Stethoscope, UserCheck, UserX, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "../lib";

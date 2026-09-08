@@ -18,6 +18,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	s.registerVisionTestRoutes(r)
 	s.registerCodingRoutes(r)
 	s.registerRecordingRoutes(r)
+	s.registerCatalogRoutes(r)
 	r.Get("/patients", s.handlePatientsList)
 	r.Get("/patients/filter-options", s.handlePatientFilterOptions)
 	r.Post("/patients", s.handlePatientsCreate)

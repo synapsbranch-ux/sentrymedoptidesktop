@@ -12,6 +12,7 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "./ui/data";
 import { Field, Input, Select } from "./ui/input";
 import { patientSearchQuery, emptyPatientFilters, type PatientSearchPage, type PatientSearchResult } from "./patient-search";
 import { stageAppearance, StatusPill } from "./status";
+import { CatalogInput } from "./catalogs";
 
 /**
  * B2: the screen the front desk keeps open all day. Everyone waiting, in arrival
@@ -252,7 +253,7 @@ export function WalkInForm({ onSaved }: { onSaved(): void }) {
           <Field label="Last name"><Input required value={form.lastName} onChange={(event) => setForm({ ...form, lastName: event.target.value })} /></Field>
         </div>
         <Field label="Phone"><Input inputMode="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></Field>
-        <Field label="Reason for visit"><Input value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} /></Field>
+        <Field label="Reason for visit"><CatalogInput catalog="appointment_reason" listId="walk-in-reason-options" value={form.reason} onChange={(reason) => setForm({ ...form, reason })} /></Field>
         <Field label="Priority">
           <Select value={form.priority} onChange={(event) => setForm({ ...form, priority: Number(event.target.value) })}>
             <option value={0}>Normal</option><option value={1}>Priority</option><option value={2}>Urgent</option>

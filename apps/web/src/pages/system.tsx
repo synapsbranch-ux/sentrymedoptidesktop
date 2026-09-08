@@ -1,5 +1,5 @@
 import * as React from "react";
-import { DatabaseBackup, ExternalLink, FolderOpen, HardDrive, ImageUp, KeyRound, Languages, MonitorUp, Palette, Pencil, Power, Plus, RotateCcw, Save, ShieldCheck, UserCog, Wifi } from "lucide-react";
+import { ListChecks, DatabaseBackup, ExternalLink, FolderOpen, HardDrive, ImageUp, KeyRound, Languages, MonitorUp, Palette, Pencil, Power, Plus, RotateCcw, Save, ShieldCheck, UserCog, Wifi } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { api, APIError } from "../api";
@@ -14,6 +14,7 @@ import { Badge, EmptyState, ErrorState, Skeleton, Table, Td, Th } from "../compo
 import { Field, Input, Select } from "../components/ui/input";
 import { accentColors, baseColors, type Appearance, useTheme } from "../theme";
 import { supportedLanguages, type LanguageCode, useI18n } from "../i18n";
+import { CatalogManager, prescriptionItemFields } from "../components/catalogs";
 
 interface SettingsResponse { settings: Record<string, unknown>; versions: Record<string, number> }
 interface UserItem { id: string; username: string; email: string; displayName: string; role: "doctor" | "nurse"; active: boolean; version: number; lastLoginAt: string; createdAt: string }
@@ -22,10 +23,10 @@ interface NetworkInfo { running: boolean; addresses: string[]; url: string; tls:
 
 export function SystemPage() {
   const i18n = useI18n();
-  const [tab, setTab] = React.useState<"clinic" | "appearance" | "language" | "display" | "users" | "network" | "backup">("clinic");
+  const [tab, setTab] = React.useState<"clinic" | "appearance" | "language" | "display" | "catalogs" | "users" | "network" | "backup">("clinic");
   const settings = useLoad(() => api.get<SettingsResponse>("/settings")); const users = useLoad(() => api.get<{ items: UserItem[] }>("/users")); const network = useLoad(() => api.get<NetworkInfo>("/network")); const backups = useLoad(() => api.get<{ items: BackupItem[] }>("/backups"));
-  const tabs = [{ id: "clinic", label: "Clinic", icon: Save }, { id: "appearance", label: "Themes", icon: Palette }, { id: "language", label: "Language", icon: Languages }, { id: "display", label: "Public display", icon: MonitorUp }, { id: "users", label: "Users", icon: UserCog }, { id: "network", label: "Mobile & network", icon: Wifi }, { id: "backup", label: "Backups", icon: DatabaseBackup }] as const;
-  return <div className="page"><div><p className="section-title">{i18n.t("Administration")}</p><h1 className="page-title">{i18n.t("System")}</h1><p className="page-description">{i18n.t("Clinic identity, staff, LAN access, permissions and verified backups.")}</p></div><div className="mt-6 flex touch-pan-x gap-1 overflow-x-auto overscroll-x-contain border-b pb-2">{tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[var(--radius)] px-3 text-sm font-semibold sm:min-h-10 ${tab === id ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]"}`}><Icon className="h-4 w-4" />{i18n.t(label)}</button>)}</div><div className="mt-5">{settings.error ? <ErrorState message={settings.error.message} retry={settings.reload} /> : settings.loading ? <Skeleton className="h-96" /> : <>{tab === "clinic" && <ClinicSettings data={settings.data!} onSaved={settings.reload} />}{tab === "appearance" && <AppearanceSettings data={settings.data!} onSaved={settings.reload} />}{tab === "language" && <LanguageSettings data={settings.data!} onSaved={settings.reload} />}{tab === "display" && <PublicDisplaySettings data={settings.data!} network={network.data ?? undefined} onSaved={settings.reload} />}{tab === "users" && <UsersSettings users={users.data?.items ?? []} loading={users.loading} reload={users.reload} />}{tab === "network" && <NetworkSettings network={network.data ?? undefined} />}{tab === "backup" && <BackupSettings data={settings.data!} onSettingsSaved={settings.reload} items={backups.data?.items ?? []} loading={backups.loading} reload={backups.reload} />}</>}</div></div>;
+  const tabs = [{ id: "clinic", label: "Clinic", icon: Save }, { id: "appearance", label: "Themes", icon: Palette }, { id: "language", label: "Language", icon: Languages }, { id: "display", label: "Public display", icon: MonitorUp }, { id: "catalogs", label: "Catalogs", icon: ListChecks }, { id: "users", label: "Users", icon: UserCog }, { id: "network", label: "Mobile & network", icon: Wifi }, { id: "backup", label: "Backups", icon: DatabaseBackup }] as const;
+  return <div className="page"><div><p className="section-title">{i18n.t("Administration")}</p><h1 className="page-title">{i18n.t("System")}</h1><p className="page-description">{i18n.t("Clinic identity, staff, LAN access, permissions and verified backups.")}</p></div><div className="mt-6 flex touch-pan-x gap-1 overflow-x-auto overscroll-x-contain border-b pb-2">{tabs.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-[var(--radius)] px-3 text-sm font-semibold sm:min-h-10 ${tab === id ? "bg-[var(--primary)] text-[var(--primary-foreground)]" : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]"}`}><Icon className="h-4 w-4" />{i18n.t(label)}</button>)}</div><div className="mt-5">{settings.error ? <ErrorState message={settings.error.message} retry={settings.reload} /> : settings.loading ? <Skeleton className="h-96" /> : <>{tab === "clinic" && <ClinicSettings data={settings.data!} onSaved={settings.reload} />}{tab === "appearance" && <AppearanceSettings data={settings.data!} onSaved={settings.reload} />}{tab === "language" && <LanguageSettings data={settings.data!} onSaved={settings.reload} />}{tab === "display" && <PublicDisplaySettings data={settings.data!} network={network.data ?? undefined} onSaved={settings.reload} />}{tab === "catalogs" && <CatalogSettings />}{tab === "users" && <UsersSettings users={users.data?.items ?? []} loading={users.loading} reload={users.reload} />}{tab === "network" && <NetworkSettings network={network.data ?? undefined} />}{tab === "backup" && <BackupSettings data={settings.data!} onSettingsSaved={settings.reload} items={backups.data?.items ?? []} loading={backups.loading} reload={backups.reload} />}</>}</div></div>;
 }
 
 function LanguageSettings({ data, onSaved }: { data: SettingsResponse; onSaved(): void }) {
@@ -54,6 +55,23 @@ interface ClinicalAnalyticsForm {
 }
 interface ClinicalSettingsShape { transcriptionEnabled?: boolean; transcriptionCommand?: string; appointmentDuration?: number; enabledSections?: string[]; analytics?: Partial<ClinicalAnalyticsForm> }
 const defaultClinicalAnalytics: ClinicalAnalyticsForm = { rapidMyopicShiftDPerYear: 0.75, significantAcuityLossLines: 2, elevatedIOPMmHg: 21, iopAsymmetryMmHg: 4, thinCorneaMicrons: 510, thickCorneaMicrons: 570, cctCorrectionEnabled: false, cctReferenceMicrons: 545, cctMicronsPerMmHg: 0 };
+
+/** D2: the clinic's own lists, editable here and effective immediately. */
+function CatalogSettings() {
+  return <div className="grid gap-4">
+    <CatalogManager
+      catalog="appointment_reason"
+      title="Appointment reasons"
+      description="Offered when booking an appointment and when registering a walk-in. Seeded with the four visit types the application previously hardcoded — confirm the full list with clinic staff and add the rest here."
+    />
+    <CatalogManager
+      catalog="prescription_item"
+      title="Prescription catalog"
+      description="Selecting an entry fills a medication prescription with its defaults, which the doctor can still change. Deliberately empty until clinic staff confirm the starting list."
+      detailFields={prescriptionItemFields}
+    />
+  </div>;
+}
 
 function ClinicSettings({ data, onSaved }: { data: SettingsResponse; onSaved(): void }) {
   const initial = (data.settings.clinic ?? {}) as Record<string, string>; const [form, setForm] = React.useState({ name: initial.name ?? "", address: initial.address ?? "", phone: initial.phone ?? "", email: initial.email ?? "", timezone: initial.timezone ?? "America/Port-au-Prince", currency: initial.currency ?? "HTG", nif: initial.nif ?? "" }); const [saving, setSaving] = React.useState(false); const [logoVersion, setLogoVersion] = React.useState(Date.now()); const [logoAvailable, setLogoAvailable] = React.useState(true);

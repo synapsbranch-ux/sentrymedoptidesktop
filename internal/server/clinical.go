@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +18,10 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	s.registerVisionTestRoutes(r)
 	s.registerCodingRoutes(r)
 	s.registerRecordingRoutes(r)
+	s.registerCatalogRoutes(r)
+	s.registerSignatureRoutes(r)
 	r.Get("/patients", s.handlePatientsList)
+	r.Get("/patients/filter-options", s.handlePatientFilterOptions)
 	r.Post("/patients", s.handlePatientsCreate)
 	r.Get("/patients/{id}", s.handlePatientGet)
 	r.Put("/patients/{id}", s.handlePatientUpdate)
@@ -35,6 +37,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Patch("/appointments/{id}/status", s.handleAppointmentStatus)
 	r.Get("/queue", s.handleQueueList)
 	r.Post("/queue/check-in", s.handleQueueCheckIn)
+	r.Post("/queue/walk-in", s.handleQueueWalkIn)
 	r.Patch("/queue/{id}", s.handleQueueStage)
 	r.Get("/encounters", s.handleEncountersList)
 	r.Post("/encounters", s.handleEncounterCreate)
@@ -50,6 +53,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/documents", s.handleDocumentsList)
 	r.Post("/documents", s.handleDocumentUpload)
 	r.Get("/documents/{id}/download", s.handleDocumentDownload)
+	r.Get("/documents/{id}/content", s.handleDocumentContent)
 	r.Delete("/documents/{id}", s.handleDocumentArchive)
 }
 
@@ -71,6 +75,9 @@ type patientPayload struct {
 	CommunicationPreference string   `json:"communicationPreference"`
 	ReferralSource          string   `json:"referralSource"`
 	ReferringProvider       string   `json:"referringProvider"`
+	CivilStatus             string   `json:"civilStatus"`
+	Religion                string   `json:"religion"`
+	ReligionOther           string   `json:"religionOther"`
 	Notes                   string   `json:"notes"`
 	Tags                    []string `json:"tags"`
 	Version                 int      `json:"version,omitempty"`
@@ -96,6 +103,9 @@ type patientRecord struct {
 	CommunicationPreference string   `json:"communicationPreference"`
 	ReferralSource          string   `json:"referralSource"`
 	ReferringProvider       string   `json:"referringProvider"`
+	CivilStatus             string   `json:"civilStatus"`
+	Religion                string   `json:"religion"`
+	ReligionOther           string   `json:"religionOther"`
 	Notes                   string   `json:"notes"`
 	Tags                    []string `json:"tags"`
 	Version                 int      `json:"version"`
@@ -105,9 +115,16 @@ type patientRecord struct {
 }
 
 func scanPatient(scanner interface{ Scan(...any) error }) (patientRecord, error) {
+	return scanPatientWithExtras(scanner)
+}
+
+// scanPatientWithExtras reads the standard patient columns and any additional
+// values a caller selected after them, such as the derived last-visit date.
+func scanPatientWithExtras(scanner interface{ Scan(...any) error }, extras ...any) (patientRecord, error) {
 	var item patientRecord
 	var tags string
-	err := scanner.Scan(&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy)
+	targets := []any{&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.CivilStatus, &item.Religion, &item.ReligionOther, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy}
+	err := scanner.Scan(append(targets, extras...)...)
 	if err == nil {
 		_ = json.Unmarshal([]byte(tags), &item.Tags)
 		if item.Tags == nil {
@@ -117,47 +134,10 @@ func scanPatient(scanner interface{ Scan(...any) error }) (patientRecord, error)
 	return item, err
 }
 
-const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
+// Qualified with the patients alias for queries that join the search index.
+const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COALESCE(p.middle_name,''), p.last_name, COALESCE(p.preferred_name,''), COALESCE(p.sex,''), COALESCE(p.date_of_birth,''), COALESCE(p.phone,''), COALESCE(p.alternate_phone,''), COALESCE(p.email,''), COALESCE(p.address,''), COALESCE(p.city,''), COALESCE(p.occupation,''), COALESCE(p.employer,''), COALESCE(p.preferred_language,''), COALESCE(p.communication_preference,''), COALESCE(p.referral_source,''), COALESCE(p.referring_provider,''), COALESCE(p.civil_status,''), COALESCE(p.religion,''), COALESCE(p.religion_other,''), COALESCE(p.notes,''), p.tags_json, p.version, p.created_at, p.updated_at, p.updated_by`
 
-func (s *Server) handlePatientsList(w http.ResponseWriter, r *http.Request) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
-		limit = 25
-	}
-	search := strings.TrimSpace(r.URL.Query().Get("q"))
-	where, args := "archived_at IS NULL", []any{}
-	if search != "" {
-		like := "%" + search + "%"
-		where += " AND (medical_record_number LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? OR email LIKE ?)"
-		args = append(args, like, like, like, like, like)
-	}
-	var total int
-	if err := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM patients WHERE "+where, args...).Scan(&total); err != nil {
-		writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-		return
-	}
-	args = append(args, limit, (page-1)*limit)
-	rows, err := s.db.QueryContext(r.Context(), "SELECT "+patientColumns+" FROM patients WHERE "+where+" ORDER BY updated_at DESC LIMIT ? OFFSET ?", args...)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-		return
-	}
-	defer rows.Close()
-	items := []patientRecord{}
-	for rows.Next() {
-		item, err := scanPatient(rows)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-			return
-		}
-		items = append(items, item)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": page, "limit": limit, "total": total})
-}
+const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(civil_status,''), COALESCE(religion,''), COALESCE(religion_other,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
 
 func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 	var input patientPayload
@@ -176,6 +156,10 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if message := normaliseDemographics(&input); message != "" {
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+		return
+	}
 	var duplicateID, duplicateNumber string
 	duplicateErr := s.db.QueryRowContext(r.Context(), `SELECT id, medical_record_number FROM patients WHERE archived_at IS NULL
 		AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
@@ -193,8 +177,8 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,notes,tags_json,created_at,updated_at,created_by,updated_by)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
 		if err != nil {
 			return err
 		}
@@ -226,6 +210,7 @@ func (s *Server) handlePatientGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "PATIENT_LOAD_FAILED", "Could not load the patient.")
 		return
 	}
+	s.recordPatientAccess(r, id, "patient_record", "Opened the record of "+item.FirstName+" "+item.LastName+" ("+item.MedicalRecordNumber+")")
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -240,9 +225,13 @@ func (s *Server) handlePatientUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 		return
 	}
+	if message := normaliseDemographics(&input); message != "" {
+		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+		return
+	}
 	user, _ := userFromContext(r.Context())
 	tags, _ := json.Marshal(input.Tags)
-	result, err := s.db.ExecContext(r.Context(), `UPDATE patients SET first_name=?,middle_name=?,last_name=?,preferred_name=?,sex=?,date_of_birth=?,phone=?,alternate_phone=?,email=?,address=?,city=?,occupation=?,employer=?,preferred_language=?,communication_preference=?,referral_source=?,referring_provider=?,notes=?,tags_json=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.Notes), string(tags), time.Now().UTC().Format(time.RFC3339Nano), user.ID, chi.URLParam(r, "id"), input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE patients SET first_name=?,middle_name=?,last_name=?,preferred_name=?,sex=?,date_of_birth=?,phone=?,alternate_phone=?,email=?,address=?,city=?,occupation=?,employer=?,preferred_language=?,communication_preference=?,referral_source=?,referring_provider=?,civil_status=?,religion=?,religion_other=?,notes=?,tags_json=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), time.Now().UTC().Format(time.RFC3339Nano), user.ID, chi.URLParam(r, "id"), input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PATIENT_UPDATE_FAILED", "Could not update the patient.")
 		return
@@ -301,6 +290,7 @@ func (s *Server) handlePatientTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]string{"type": kind, "id": entityID, "at": at, "title": title})
 	}
+	s.recordPatientAccess(r, id, "patient_timeline", "Read the clinical timeline of patient "+id)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -505,7 +495,9 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT q.id,q.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(q.appointment_id,''),COALESCE(q.encounter_id,''),COALESCE(q.assigned_doctor_id,''),COALESCE(u.display_name,''),q.arrived_at,q.stage,q.priority,q.source,q.version,q.updated_at,
-		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at)
+		COALESCE((SELECT entered_at FROM queue_stage_events e WHERE e.queue_entry_id=q.id AND e.exited_at IS NULL ORDER BY e.id DESC LIMIT 1),q.arrived_at),
+		COALESCE(q.visit_reason,(SELECT a.reason FROM appointments a WHERE a.id=q.appointment_id),''),
+		COALESCE(p.phone,'')
 		FROM queue_entries q JOIN patients p ON p.id=q.patient_id LEFT JOIN users u ON u.id=q.assigned_doctor_id WHERE q.completed_at IS NULL ORDER BY q.priority DESC,q.arrived_at`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
@@ -514,14 +506,14 @@ func (s *Server) handleQueueList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt, stageEnteredAt string
+		var id, patientID, mrn, name, appointmentID, encounterID, doctorID, doctorName, arrivedAt, stage, source, updatedAt, stageEnteredAt, visitReason, phone string
 		var priority, version int
-		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt, &stageEnteredAt); err != nil {
+		if err := rows.Scan(&id, &patientID, &mrn, &name, &appointmentID, &encounterID, &doctorID, &doctorName, &arrivedAt, &stage, &priority, &source, &version, &updatedAt, &stageEnteredAt, &visitReason, &phone); err != nil {
 			writeError(w, http.StatusInternalServerError, "QUEUE_FAILED", "Could not load the waiting room.")
 			return
 		}
 		estimate, samples := estimatedQueueWait(stage, stageEnteredAt, averages)
-		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "stageEnteredAt": stageEnteredAt, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
+		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": name, "phone": phone, "visitReason": visitReason, "appointmentId": appointmentID, "encounterId": encounterID, "assignedDoctorId": doctorID, "assignedDoctorName": doctorName, "arrivedAt": arrivedAt, "stage": stage, "stageEnteredAt": stageEnteredAt, "estimatedWaitMinutes": estimate, "waitEstimateSamples": samples, "priority": priority, "source": source, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -530,6 +522,7 @@ type checkInPayload struct {
 	PatientID      string `json:"patientId"`
 	AppointmentID  string `json:"appointmentId"`
 	AssignedDoctor string `json:"assignedDoctorId"`
+	VisitReason    string `json:"visitReason"`
 	Priority       int    `json:"priority"`
 }
 
@@ -548,8 +541,8 @@ func (s *Server) handleQueueCheckIn(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(r.Context(), `INSERT INTO queue_entries(id,patient_id,appointment_id,assigned_doctor_id,arrived_at,stage,priority,created_at,updated_at,updated_by)
-			VALUES(?,?,?,?,?,'waiting_nurse',?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.AppointmentID), nilIfEmpty(input.AssignedDoctor), now, input.Priority, now, now, user.ID); err != nil {
+		if _, err := tx.ExecContext(r.Context(), `INSERT INTO queue_entries(id,patient_id,appointment_id,assigned_doctor_id,arrived_at,stage,priority,visit_reason,created_at,updated_at,updated_by)
+			VALUES(?,?,?,?,?,'waiting_nurse',?,?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.AppointmentID), nilIfEmpty(input.AssignedDoctor), now, input.Priority, nilIfEmpty(strings.TrimSpace(input.VisitReason)), now, now, user.ID); err != nil {
 			return err
 		}
 		if input.AppointmentID != "" {

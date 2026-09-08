@@ -131,20 +131,36 @@ func (s *Server) handleEncounterGet(w http.ResponseWriter, r *http.Request) {
 		response["pretest"] = map[string]any{"id": pretestID, "chiefComplaint": complaint, "vitals": rawJSON(vitals), "visualAcuity": rawJSON(acuity), "autorefraction": rawJSON(autoRefraction), "keratometry": rawJSON(keratometry), "iop": rawJSON(iop), "pupils": pupils, "eom": eom, "coverTest": cover, "confrontationFields": fields, "colorVision": color, "stereopsis": stereo, "pachymetry": rawJSON(pachy), "lensometry": rawJSON(lensometry), "completedAt": completedAt, "version": pretestVersion, "updatedAt": updatedAt}
 	}
 	sections := map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), "SELECT section_type,data_json,version,updated_at FROM encounter_sections WHERE encounter_id=?", id)
+	rows, rowsErr := s.db.QueryContext(r.Context(), "SELECT section_type,data_json,version,updated_at FROM encounter_sections WHERE encounter_id=?", id)
+	if rowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var kind, raw, at string
 			var version int
-			if rows.Scan(&kind, &raw, &version, &at) == nil {
-				sections[kind] = map[string]any{"data": rawJSON(raw), "version": version, "updatedAt": at}
+			if err := rows.Scan(&kind, &raw, &version, &at); err != nil {
+				writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+				return
 			}
+			sections[kind] = map[string]any{"data": rawJSON(raw), "version": version, "updatedAt": at}
 		}
 	}
 	response["sections"] = sections
-	response["diagnoses"] = s.loadDiagnoses(r, id)
-	response["addenda"] = s.loadAddenda(r, id)
+	diagnoses, err := s.loadDiagnoses(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
+	addenda, err := s.loadAddenda(r, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LOAD_FAILED", "Could not load the consultation.")
+		return
+	}
+	response["diagnoses"] = diagnoses
+	response["addenda"] = addenda
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -390,37 +406,39 @@ func (s *Server) handleAddendumCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id, "createdAt": now})
 }
 
-func (s *Server) loadDiagnoses(r *http.Request, encounterID string) []map[string]any {
+func (s *Server) loadDiagnoses(r *http.Request, encounterID string) ([]map[string]any, error) {
 	rows, err := s.db.QueryContext(r.Context(), "SELECT id,diagnosis,COALESCE(code,''),COALESCE(laterality,''),COALESCE(notes,''),is_primary,created_at FROM diagnoses WHERE encounter_id=? ORDER BY is_primary DESC,created_at", encounterID)
 	if err != nil {
-		return []map[string]any{}
+		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
 		var id, diagnosis, code, laterality, notes, createdAt string
 		var primary bool
-		if rows.Scan(&id, &diagnosis, &code, &laterality, &notes, &primary, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "diagnosis": diagnosis, "code": code, "laterality": laterality, "notes": notes, "primary": primary, "createdAt": createdAt})
+		if err := rows.Scan(&id, &diagnosis, &code, &laterality, &notes, &primary, &createdAt); err != nil {
+			return nil, err
 		}
+		items = append(items, map[string]any{"id": id, "diagnosis": diagnosis, "code": code, "laterality": laterality, "notes": notes, "primary": primary, "createdAt": createdAt})
 	}
-	return items
+	return items, rows.Err()
 }
 
-func (s *Server) loadAddenda(r *http.Request, encounterID string) []map[string]string {
+func (s *Server) loadAddenda(r *http.Request, encounterID string) ([]map[string]string, error) {
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.body,a.created_at,u.display_name FROM encounter_addenda a JOIN users u ON u.id=a.created_by WHERE a.encounter_id=? ORDER BY a.created_at`, encounterID)
 	if err != nil {
-		return []map[string]string{}
+		return nil, err
 	}
 	defer rows.Close()
 	items := []map[string]string{}
 	for rows.Next() {
 		var id, body, createdAt, author string
-		if rows.Scan(&id, &body, &createdAt, &author) == nil {
-			items = append(items, map[string]string{"id": id, "body": body, "createdAt": createdAt, "author": author})
+		if err := rows.Scan(&id, &body, &createdAt, &author); err != nil {
+			return nil, err
 		}
+		items = append(items, map[string]string{"id": id, "body": body, "createdAt": createdAt, "author": author})
 	}
-	return items
+	return items, rows.Err()
 }
 
 func doctorIDFor(user AuthUser) any {
@@ -467,7 +485,7 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 		where += " AND p.patient_id=?"
 		args = append(args, patientID)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id WHERE `+where+` ORDER BY p.issued_at DESC`, args...)
+	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name,COALESCE(signer.display_name,''),COALESCE(p.signed_at,''),CASE WHEN COALESCE(p.signature_storage_name,'')='' THEN 0 ELSE 1 END FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id LEFT JOIN users signer ON signer.id=p.signed_by WHERE `+where+` ORDER BY p.issued_at DESC`, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
 		return
@@ -475,11 +493,13 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor string
-		var version int
-		if rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor) == nil {
-			items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor})
+		var id, number, patientID, patientName, encounterID, kind, od, osValue, details, notes, issuedAt, expiresAt, status, doctor, signedBy, signedAt string
+		var version, signed int
+		if err := rows.Scan(&id, &number, &patientID, &patientName, &encounterID, &kind, &od, &osValue, &details, &notes, &issuedAt, &expiresAt, &status, &version, &doctor, &signedBy, &signedAt, &signed); err != nil {
+			writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1, "standalone": encounterID == ""})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -513,16 +533,37 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	// D4: a prescription may be issued outside a consultation, in which case it
+	// simply has no encounter. When one is named it must belong to this patient,
+	// or the document would be filed against somebody else's visit.
+	if input.EncounterID != "" {
+		var owner string
+		switch err := s.db.QueryRowContext(r.Context(), "SELECT patient_id FROM encounters WHERE id=? AND archived_at IS NULL", input.EncounterID).Scan(&owner); {
+		case err == sql.ErrNoRows:
+			writeError(w, http.StatusUnprocessableEntity, "ENCOUNTER_NOT_FOUND", "That consultation was not found.")
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "PRESCRIPTION_CREATE_FAILED", "Could not issue the prescription.")
+			return
+		case owner != input.PatientID:
+			writeError(w, http.StatusUnprocessableEntity, "ENCOUNTER_PATIENT_MISMATCH", "That consultation belongs to a different patient.")
+			return
+		}
+	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	var number string
+	signatureStorage, signatureMediaType := s.signatureForIssuer(r, user.ID)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
 		number, err = s.nextNumber(r.Context(), tx, "prescription", "RX", true)
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), now, now, user.ID)
+		// D3: the issuing doctor's own signature is stamped onto the document,
+		// together with who signed and when. It is looked up by the session's
+		// user id, so no one can apply another clinician's signature.
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO prescriptions(id,prescription_number,patient_id,encounter_id,doctor_id,type,od_json,os_json,details_json,notes,issued_at,expires_at,status,signed_by,signed_at,signature_storage_name,signature_media_type,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'final',?,?,?,?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.EncounterID), user.ID, input.Type, marshalJSON(input.OD), marshalJSON(input.OS), marshalJSON(input.Details), nilIfEmpty(input.Notes), now, nilIfEmpty(input.ExpiresAt), user.ID, now, nilIfEmpty(signatureStorage), nilIfEmpty(signatureMediaType), now, now, user.ID)
 		return err
 	})
 	if err != nil {
@@ -531,7 +572,7 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 	}
 	s.audit(r.Context(), &user, "issue", "prescription", id, "Issued "+input.Type+" prescription "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "prescription.created", EntityType: "prescription", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName, "encounterId": input.EncounterID, "standalone": input.EncounterID == ""})
 }
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {
@@ -546,9 +587,11 @@ func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, patient, encounter, category, name, mediaType, createdAt string
 		var size int64
-		if rows.Scan(&id, &patient, &encounter, &category, &name, &mediaType, &size, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "patientId": patient, "encounterId": encounter, "category": category, "displayName": name, "mediaType": mediaType, "sizeBytes": size, "createdAt": createdAt})
+		if err := rows.Scan(&id, &patient, &encounter, &category, &name, &mediaType, &size, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "DOCUMENT_LIST_FAILED", "Could not load documents.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "patientId": patient, "encounterId": encounter, "category": category, "displayName": name, "mediaType": mediaType, "sizeBytes": size, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -579,16 +622,23 @@ func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix = prefix[:prefixLength]
 	detected := http.DetectContentType(prefix)
+	if isTIFF(prefix) {
+		// Go's content sniffer has no TIFF entry and reports application/octet-stream,
+		// so scanners' TIFF output is recognised from its own magic number here.
+		detected = tiffMediaType
+	}
 	allowed := map[string]map[string]bool{
 		".pdf":  {"application/pdf": true},
 		".jpg":  {"image/jpeg": true},
 		".jpeg": {"image/jpeg": true},
 		".png":  {"image/png": true},
+		".tif":  {tiffMediaType: true},
+		".tiff": {tiffMediaType: true},
 		".doc":  {"application/octet-stream": true, "application/x-ole-storage": true},
 		".docx": {"application/zip": true},
 	}
 	if !allowed[extension][detected] {
-		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_DOCUMENT_TYPE", "Supported formats are PDF, JPG, PNG, DOC, and DOCX.")
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_DOCUMENT_TYPE", "Supported formats are PDF, JPG, PNG, TIFF, DOC, and DOCX.")
 		return
 	}
 	mediaType := detected
@@ -625,9 +675,25 @@ func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "displayName": filepath.Base(header.Filename), "category": category, "mediaType": mediaType, "sizeBytes": size, "createdAt": now})
 }
 
+const tiffMediaType = "image/tiff"
+
+func isTIFF(prefix []byte) bool {
+	return len(prefix) >= 4 && (string(prefix[:4]) == "II\x2a\x00" || string(prefix[:4]) == "MM\x00\x2a")
+}
+
 func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) {
-	var storage, name, mediaType string
-	err := s.db.QueryRowContext(r.Context(), "SELECT storage_name,display_name,media_type FROM documents WHERE id=? AND archived_at IS NULL", chi.URLParam(r, "id")).Scan(&storage, &name, &mediaType)
+	s.serveDocument(w, r, "attachment")
+}
+
+// The in-app viewer needs the file inline; a browser will not preview a response
+// sent as an attachment. The route is otherwise identical and equally protected.
+func (s *Server) handleDocumentContent(w http.ResponseWriter, r *http.Request) {
+	s.serveDocument(w, r, "inline")
+}
+
+func (s *Server) serveDocument(w http.ResponseWriter, r *http.Request, disposition string) {
+	var storage, name, mediaType, patientID string
+	err := s.db.QueryRowContext(r.Context(), "SELECT storage_name,display_name,media_type,COALESCE(patient_id,'') FROM documents WHERE id=? AND archived_at IS NULL", chi.URLParam(r, "id")).Scan(&storage, &name, &mediaType, &patientID)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "DOCUMENT_NOT_FOUND", "Document was not found.")
 		return
@@ -636,8 +702,11 @@ func (s *Server) handleDocumentDownload(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "DOCUMENT_LOAD_FAILED", "Could not load the document.")
 		return
 	}
+	// Scans and letters: every view and download is attributable.
+	s.recordPatientAccess(r, patientID, "patient_document", disposition+" the patient document "+filepath.Base(name))
 	w.Header().Set("Content-Type", mediaType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(name)}))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(name)}))
 	http.ServeFile(w, r, filepath.Join(s.config.DataDir, "documents", filepath.Base(storage)))
 }
 

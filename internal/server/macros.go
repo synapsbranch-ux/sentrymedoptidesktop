@@ -63,9 +63,11 @@ func (s *Server) handleMacrosList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, label, category, body, updatedAt string
 		var version int
-		if rows.Scan(&id, &label, &category, &body, &version, &updatedAt) == nil {
-			items = append(items, map[string]any{"id": id, "label": label, "category": category, "body": body, "version": version, "updatedAt": updatedAt})
+		if err := rows.Scan(&id, &label, &category, &body, &version, &updatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "MACRO_LIST_FAILED", "Could not load templates.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "label": label, "category": category, "body": body, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

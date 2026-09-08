@@ -153,6 +153,12 @@ export function useI18n() {
   return value;
 }
 
+// Error boundaries must never throw while rendering their own fallback, so they
+// translate through this variant, which degrades to the English message key.
+export function useOptionalI18n(): Pick<I18nValue, "t"> {
+  return React.useContext(I18nContext) ?? { t: (message: string) => message };
+}
+
 export function translateNode(node: React.ReactNode, t: (message: string) => string): React.ReactNode {
   if (typeof node === "string") return t(node);
   if (Array.isArray(node)) return node.map((child) => translateNode(child, t));

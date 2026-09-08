@@ -70,9 +70,11 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		var id, number, patientID, patientName, status, currency, exchangeRate, dueAt, createdAt, updatedAt string
 		var subtotal, discount, tax, total, paid, balance int64
 		var version int
-		if rows.Scan(&id, &number, &patientID, &patientName, &status, &currency, &exchangeRate, &subtotal, &discount, &tax, &total, &paid, &balance, &dueAt, &version, &createdAt, &updatedAt) == nil {
-			items = append(items, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
+		if err := rows.Scan(&id, &number, &patientID, &patientName, &status, &currency, &exchangeRate, &subtotal, &discount, &tax, &total, &paid, &balance, &dueAt, &version, &createdAt, &updatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -93,41 +95,59 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), "SELECT id,COALESCE(inventory_item_id,''),description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor,COALESCE(procedure_code,'') FROM invoice_items WHERE invoice_id=?", id)
+	rows, rowsErr := s.db.QueryContext(r.Context(), "SELECT id,COALESCE(inventory_item_id,''),description,quantity,unit_price_minor,discount_minor,tax_minor,line_total_minor,cost_minor,COALESCE(procedure_code,'') FROM invoice_items WHERE invoice_id=?", id)
+	if rowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+		return
+	}
 	if rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var itemID, inventoryID, description, procedureCode string
 			var quantity int
 			var price, itemDiscount, itemTax, lineTotal, cost int64
-			if rows.Scan(&itemID, &inventoryID, &description, &quantity, &price, &itemDiscount, &itemTax, &lineTotal, &cost, &procedureCode) == nil {
-				items = append(items, map[string]any{"id": itemID, "inventoryItemId": inventoryID, "description": description, "quantity": quantity, "unitPriceMinor": price, "discountMinor": itemDiscount, "taxMinor": itemTax, "lineTotalMinor": lineTotal, "costMinor": cost, "procedureCode": procedureCode})
+			if err := rows.Scan(&itemID, &inventoryID, &description, &quantity, &price, &itemDiscount, &itemTax, &lineTotal, &cost, &procedureCode); err != nil {
+				writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+				return
 			}
+			items = append(items, map[string]any{"id": itemID, "inventoryItemId": inventoryID, "description": description, "quantity": quantity, "unitPriceMinor": price, "discountMinor": itemDiscount, "taxMinor": itemTax, "lineTotalMinor": lineTotal, "costMinor": cost, "procedureCode": procedureCode})
 		}
 	}
 	payments := []map[string]any{}
-	payRows, _ := s.db.QueryContext(r.Context(), `SELECT p.id,p.receipt_number,p.amount_minor,p.currency,p.exchange_rate,pm.name,COALESCE(p.reference,''),p.received_at,u.display_name,COALESCE((SELECT SUM(amount_minor) FROM refunds WHERE payment_id=p.id),0) FROM payments p JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN users u ON u.id=p.created_by WHERE p.invoice_id=? ORDER BY p.received_at`, id)
+	payRows, payRowsErr := s.db.QueryContext(r.Context(), `SELECT p.id,p.receipt_number,p.amount_minor,p.currency,p.exchange_rate,pm.name,COALESCE(p.reference,''),p.received_at,u.display_name,COALESCE((SELECT SUM(amount_minor) FROM refunds WHERE payment_id=p.id),0) FROM payments p JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN users u ON u.id=p.created_by WHERE p.invoice_id=? ORDER BY p.received_at`, id)
+	if payRowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+		return
+	}
 	if payRows != nil {
 		defer payRows.Close()
 		for payRows.Next() {
 			var paymentID, receipt, payCurrency, rate, method, reference, receivedAt, user string
 			var amount, refunded int64
-			if payRows.Scan(&paymentID, &receipt, &amount, &payCurrency, &rate, &method, &reference, &receivedAt, &user, &refunded) == nil {
-				payments = append(payments, map[string]any{"id": paymentID, "receiptNumber": receipt, "amountMinor": amount, "refundedMinor": refunded, "currency": payCurrency, "exchangeRate": rate, "paymentMethod": method, "reference": reference, "receivedAt": receivedAt, "receivedBy": user})
+			if err := payRows.Scan(&paymentID, &receipt, &amount, &payCurrency, &rate, &method, &reference, &receivedAt, &user, &refunded); err != nil {
+				writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+				return
 			}
+			payments = append(payments, map[string]any{"id": paymentID, "receiptNumber": receipt, "amountMinor": amount, "refundedMinor": refunded, "currency": payCurrency, "exchangeRate": rate, "paymentMethod": method, "reference": reference, "receivedAt": receivedAt, "receivedBy": user})
 		}
 	}
 	credits := []map[string]any{}
-	creditRows, _ := s.db.QueryContext(r.Context(), `SELECT credit_number,amount_minor,reason,restocked,created_at FROM credit_notes WHERE invoice_id=? ORDER BY created_at`, id)
+	creditRows, creditRowsErr := s.db.QueryContext(r.Context(), `SELECT credit_number,amount_minor,reason,restocked,created_at FROM credit_notes WHERE invoice_id=? ORDER BY created_at`, id)
+	if creditRowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+		return
+	}
 	if creditRows != nil {
 		defer creditRows.Close()
 		for creditRows.Next() {
 			var creditNumber, reason, created string
 			var amount int64
 			var restocked bool
-			if creditRows.Scan(&creditNumber, &amount, &reason, &restocked, &created) == nil {
-				credits = append(credits, map[string]any{"creditNumber": creditNumber, "amountMinor": amount, "reason": reason, "restocked": restocked, "createdAt": created})
+			if err := creditRows.Scan(&creditNumber, &amount, &reason, &restocked, &created); err != nil {
+				writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load invoice.")
+				return
 			}
+			credits = append(credits, map[string]any{"creditNumber": creditNumber, "amountMinor": amount, "reason": reason, "restocked": restocked, "createdAt": created})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments, "creditNotes": credits})
@@ -469,9 +489,11 @@ func (s *Server) handlePaymentMethodsList(w http.ResponseWriter, r *http.Request
 	items := []map[string]string{}
 	for rows.Next() {
 		var id, name string
-		if rows.Scan(&id, &name) == nil {
-			items = append(items, map[string]string{"id": id, "name": name})
+		if err := rows.Scan(&id, &name); err != nil {
+			writeError(w, http.StatusInternalServerError, "PAYMENT_METHODS_FAILED", "Could not load payment methods.")
+			return
 		}
+		items = append(items, map[string]string{"id": id, "name": name})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

@@ -21,11 +21,13 @@ import {
   DialogTrigger,
 } from "../components/ui/dialog";
 import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
-import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
+import { DateTimeInput } from "../components/ui/date-time";
 import { useLoad } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
-import type { LabOrder, Patient } from "../types";
+import type { LabOrder } from "../types";
+import { PatientPicker } from "../components/patient-search";
 
 const stages = [
   "draft",
@@ -307,9 +309,6 @@ function PrintField({ label, value }: { label: string; value?: string }) {
 }
 
 function LabOrderForm({ onSaved }: { onSaved(): void }) {
-  const patients = useLoad(() =>
-    api.get<{ items: Patient[] }>("/patients?limit=100"),
-  );
   const [form, setForm] = React.useState({
     patientId: "",
     prescriptionId: "",
@@ -339,7 +338,7 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
     event.preventDefault();
     setSaving(true);
     try {
-      await api.post("/lab-orders", form);
+      await api.post("/lab-orders", { ...form, expectedAt: form.expectedAt ? new Date(form.expectedAt).toISOString() : "" });
       toast.success("Lab order created");
       onSaved();
     } catch (reason) {
@@ -359,23 +358,13 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
         </DialogDescription>
       </DialogHeader>
       <form className="grid gap-4" onSubmit={submit}>
-        <Field label="Patient">
-          <Select
+        <FieldGroup label="Patient">
+          <PatientPicker
             required
             value={form.patientId}
-            onChange={(event) =>
-              setForm({ ...form, patientId: event.target.value })
-            }
-          >
-            <option value="">Select patient…</option>
-            {patients.data?.items.map((patient) => (
-              <option key={patient.id} value={patient.id}>
-                {patient.medicalRecordNumber} — {patient.firstName}{" "}
-                {patient.lastName}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            onChange={(patientId) => setForm({ ...form, patientId })}
+          />
+        </FieldGroup>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Lens type">
             <Select
@@ -397,20 +386,16 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
               }
             />
           </Field>
-          <Field label="Expected date">
-            <Input
-              type="datetime-local"
+          <FieldGroup label="Expected date">
+            {/* The field stores a local "YYYY-MM-DDTHH:MM" and converts to ISO on
+                submit. It previously held an ISO string, which no date/time input
+                accepts as a value, so the chosen date never redisplayed. */}
+            <DateTimeInput
+              label="Expected"
               value={form.expectedAt}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  expectedAt: event.target.value
-                    ? new Date(event.target.value).toISOString()
-                    : "",
-                })
-              }
+              onChange={(expectedAt) => setForm({ ...form, expectedAt })}
             />
-          </Field>
+          </FieldGroup>
           {Object.entries(form.measurements).map(([key, value]) => (
             <Field key={key} label={key.replace(/([A-Z])/g, " $1")}>
               <Input

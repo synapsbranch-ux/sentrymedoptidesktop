@@ -113,7 +113,7 @@ test("mobile clinic flow persists from arrival through optical delivery", async 
   await patch(page, `/lab-orders/${order.id}/status`, { status: "delivered", notes: "Fitted", receivedByName: "Marie Joseph", version });
 
   await page.reload();
-  await page.getByPlaceholder("Name, medical record number, phone, email…").fill(suffix);
+  await page.getByRole("searchbox", { name: "Search patients" }).fill(suffix);
   await page.getByRole("button", { name: new RegExp(patientName) }).click();
   await expect(page.getByRole("heading", { name: patientName })).toBeVisible();
   const patientRecord = page.getByRole("complementary", { name: "Patient record" });

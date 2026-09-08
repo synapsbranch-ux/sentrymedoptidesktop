@@ -34,9 +34,11 @@ func (s *Server) handleSuppliersList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, company, contact, phone, email, address, notes, updatedAt string
 		var version, productCount int
-		if rows.Scan(&id, &company, &contact, &phone, &email, &address, &notes, &version, &updatedAt, &productCount) == nil {
-			items = append(items, map[string]any{"id": id, "company": company, "contactPerson": contact, "phone": phone, "email": email, "address": address, "notes": notes, "productCount": productCount, "version": version, "updatedAt": updatedAt})
+		if err := rows.Scan(&id, &company, &contact, &phone, &email, &address, &notes, &version, &updatedAt, &productCount); err != nil {
+			writeError(w, http.StatusInternalServerError, "SUPPLIER_LIST_FAILED", "Could not load suppliers.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "company": company, "contactPerson": contact, "phone": phone, "email": email, "address": address, "notes": notes, "productCount": productCount, "version": version, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -155,9 +157,11 @@ func (s *Server) handlePurchaseOrdersList(w http.ResponseWriter, r *http.Request
 		var id, number, supplierID, supplierName, orderStatus, currency, expectedAt, notes, createdAt, updatedAt string
 		var version, lineCount, ordered, received int
 		var total int64
-		if rows.Scan(&id, &number, &supplierID, &supplierName, &orderStatus, &currency, &expectedAt, &notes, &version, &createdAt, &updatedAt, &lineCount, &ordered, &received, &total) == nil {
-			items = append(items, map[string]any{"id": id, "orderNumber": number, "supplierId": supplierID, "supplierName": supplierName, "status": orderStatus, "currency": currency, "expectedAt": expectedAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "lineCount": lineCount, "quantityOrdered": ordered, "quantityReceived": received, "totalMinor": total})
+		if err := rows.Scan(&id, &number, &supplierID, &supplierName, &orderStatus, &currency, &expectedAt, &notes, &version, &createdAt, &updatedAt, &lineCount, &ordered, &received, &total); err != nil {
+			writeError(w, http.StatusInternalServerError, "PURCHASE_ORDER_LIST_FAILED", "Could not load purchase orders.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "orderNumber": number, "supplierId": supplierID, "supplierName": supplierName, "status": orderStatus, "currency": currency, "expectedAt": expectedAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "lineCount": lineCount, "quantityOrdered": ordered, "quantityReceived": received, "totalMinor": total})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -186,10 +190,12 @@ func (s *Server) handlePurchaseOrderGet(w http.ResponseWriter, r *http.Request) 
 		var lineID, inventoryID, sku, name string
 		var ordered, received int
 		var unitCost int64
-		if rows.Scan(&lineID, &inventoryID, &sku, &name, &ordered, &received, &unitCost) == nil {
-			total += int64(ordered) * unitCost
-			items = append(items, map[string]any{"id": lineID, "inventoryItemId": inventoryID, "sku": sku, "name": name, "quantityOrdered": ordered, "quantityReceived": received, "remainingQuantity": ordered - received, "unitCostMinor": unitCost})
+		if err := rows.Scan(&lineID, &inventoryID, &sku, &name, &ordered, &received, &unitCost); err != nil {
+			writeError(w, http.StatusInternalServerError, "PURCHASE_ORDER_LOAD_FAILED", "Could not load purchase order lines.")
+			return
 		}
+		total += int64(ordered) * unitCost
+		items = append(items, map[string]any{"id": lineID, "inventoryItemId": inventoryID, "sku": sku, "name": name, "quantityOrdered": ordered, "quantityReceived": received, "remainingQuantity": ordered - received, "unitCostMinor": unitCost})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "orderNumber": number, "supplierId": supplierID, "supplierName": supplierName, "status": status, "currency": currency, "expectedAt": expectedAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "totalMinor": total, "items": items})
 }

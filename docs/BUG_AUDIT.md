@@ -14,6 +14,14 @@ This audit records reproducible defects found during the mobile/LAN and desktop 
 | Settings integrity | The generic settings update route accepted arbitrary keys and had no schema validation for appearance/public display. | Added an allow-list, optimistic versions and server validation for supported palettes, modes, radii and privacy options. | Fixed |
 | Public display privacy | A public flow screen did not exist; using the authenticated queue endpoint would expose chart identifiers and names. | Added a dedicated minimal read model with generated queue codes and configurable ticket-only/initials/first-name labels. | Fixed |
 
+## Optical clinic stabilisation round
+
+The defects reported in the optical-clinic stabilisation brief, and the systematic
+pass that followed, are logged separately in
+[Stabilisation report](STABILIZATION_REPORT.md): every finding with severity and
+steps to reproduce, the root cause and verification for each item, what was found
+but deliberately not fixed, and the questions left open for clinic staff.
+
 ## Release/device checks still required
 
 - Verify WebKit scrolling and the software keyboard on the exact Fedora/macOS build and clinic Android/iOS devices.

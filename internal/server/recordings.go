@@ -52,9 +52,11 @@ func (s *Server) handleRecordingsList(w http.ResponseWriter, r *http.Request) {
 		var id, mediaType, status, transcript, transcriptError, createdBy, createdAt string
 		var size, duration int64
 		var consent, edited bool
-		if rows.Scan(&id, &mediaType, &size, &duration, &consent, &status, &transcript, &edited, &transcriptError, &createdBy, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "mediaType": mediaType, "sizeBytes": size, "durationSeconds": duration, "consentConfirmed": consent, "transcriptStatus": status, "transcriptText": transcript, "transcriptEdited": edited, "transcriptError": transcriptError, "createdBy": createdBy, "createdAt": createdAt})
+		if err := rows.Scan(&id, &mediaType, &size, &duration, &consent, &status, &transcript, &edited, &transcriptError, &createdBy, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "RECORDING_LIST_FAILED", "Could not load consultation recordings.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "mediaType": mediaType, "sizeBytes": size, "durationSeconds": duration, "consentConfirmed": consent, "transcriptStatus": status, "transcriptText": transcript, "transcriptEdited": edited, "transcriptError": transcriptError, "createdBy": createdBy, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

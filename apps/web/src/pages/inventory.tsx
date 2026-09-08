@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, Boxes, PackagePlus, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, PackagePlus, Search, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useLoad } from "../hooks";
@@ -7,7 +7,7 @@ import { money } from "../lib";
 import { useRealtime } from "../realtime";
 import type { InventoryItem } from "../types";
 import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
+import { Card } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Badge, EmptyState, ErrorState, Skeleton, Table, Td, Th } from "../components/ui/data";
 import { Field, Input, Select } from "../components/ui/input";

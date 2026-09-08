@@ -29,10 +29,13 @@ type Server struct {
 	maintenance sync.RWMutex
 	router      chi.Router
 	web         fs.FS
+	// Who has opened which patient record recently, so a record left open on
+	// screen is not logged once per live refresh.
+	patientAccess *patientAccessLog
 }
 
 func New(db *database.DB, config app.Config, logger *slog.Logger, webAssets ...fs.FS) *Server {
-	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger}
+	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog()}
 	if len(webAssets) > 0 {
 		server.web = webAssets[0]
 	}
@@ -97,7 +100,10 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'")
+		// blob: is needed by the in-app document viewer, which fetches a stored
+		// file through the authenticated API and renders it from an object URL;
+		// a direct URL cannot carry the desktop shell's session header.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

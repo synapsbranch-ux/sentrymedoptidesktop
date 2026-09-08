@@ -25,7 +25,8 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { ErrorBoundary } from "./error-boundary";
 import { useAuth } from "../auth";
 import { useRealtime } from "../realtime";
 import { useTheme } from "../theme";
@@ -87,6 +88,7 @@ export function AppShell() {
   const theme = useTheme();
   const i18n = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const [drawer, setDrawer] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState(false);
@@ -240,7 +242,9 @@ export function AppShell() {
           </div>
         </header>
         <main className="min-w-0 touch-pan-y overflow-x-hidden pb-24 lg:pb-0">
-          <Outlet />
+          <ErrorBoundary label={location.pathname} resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
       <nav

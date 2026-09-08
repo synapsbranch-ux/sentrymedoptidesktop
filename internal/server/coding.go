@@ -153,9 +153,11 @@ func (s *Server) handleSuperbillCandidateInvoices(w http.ResponseWriter, r *http
 	for rows.Next() {
 		var id, number, currency, createdAt string
 		var total int64
-		if rows.Scan(&id, &number, &total, &currency, &createdAt) == nil {
-			items = append(items, map[string]any{"id": id, "invoiceNumber": number, "totalMinor": total, "currency": currency, "createdAt": createdAt})
+		if err := rows.Scan(&id, &number, &total, &currency, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "SUPERBILL_CANDIDATES_FAILED", "Could not load billable invoices.")
+			return
 		}
+		items = append(items, map[string]any{"id": id, "invoiceNumber": number, "totalMinor": total, "currency": currency, "createdAt": createdAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -204,35 +206,55 @@ func (s *Server) handleSuperbillGet(w http.ResponseWriter, r *http.Request) {
 		Scan(&clinicName, &clinicAddress, &clinicPhone, &clinicNIF)
 
 	diagnoses := []map[string]any{}
-	rows, _ := s.db.QueryContext(r.Context(), "SELECT diagnosis,COALESCE(code,''),COALESCE(laterality,''),is_primary FROM diagnoses WHERE encounter_id=? ORDER BY is_primary DESC,created_at", encounterID)
+	rows, err := s.db.QueryContext(r.Context(), "SELECT diagnosis,COALESCE(code,''),COALESCE(laterality,''),is_primary FROM diagnoses WHERE encounter_id=? ORDER BY is_primary DESC,created_at", encounterID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+		return
+	}
 	if rows != nil {
 		for rows.Next() {
 			var diagnosis, code, laterality string
 			var primary bool
-			if rows.Scan(&diagnosis, &code, &laterality, &primary) == nil {
-				diagnoses = append(diagnoses, map[string]any{"diagnosis": diagnosis, "code": code, "laterality": laterality, "primary": primary})
+			if err := rows.Scan(&diagnosis, &code, &laterality, &primary); err != nil {
+				writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+				return
 			}
+			diagnoses = append(diagnoses, map[string]any{"diagnosis": diagnosis, "code": code, "laterality": laterality, "primary": primary})
 		}
 		_ = rows.Close()
 	}
 
 	invoices := []map[string]any{}
-	invoiceRows, _ := s.db.QueryContext(r.Context(), "SELECT id,invoice_number,total_minor,currency,created_at FROM invoices WHERE encounter_id=? AND archived_at IS NULL ORDER BY created_at", encounterID)
+	invoiceRows, err := s.db.QueryContext(r.Context(), "SELECT id,invoice_number,total_minor,currency,created_at FROM invoices WHERE encounter_id=? AND archived_at IS NULL ORDER BY created_at", encounterID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+		return
+	}
 	if invoiceRows != nil {
 		for invoiceRows.Next() {
 			var invoiceID, number, currency, invoiceCreatedAt string
 			var total int64
-			if invoiceRows.Scan(&invoiceID, &number, &total, &currency, &invoiceCreatedAt) == nil {
+			if err := invoiceRows.Scan(&invoiceID, &number, &total, &currency, &invoiceCreatedAt); err != nil {
+				writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+				return
+			}
+			{
 				lineItems := []map[string]any{}
-				lineRows, _ := s.db.QueryContext(r.Context(), "SELECT description,COALESCE(procedure_code,''),quantity,unit_price_minor,line_total_minor FROM invoice_items WHERE invoice_id=?", invoiceID)
+				lineRows, err := s.db.QueryContext(r.Context(), "SELECT description,COALESCE(procedure_code,''),quantity,unit_price_minor,line_total_minor FROM invoice_items WHERE invoice_id=?", invoiceID)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+					return
+				}
 				if lineRows != nil {
 					for lineRows.Next() {
 						var description, procedureCode string
 						var quantity int
 						var unitPrice, lineTotal int64
-						if lineRows.Scan(&description, &procedureCode, &quantity, &unitPrice, &lineTotal) == nil {
-							lineItems = append(lineItems, map[string]any{"description": description, "procedureCode": procedureCode, "quantity": quantity, "unitPriceMinor": unitPrice, "lineTotalMinor": lineTotal})
+						if err := lineRows.Scan(&description, &procedureCode, &quantity, &unitPrice, &lineTotal); err != nil {
+							writeError(w, http.StatusInternalServerError, "SUPERBILL_FAILED", "Could not build the superbill.")
+							return
 						}
+						lineItems = append(lineItems, map[string]any{"description": description, "procedureCode": procedureCode, "quantity": quantity, "unitPriceMinor": unitPrice, "lineTotalMinor": lineTotal})
 					}
 					_ = lineRows.Close()
 				}
@@ -244,9 +266,9 @@ func (s *Server) handleSuperbillGet(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"encounterId": encounterID, "generatedAt": time.Now().UTC().Format(time.RFC3339Nano),
-		"clinic":      map[string]any{"name": clinicName, "address": clinicAddress, "phone": clinicPhone, "nif": clinicNIF},
-		"patient":     map[string]any{"id": patientID, "name": patientName, "medicalRecordNumber": mrn},
-		"doctorName":  doctorName, "visitReason": visitReason, "visitDate": createdAt,
+		"clinic":     map[string]any{"name": clinicName, "address": clinicAddress, "phone": clinicPhone, "nif": clinicNIF},
+		"patient":    map[string]any{"id": patientID, "name": patientName, "medicalRecordNumber": mrn},
+		"doctorName": doctorName, "visitReason": visitReason, "visitDate": createdAt,
 		"diagnoses": diagnoses, "invoices": invoices,
 	})
 }

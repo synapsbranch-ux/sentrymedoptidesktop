@@ -1,8 +1,8 @@
 import * as React from "react";
-import { FileUp, Plus, Printer, Search, UserRound, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileUp, Plus, Printer, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, APIError } from "../api";
-import { useLoad } from "../hooks";
+import { useDebouncedValue, useLoad } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
 import type { Patient } from "../types";
@@ -14,16 +14,37 @@ import { Field, Input, Select, Textarea } from "../components/ui/input";
 import { PrintHeader, triggerPrint } from "../components/print";
 import { DocumentViewer } from "../components/document-viewer";
 import { DocumentRow, type DocumentItem } from "./records";
+import { PatientFilterBar, activeFilterCount, emptyPatientFilters, patientAge, patientSearchQuery, type PatientSearchPage } from "../components/patient-search";
 
+const civilStatusOptions: { value: string; label: string }[] | undefined = undefined;
 const emptyPatient = { firstName: "", middleName: "", lastName: "", preferredName: "", sex: "", dateOfBirth: "", phone: "", alternatePhone: "", email: "", address: "", city: "", occupation: "", employer: "", preferredLanguage: "", communicationPreference: "", referralSource: "", referringProvider: "", notes: "", tags: [] as string[] };
+const pageSize = 25;
+
 export function PatientsPage() {
-  const { revision } = useRealtime(); const [query, setQuery] = React.useState(""); const [debounced, setDebounced] = React.useState(""); const [createOpen, setCreateOpen] = React.useState(false); const [selected, setSelected] = React.useState<Patient | null>(null);
-  React.useEffect(() => { const timer = setTimeout(() => setDebounced(query), 200); return () => clearTimeout(timer); }, [query]);
-  const patients = useLoad(() => api.get<{ items: Patient[]; total: number }>(`/patients?q=${encodeURIComponent(debounced)}`), [debounced, revision]);
+  const { revision } = useRealtime();
+  const [query, setQuery] = React.useState("");
+  const [filters, setFilters] = React.useState(emptyPatientFilters);
+  const [showFilters, setShowFilters] = React.useState(false);
+  const [page, setPage] = React.useState(1);
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [selected, setSelected] = React.useState<Patient | null>(null);
+  // 300ms, so a search runs once the front desk stops typing rather than on
+  // every keystroke, and never as a full load of the patients table.
+  const debounced = useDebouncedValue(query, 300);
+  React.useEffect(() => { setPage(1); }, [debounced, filters]);
+  const patients = useLoad(() => api.get<PatientSearchPage>(patientSearchQuery(debounced, filters, page, pageSize)), [debounced, filters, page, revision]);
   React.useEffect(() => { const id = new URLSearchParams(location.search).get("id"); if (id) api.get<Patient>(`/patients/${id}`).then(setSelected).catch(() => undefined); }, []);
+  const total = patients.data?.total ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const filterCount = activeFilterCount(filters);
   return <div className="page"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="section-title">Patient records</p><h1 className="page-title">Patients</h1><p className="page-description">Demographics, history, clinical timeline, financial and optical records.</p></div><Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogTrigger asChild><Button><Plus className="h-4 w-4" />New patient</Button></DialogTrigger><PatientForm onSaved={(patient) => { setCreateOpen(false); setSelected(patient); patients.reload(); }} /></Dialog></div>
-    <div className="relative mt-6 max-w-xl"><Search className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" /><Input className="pl-10" placeholder="Name, medical record number, phone, email…" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-    <Card className="mt-4 overflow-hidden">{patients.loading ? <div className="p-5"><Skeleton className="h-72" /></div> : patients.error ? <div className="p-5"><ErrorState message={patients.error.message} retry={patients.reload} /></div> : !patients.data?.items.length ? <EmptyState title="No patients found" description={query ? "Try another search." : "Create the first patient to begin the clinic workflow."} action={!query && <Button onClick={() => setCreateOpen(true)}>Create patient</Button>} /> : <><div className="hidden md:block"><Table><thead><tr><Th>Patient no.</Th><Th>Name</Th><Th>Demographics</Th><Th>Phone</Th><Th>Tags</Th><Th>Updated</Th></tr></thead><tbody>{patients.data.items.map((patient) => <tr key={patient.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => setSelected(patient)}><Td className="font-mono text-xs font-bold">{patient.medicalRecordNumber}</Td><Td><div className="font-semibold">{patient.firstName} {patient.lastName}</div><div className="text-xs text-zinc-500">{patient.email || "No email"}</div></Td><Td>{patient.dateOfBirth || "—"} · {patient.sex || "—"}</Td><Td>{patient.phone || "—"}</Td><Td><div className="flex flex-wrap gap-1">{patient.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div></Td><Td className="text-xs text-zinc-500">{dateTime(patient.updatedAt)}</Td></tr>)}</tbody></Table></div><div className="divide-y md:hidden">{patients.data.items.map((patient) => <button key={patient.id} onClick={() => setSelected(patient)} className="flex w-full items-center gap-3 p-4 text-left"><div className="grid h-10 w-10 place-items-center rounded-full bg-zinc-100"><UserRound className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="font-semibold">{patient.firstName} {patient.lastName}</div><div className="font-mono text-xs text-zinc-500">{patient.medicalRecordNumber} · {patient.phone || "No phone"}</div></div></button>)}</div></>}</Card>
+    <div className="mt-6 flex flex-wrap items-center gap-3">
+      <div className="relative min-w-0 flex-1 sm:max-w-xl"><Search aria-hidden className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-400" /><Input className="pl-10" type="search" aria-label="Search patients" placeholder="Last name, first name, file number, phone, date of birth…" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+      <Button variant={showFilters ? "default" : "outline"} onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}><SlidersHorizontal className="h-4 w-4" />Filters{filterCount > 0 && <Badge className="ml-1">{filterCount}</Badge>}</Button>
+    </div>
+    {showFilters && <div className="mt-3"><PatientFilterBar filters={filters} onChange={setFilters} civilStatusOptions={civilStatusOptions} /></div>}
+    <Card className="mt-4 overflow-hidden">{patients.loading ? <div className="p-5"><Skeleton className="h-72" /></div> : patients.error ? <div className="p-5"><ErrorState message={patients.error.message} retry={patients.reload} /></div> : !patients.data?.items.length ? <EmptyState title="No patients found" description={query || filterCount ? "No record matches this search. Try fewer words or clear the filters." : "Create the first patient to begin the clinic workflow."} action={!query && !filterCount && <Button onClick={() => setCreateOpen(true)}>Create patient</Button>} /> : <><div className="hidden md:block"><Table><thead><tr><Th>File no.</Th><Th>Name</Th><Th>Date of birth</Th><Th>Phone</Th><Th>Last visit</Th><Th>Tags</Th></tr></thead><tbody>{patients.data.items.map((patient) => <tr key={patient.id} className="cursor-pointer hover:bg-zinc-50" onClick={() => setSelected(patient)}><Td className="font-mono text-xs font-bold">{patient.medicalRecordNumber}</Td><Td><div className="font-semibold">{patient.firstName} {patient.lastName}</div><div className="text-xs text-zinc-500">{patient.email || "No email"}</div></Td><Td className="whitespace-nowrap">{patient.dateOfBirth || "—"}{patientAge(patient.dateOfBirth) !== null && <span className="ml-1 text-xs text-zinc-500">({patientAge(patient.dateOfBirth)})</span>}</Td><Td className="whitespace-nowrap">{patient.phone || "—"}</Td><Td className="whitespace-nowrap text-xs text-zinc-500">{patient.lastVisitAt ? dateTime(patient.lastVisitAt) : "Never seen"}</Td><Td><div className="flex flex-wrap gap-1">{patient.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div></Td></tr>)}</tbody></Table></div><div className="divide-y md:hidden">{patients.data.items.map((patient) => <button key={patient.id} onClick={() => setSelected(patient)} className="flex w-full items-center gap-3 p-4 text-left"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-zinc-100"><UserRound className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="font-semibold">{patient.firstName} {patient.lastName}</div><div className="font-mono text-xs text-zinc-500">{patient.medicalRecordNumber} · {patient.dateOfBirth || "—"} · {patient.phone || "No phone"}</div><div className="text-xs text-zinc-500">{patient.lastVisitAt ? `Last visit ${dateTime(patient.lastVisitAt)}` : "Never seen"}</div></div></button>)}</div></>}</Card>
+    {total > 0 && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-zinc-500"><span>{`${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total}`}</span><div className="flex items-center gap-2"><Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft className="h-3.5 w-3.5" />Previous</Button><span className="font-mono text-xs">{page} / {lastPage}</span><Button size="sm" variant="outline" disabled={!patients.data?.hasMore} onClick={() => setPage((value) => value + 1)}>Next<ChevronRight className="h-3.5 w-3.5" /></Button></div></div>}
     {selected && <PatientPanel patient={selected} onClose={() => setSelected(null)} onChanged={(patient) => { setSelected(patient); patients.reload(); }} />}
   </div>;
 }

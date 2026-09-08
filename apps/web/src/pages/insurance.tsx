@@ -6,7 +6,7 @@ import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
 import { money } from "../lib";
 import { useRealtime } from "../realtime";
-import type { Invoice, Patient } from "../types";
+import type { Invoice } from "../types";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -33,6 +33,7 @@ import {
   Th,
 } from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { PatientPicker } from "../components/patient-search";
 
 interface Payer {
   id: string;
@@ -369,9 +370,6 @@ function PayerForm({ onSaved }: { onSaved(): void }) {
   );
 }
 function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
-  const patients = useLoad(() =>
-    api.get<{ items: Patient[] }>("/patients?limit=100"),
-  );
   const invoices = useLoad(() => api.get<{ items: Invoice[] }>("/invoices"));
   const [f, setF] = React.useState({
     patientId: "",
@@ -406,18 +404,11 @@ function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
       </DialogHeader>
       <form className="grid gap-4" onSubmit={save}>
         <Field label="Patient">
-          <Select
+          <PatientPicker
             required
             value={f.patientId}
-            onChange={(e) => setF({ ...f, patientId: e.target.value })}
-          >
-            <option value="">Select…</option>
-            {patients.data?.items.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.medicalRecordNumber} — {p.firstName} {p.lastName}
-              </option>
-            ))}
-          </Select>
+            onChange={(patientId) => setF({ ...f, patientId })}
+          />
         </Field>
         <Field label="Insurer">
           <Select

@@ -17,3 +17,16 @@ export function useLoad<T>(loader: () => Promise<T>, dependencies: React.Depende
   return { data, error, loading, reload, setData };
 }
 
+
+/**
+ * Delays a fast-changing value, so a search box issues one request after the
+ * user stops typing rather than one per keystroke.
+ */
+export function useDebouncedValue<T>(value: T, delayMilliseconds = 300) {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMilliseconds);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMilliseconds]);
+  return debounced;
+}

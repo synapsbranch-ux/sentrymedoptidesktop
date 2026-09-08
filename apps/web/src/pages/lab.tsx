@@ -26,7 +26,8 @@ import { DateTimeInput } from "../components/ui/date-time";
 import { useLoad } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
-import type { LabOrder, Patient } from "../types";
+import type { LabOrder } from "../types";
+import { PatientPicker } from "../components/patient-search";
 
 const stages = [
   "draft",
@@ -308,9 +309,6 @@ function PrintField({ label, value }: { label: string; value?: string }) {
 }
 
 function LabOrderForm({ onSaved }: { onSaved(): void }) {
-  const patients = useLoad(() =>
-    api.get<{ items: Patient[] }>("/patients?limit=100"),
-  );
   const [form, setForm] = React.useState({
     patientId: "",
     prescriptionId: "",
@@ -361,21 +359,11 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
       </DialogHeader>
       <form className="grid gap-4" onSubmit={submit}>
         <Field label="Patient">
-          <Select
+          <PatientPicker
             required
             value={form.patientId}
-            onChange={(event) =>
-              setForm({ ...form, patientId: event.target.value })
-            }
-          >
-            <option value="">Select patient…</option>
-            {patients.data?.items.map((patient) => (
-              <option key={patient.id} value={patient.id}>
-                {patient.medicalRecordNumber} — {patient.firstName}{" "}
-                {patient.lastName}
-              </option>
-            ))}
-          </Select>
+            onChange={(patientId) => setForm({ ...form, patientId })}
+          />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Lens type">

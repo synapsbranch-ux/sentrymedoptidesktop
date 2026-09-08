@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +19,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	s.registerCodingRoutes(r)
 	s.registerRecordingRoutes(r)
 	r.Get("/patients", s.handlePatientsList)
+	r.Get("/patients/filter-options", s.handlePatientFilterOptions)
 	r.Post("/patients", s.handlePatientsCreate)
 	r.Get("/patients/{id}", s.handlePatientGet)
 	r.Put("/patients/{id}", s.handlePatientUpdate)
@@ -106,9 +106,16 @@ type patientRecord struct {
 }
 
 func scanPatient(scanner interface{ Scan(...any) error }) (patientRecord, error) {
+	return scanPatientWithExtras(scanner)
+}
+
+// scanPatientWithExtras reads the standard patient columns and any additional
+// values a caller selected after them, such as the derived last-visit date.
+func scanPatientWithExtras(scanner interface{ Scan(...any) error }, extras ...any) (patientRecord, error) {
 	var item patientRecord
 	var tags string
-	err := scanner.Scan(&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy)
+	targets := []any{&item.ID, &item.MedicalRecordNumber, &item.FirstName, &item.MiddleName, &item.LastName, &item.PreferredName, &item.Sex, &item.DateOfBirth, &item.Phone, &item.AlternatePhone, &item.Email, &item.Address, &item.City, &item.Occupation, &item.Employer, &item.PreferredLanguage, &item.CommunicationPreference, &item.ReferralSource, &item.ReferringProvider, &item.Notes, &tags, &item.Version, &item.CreatedAt, &item.UpdatedAt, &item.UpdatedBy}
+	err := scanner.Scan(append(targets, extras...)...)
 	if err == nil {
 		_ = json.Unmarshal([]byte(tags), &item.Tags)
 		if item.Tags == nil {
@@ -118,47 +125,10 @@ func scanPatient(scanner interface{ Scan(...any) error }) (patientRecord, error)
 	return item, err
 }
 
-const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
+// Qualified with the patients alias for queries that join the search index.
+const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COALESCE(p.middle_name,''), p.last_name, COALESCE(p.preferred_name,''), COALESCE(p.sex,''), COALESCE(p.date_of_birth,''), COALESCE(p.phone,''), COALESCE(p.alternate_phone,''), COALESCE(p.email,''), COALESCE(p.address,''), COALESCE(p.city,''), COALESCE(p.occupation,''), COALESCE(p.employer,''), COALESCE(p.preferred_language,''), COALESCE(p.communication_preference,''), COALESCE(p.referral_source,''), COALESCE(p.referring_provider,''), COALESCE(p.notes,''), p.tags_json, p.version, p.created_at, p.updated_at, p.updated_by`
 
-func (s *Server) handlePatientsList(w http.ResponseWriter, r *http.Request) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit < 1 || limit > 100 {
-		limit = 25
-	}
-	search := strings.TrimSpace(r.URL.Query().Get("q"))
-	where, args := "archived_at IS NULL", []any{}
-	if search != "" {
-		like := "%" + search + "%"
-		where += " AND (medical_record_number LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? OR email LIKE ?)"
-		args = append(args, like, like, like, like, like)
-	}
-	var total int
-	if err := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM patients WHERE "+where, args...).Scan(&total); err != nil {
-		writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-		return
-	}
-	args = append(args, limit, (page-1)*limit)
-	rows, err := s.db.QueryContext(r.Context(), "SELECT "+patientColumns+" FROM patients WHERE "+where+" ORDER BY updated_at DESC LIMIT ? OFFSET ?", args...)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-		return
-	}
-	defer rows.Close()
-	items := []patientRecord{}
-	for rows.Next() {
-		item, err := scanPatient(rows)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "PATIENT_LIST_FAILED", "Could not load patients.")
-			return
-		}
-		items = append(items, item)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "page": page, "limit": limit, "total": total})
-}
+const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
 
 func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 	var input patientPayload

@@ -5,13 +5,14 @@ import { api } from "../api";
 import { useLoad } from "../hooks";
 import { todayInput } from "../lib";
 import { useRealtime } from "../realtime";
-import type { Appointment, Patient, QueueEntry } from "../types";
+import type { Appointment, QueueEntry } from "../types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
 import { DateTimeInput } from "../components/ui/date-time";
+import { PatientPicker } from "../components/patient-search";
 
 type CalendarView = "day" | "week" | "month";
 const stages = ["waiting_nurse", "pre_test", "waiting_doctor", "in_consultation", "checkout", "completed"];
@@ -61,7 +62,11 @@ function AppointmentDetail({ appointment, onChanged }: { appointment: Appointmen
   return <DialogContent><DialogHeader><DialogTitle>{appointment.patientName}</DialogTitle><DialogDescription>{new Date(appointment.startsAt).toLocaleString()} · {appointment.durationMinutes} minutes</DialogDescription></DialogHeader><div className="grid gap-3"><div className="flex items-center justify-between rounded-md border p-3"><span className="text-sm font-semibold">Status</span><Badge>{appointment.status.replaceAll("_", " ")}</Badge></div><div className="rounded-md bg-zinc-50 p-3 text-sm"><strong>{appointment.type.replaceAll("_", " ")}</strong><p className="mt-1 text-zinc-600">{appointment.reason || "No reason provided"}</p>{appointment.notes && <p className="mt-2 text-zinc-500">{appointment.notes}</p>}</div></div><DialogFooter><Button variant="outline" onClick={() => setEditing(true)} disabled={terminalStatuses.includes(appointment.status)}><Pencil className="h-4 w-4" />Reschedule</Button>{appointment.status === "scheduled" && <Button variant="outline" onClick={() => status("confirmed")}>Confirm</Button>}{!terminalStatuses.includes(appointment.status) && <Button variant="outline" onClick={() => status("cancelled")}>Cancel</Button>}{!terminalStatuses.includes(appointment.status) && <Button variant="outline" onClick={() => status("no_show")}>No show</Button>}{!terminalStatuses.includes(appointment.status) && <Button onClick={async () => { try { await api.post("/queue/check-in", { patientId: appointment.patientId, appointmentId: appointment.id, assignedDoctorId: appointment.practitionerId, priority: 0 }); toast.success("Patient checked in"); onChanged(); } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Check-in failed"); } }}><Check className="h-4 w-4" />Check in</Button>}</DialogFooter></DialogContent>;
 }
 
-function PatientSelect({ value, onChange }: { value: string; onChange(value: string): void }) { const patients = useLoad(() => api.get<{ items: Patient[] }>("/patients?limit=100")); return <Select required value={value} onChange={(event) => onChange(event.target.value)}><option value="">Select patient…</option>{patients.data?.items.map((patient) => <option value={patient.id} key={patient.id}>{patient.medicalRecordNumber} — {patient.firstName} {patient.lastName}</option>)}</Select>; }
+// Was a <select> populated by /patients?limit=100, which could not reach patient
+// 101 of 5,000. It now searches the server as the user types.
+function PatientSelect({ value, onChange }: { value: string; onChange(value: string): void }) {
+  return <PatientPicker required value={value} onChange={onChange} />;
+}
 
 function toLocalDateTime(value: string) { const date = new Date(value); date.setMinutes(date.getMinutes() - date.getTimezoneOffset()); return date.toISOString().slice(0, 16); }
 function AppointmentForm({ onSaved, appointment, defaultDate = todayInput() }: { onSaved(): void; appointment?: Appointment; defaultDate?: string }) {

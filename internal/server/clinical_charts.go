@@ -20,21 +20,26 @@ import (
 // (anterior segment, fundus) use the label and structure; grid charts (visual
 // field, motility) additionally carry the cell they belong to and its grade.
 type chartMark struct {
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
-	Shape     string  `json:"shape"`
-	Color     string  `json:"color"`
-	Label     string  `json:"label"`
-	Structure string  `json:"structure"`
-	Cell      string  `json:"cell,omitempty"`
-	Grade     string  `json:"grade,omitempty"`
-	ClockHour int     `json:"clockHour,omitempty"`
+	ID               string  `json:"id,omitempty"`
+	TrackingID       string  `json:"trackingId,omitempty"`
+	CoordinateSystem string  `json:"coordinateSystem,omitempty"`
+	X                float64 `json:"x"`
+	Y                float64 `json:"y"`
+	Shape            string  `json:"shape"`
+	Color            string  `json:"color"`
+	Label            string  `json:"label"`
+	Structure        string  `json:"structure"`
+	Cell             string  `json:"cell,omitempty"`
+	Grade            string  `json:"grade,omitempty"`
+	ClockHour        int     `json:"clockHour,omitempty"`
 }
 
 type chartPayload struct {
-	Annotations []chartMark `json:"annotations"`
-	Notes       string      `json:"notes"`
-	Version     int         `json:"version"`
+	SchemaVersion int         `json:"schemaVersion,omitempty"`
+	ExamStatus    *string     `json:"examStatus,omitempty"`
+	Annotations   []chartMark `json:"annotations"`
+	Notes         string      `json:"notes"`
+	Version       int         `json:"version"`
 }
 
 // chartEyes is the single source of truth for which charts exist and which eyes each
@@ -105,6 +110,7 @@ func validateChartMarks(chartType string, marks []chartMark) error {
 
 func (s *Server) registerEyeDiagramRoutes(r chi.Router) {
 	r.Get("/encounters/{id}/eye-diagrams", s.handleEyeDiagramsGet)
+	r.Get("/encounters/{id}/eye-diagrams/{chartType}/{eye}/history", s.handleChartHistory)
 	r.Put("/encounters/{id}/eye-diagrams/{chartType}/{eye}", s.handleEyeDiagramSave)
 }
 
@@ -116,32 +122,40 @@ func (s *Server) loadEncounterCharts(ctx context.Context, encounterID string) (m
 	for chartType, eyes := range chartEyes {
 		charts[chartType] = map[string]any{}
 		for _, eye := range eyes {
-			charts[chartType][eye] = map[string]any{"annotations": []chartMark{}, "notes": "", "version": 0}
+			charts[chartType][eye] = map[string]any{"annotations": []chartMark{}, "notes": "", "version": 0, "schemaVersion": 2, "examStatus": "unspecified"}
 		}
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT chart_type,eye,annotations_json,COALESCE(notes,''),version FROM eye_diagrams WHERE encounter_id=?", encounterID)
+	rows, err := s.db.QueryContext(ctx, "SELECT id,chart_type,eye,annotations_json,COALESCE(notes,''),version,exam_status FROM eye_diagrams WHERE encounter_id=?", encounterID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var chartType, eye, annotationsJSON, notes string
+		var id, chartType, eye, annotationsJSON, notes, examStatus string
 		var version int
-		if err := rows.Scan(&chartType, &eye, &annotationsJSON, &notes, &version); err != nil {
+		if err := rows.Scan(&id, &chartType, &eye, &annotationsJSON, &notes, &version, &examStatus); err != nil {
 			return nil, err
 		}
 		if charts[chartType] == nil {
 			continue
 		}
 		annotations := []chartMark{}
-		_ = json.Unmarshal([]byte(annotationsJSON), &annotations)
-		charts[chartType][eye] = map[string]any{"annotations": annotations, "notes": notes, "version": version}
+		if err := json.Unmarshal([]byte(annotationsJSON), &annotations); err != nil {
+			return nil, err
+		}
+		identifyLegacyMarks(id, annotations)
+		charts[chartType][eye] = map[string]any{"annotations": annotations, "notes": notes, "version": version, "schemaVersion": 2, "examStatus": examStatus}
 	}
 	return charts, rows.Err()
 }
 
 func (s *Server) handleEyeDiagramsGet(w http.ResponseWriter, r *http.Request) {
 	encounterID := chi.URLParam(r, "id")
+	var patientID string
+	if err := s.db.QueryRowContext(r.Context(), "SELECT patient_id FROM encounters WHERE id=? AND archived_at IS NULL", encounterID).Scan(&patientID); err != nil {
+		writeError(w, http.StatusNotFound, "ENCOUNTER_NOT_FOUND", "Consultation was not found.")
+		return
+	}
 	charts, err := s.loadEncounterCharts(r.Context(), encounterID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "EYE_DIAGRAM_LOAD_FAILED", "Could not load the clinical charts.")
@@ -167,6 +181,13 @@ func (s *Server) handleEyeDiagramsGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "EYE_DIAGRAM_LOAD_FAILED", "Could not load the clinical charts.")
 		return
 	}
+	previousByChart, err := s.previousChartsByEye(r.Context(), encounterID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "EYE_DIAGRAM_LOAD_FAILED", "Could not load previous charts.")
+		return
+	}
+	response["previousByChart"] = previousByChart
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -193,6 +214,31 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 	if input.Annotations == nil {
 		input.Annotations = []chartMark{}
 	}
+	if input.SchemaVersion != 0 && input.SchemaVersion != 2 {
+		writeError(w, http.StatusUnprocessableEntity, "UNSUPPORTED_CHART_SCHEMA", "This chart format is not supported.")
+		return
+	}
+	if len([]rune(input.Notes)) > 10000 {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_NOTES", "Notes are limited to 10000 characters.")
+		return
+	}
+	// Older clients cannot assert the new examination status. Do not retain a
+	// previous normal/not-examined assertion when they submit annotations.
+	if input.ExamStatus == nil && len(input.Annotations) > 0 {
+		unspecified := "unspecified"
+		input.ExamStatus = &unspecified
+	}
+	if input.ExamStatus != nil {
+		valid := map[string]bool{"unspecified": true, "not_examined": true, "no_findings": true, "findings": true}
+		if !valid[*input.ExamStatus] || ((*input.ExamStatus == "not_examined" || *input.ExamStatus == "no_findings") && len(input.Annotations) > 0) {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_EXAM_STATUS", "Use findings or unspecified for an annotated chart.")
+			return
+		}
+	}
+	if err := prepareChartIdentities(input.Annotations); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_IDENTITY", err.Error())
+		return
+	}
 	if len(input.Annotations) > maxChartMarks {
 		writeError(w, http.StatusUnprocessableEntity, "TOO_MANY_MARKS", "A chart holds at most 200 marks.")
 		return
@@ -211,10 +257,17 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
 		return
 	}
+	if err := s.validateChartTracking(r.Context(), encounterID, chartType, eye, input.Annotations); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_CHART_TRACKING", "A tracked finding must belong to this patient's same chart and eye.")
+		return
+	}
 	annotationsJSON := marshalJSON(input.Annotations)
 	if input.Version == 0 {
-		_, err := s.db.ExecContext(r.Context(), `INSERT INTO eye_diagrams(id,encounter_id,chart_type,eye,annotations_json,notes,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), encounterID, chartType, eye, annotationsJSON, nilIfEmpty(input.Notes), now, now, user.ID, user.ID)
+		_, err := s.db.ExecContext(r.Context(), `INSERT INTO eye_diagrams(id,encounter_id,chart_type,eye,annotations_json,notes,created_at,updated_at,created_by,updated_by,exam_status) VALUES(?,?,?,?,?,?,?,?,?,?,COALESCE(?,'unspecified'))`, uuid.NewString(), encounterID, chartType, eye, annotationsJSON, nilIfEmpty(input.Notes), now, now, user.ID, user.ID, input.ExamStatus)
 		if err != nil {
+			if chartWriteLocked(w, err) {
+				return
+			}
 			if isUniqueViolation(err) {
 				writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "This chart was created by another user. Reload before saving.")
 				return
@@ -224,11 +277,14 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 		}
 		s.audit(r.Context(), &user, "create", "eye_diagram", encounterID, "Recorded "+eye+" "+chartType+" chart", "", "", r)
 		s.broker.Publish(realtime.Event{Type: "encounter.updated", EntityType: "encounter", EntityID: encounterID})
-		writeJSON(w, http.StatusCreated, map[string]any{"version": 1})
+		writeJSON(w, http.StatusCreated, map[string]any{"version": 1, "annotations": input.Annotations, "schemaVersion": 2})
 		return
 	}
-	result, err := s.db.ExecContext(r.Context(), `UPDATE eye_diagrams SET annotations_json=?,notes=?,version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND chart_type=? AND eye=? AND version=?`, annotationsJSON, nilIfEmpty(input.Notes), now, user.ID, encounterID, chartType, eye, input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE eye_diagrams SET annotations_json=?,notes=?,exam_status=COALESCE(?,exam_status),version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND chart_type=? AND eye=? AND version=?`, annotationsJSON, nilIfEmpty(input.Notes), input.ExamStatus, now, user.ID, encounterID, chartType, eye, input.Version)
 	if err != nil {
+		if chartWriteLocked(w, err) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "EYE_DIAGRAM_SAVE_FAILED", "Could not save the clinical chart.")
 		return
 	}
@@ -238,5 +294,5 @@ func (s *Server) handleEyeDiagramSave(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r.Context(), &user, "update", "eye_diagram", encounterID, "Updated "+eye+" "+chartType+" chart", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "encounter.updated", EntityType: "encounter", EntityID: encounterID})
-	writeJSON(w, http.StatusOK, map[string]any{"version": input.Version + 1})
+	writeJSON(w, http.StatusOK, map[string]any{"version": input.Version + 1, "annotations": input.Annotations, "schemaVersion": 2})
 }

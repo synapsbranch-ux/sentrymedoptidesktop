@@ -48,8 +48,12 @@ test("no screen produces an uncaught error or a framework warning", async ({ pag
   const patientId = (await patient.json()).id as string;
   await page.request.post("/api/v1/encounters", { data: { patientId, visitReason: "Console sweep" } });
   await page.request.post("/api/v1/queue/walk-in", { data: { patientId, reason: "Console sweep" } });
+  // Far enough ahead that this sweep cannot collide with another spec's booking:
+  // the server rejects a second appointment in the same slot with 409.
+  const slot = new Date(Date.now() + 60 * 86_400_000);
+  slot.setUTCHours(3, 0, 0, 0);
   await page.request.post("/api/v1/appointments", {
-    data: { patientId, practitionerId: "", startsAt: new Date(Date.now() + 3_600_000).toISOString(), durationMinutes: 30, type: "eye_exam", reason: "Console sweep", notes: "" },
+    data: { patientId, practitionerId: "", startsAt: slot.toISOString(), durationMinutes: 30, type: "eye_exam", reason: "Console sweep", notes: "" },
   });
 
   for (const route of routes) {

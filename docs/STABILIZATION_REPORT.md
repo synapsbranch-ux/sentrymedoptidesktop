@@ -65,6 +65,7 @@ defect with a workaround, **S4** is cosmetic or hygiene.
 | N7 | `chart-backdrops.tsx`, `inventory.tsx`, `stock-takes.tsx` | S4 | `tsc --noUnusedLocals` | Clean | Unused imports (`React`, `Boxes`, `CardContent`, `Eye`) | Logged |
 | N8 | Build output | S4 | `npm run build` | Chunks under 500 kB | `chart-eye-3d` is 519 kB, over Vite's warning threshold | Logged |
 | N9 | `e2e/chart-multiview.spec.ts` | S4 | Run the suite where the installed Chromium differs from the pinned Playwright build | Runs | `test.use({ launchOptions })` replaces config-level launch options, so an `executablePath` override is discarded. Environment fragility, not an application defect | Logged |
+| N10 | e2e suite | S4 | Run the whole suite in one go | Order-independent | Specs share one server and one database, so any two that book the same appointment slot collide with a 409. Hit once during this round and fixed in the new sweep; the same trap remains for future specs | Fixed here, noted |
 
 ## 2. Root cause, change and verification, per item
 
@@ -307,6 +308,11 @@ them takes anything down.
   unused imports, and one oversized bundle chunk.
 - **N9.** An environment fragility in an existing e2e file. Not an application
   defect; noted so the next person does not lose an hour to it.
+- **N10.** Worth knowing before writing the next spec: the e2e suite shares one
+  server and one database across all files, so fixed timestamps collide. This
+  round's console sweep booked the same `now + 1 hour` slot as the existing
+  clinic-flow spec and made it fail with a 409 — a defect in my test, not in the
+  application, now fixed by booking 60 days out.
 
 ## 5. Questions — asked, not guessed in code
 

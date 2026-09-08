@@ -27,7 +27,7 @@ interface TrendPoint {
 interface ClinicalAlert { severity: "info" | "warning" | "danger"; eye?: string; title: string; detail: string }
 interface CorrectedIOP { measured?: number; pachymetry?: number; estimated?: number; interpretation: string }
 interface TrendSummary extends Record<string, unknown> { iopContext?: { od?: CorrectedIOP; os?: CorrectedIOP; correctionEnabled: boolean } }
-interface TrendsResponse { points: TrendPoint[]; alerts: ClinicalAlert[]; summary: TrendSummary; thresholds: { elevatedIOPMmHg: number } }
+interface TrendsResponse { points: TrendPoint[]; alerts: ClinicalAlert[]; summary: TrendSummary; thresholds?: { elevatedIOPMmHg: number } }
 interface VisitChange { category: string; changeType: "added" | "removed" | "modified"; eye?: string; before: string; after: string; delta: string; severity: "info" | "warning" | "danger" }
 interface DeltaResponse {
   hasPrevious: boolean;
@@ -42,8 +42,11 @@ export function refractionForSource(point: Pick<TrendPoint, "refractions">, sour
 
 const severityTone: Record<ClinicalAlert["severity"], "neutral" | "warning" | "danger"> = { info: "neutral", warning: "warning", danger: "danger" };
 
-function shortDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
+function shortDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" });
 }
 
 /**
@@ -59,7 +62,8 @@ function TrendChart({ title, description, points, unit, invert = false, threshol
   invert?: boolean;
   threshold?: number;
 }) {
-  const usable = points.filter((point) => point.od !== null || point.os !== null);
+  const finite = (value: number | null) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const usable = points.map((point) => ({ ...point, od: finite(point.od), os: finite(point.os) })).filter((point) => point.od !== null || point.os !== null);
   if (usable.length === 0) {
     return (
       <Card>
@@ -69,7 +73,7 @@ function TrendChart({ title, description, points, unit, invert = false, threshol
     );
   }
   const values = usable.flatMap((point) => [point.od, point.os]).filter((value): value is number => value !== null);
-  const candidates = threshold === undefined ? values : [...values, threshold];
+  const candidates = threshold === undefined || !Number.isFinite(threshold) ? values : [...values, threshold];
   const minimum = Math.min(...candidates);
   const maximum = Math.max(...candidates);
   const span = maximum - minimum || 1;
@@ -90,7 +94,7 @@ function TrendChart({ title, description, points, unit, invert = false, threshol
       <CardHeader><CardTitle>{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader>
       <CardContent>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label={title} preserveAspectRatio="none" style={{ height: 160 }}>
-          {threshold !== undefined && (
+          {threshold !== undefined && Number.isFinite(threshold) && (
             <line x1={0} x2={width} y1={y(threshold)} y2={y(threshold)} stroke="#dc2626" strokeWidth={0.4} strokeDasharray="2,1.5" />
           )}
           {(["od", "os"] as const).map((eye) => {
@@ -114,7 +118,7 @@ function TrendChart({ title, description, points, unit, invert = false, threshol
           <span className="flex items-center gap-3">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-zinc-900" />OD</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-600" />OS</span>
-            {threshold !== undefined && <span className="text-red-700">— seuil {threshold} {unit}</span>}
+            {threshold !== undefined && Number.isFinite(threshold) && <span className="text-red-700">{`— threshold ${threshold} ${unit}`}</span>}
           </span>
           <span className="font-mono">{shortDate(usable[0].date)} → {shortDate(usable[usable.length - 1].date)}</span>
         </div>
@@ -124,15 +128,19 @@ function TrendChart({ title, description, points, unit, invert = false, threshol
 }
 
 export function ClinicalEvolution({ encounterId, patientId }: { encounterId: string; patientId: string }) {
+  // Every hook runs before the loading/error branches below. Declaring this state
+  // after them changed the hook count between renders and unmounted the whole app
+  // the moment the trends request resolved.
+  const [refractionSource, setRefractionSource] = React.useState<"subjective" | "prescription" | "autorefraction">("subjective");
   const trends = useLoad(() => api.get<TrendsResponse>(`/patients/${patientId}/clinical-trends`), [patientId]);
   const delta = useLoad(() => api.get<DeltaResponse>(`/encounters/${encounterId}/delta`), [encounterId]);
 
   if (trends.loading || delta.loading) return <Skeleton className="h-96" />;
   if (trends.error) return <ErrorState message={trends.error.message} retry={trends.reload} />;
-  const points = trends.data?.points ?? [];
-  const alerts = trends.data?.alerts ?? [];
+  const points = Array.isArray(trends.data?.points) ? trends.data.points : [];
+  const alerts = Array.isArray(trends.data?.alerts) ? trends.data.alerts : [];
   const summary = trends.data?.summary ?? {};
-  const [refractionSource, setRefractionSource] = React.useState<"subjective" | "prescription" | "autorefraction">("subjective");
+  const changes = Array.isArray(delta.data?.changes) ? delta.data.changes : [];
   const selectedRefraction = (point: TrendPoint) => refractionForSource(point, refractionSource);
 
   return (
@@ -168,17 +176,17 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
         </CardHeader>
         <CardContent>
           {delta.data?.hasPrevious ? (
-            delta.data.changes.length > 0 ? (
+            changes.length > 0 ? (
               <div className="grid gap-2">
-                {delta.data.changes.map((change, index) => (
+                {changes.map((change, index) => (
                   <div key={index} className={cn("flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm", change.severity === "danger" ? "border-red-300 bg-red-50" : change.severity === "warning" ? "border-amber-300 bg-amber-50" : "border-zinc-200")}>
-                    <span className="font-semibold">{change.category}</span>
-                    <Badge tone={change.changeType === "removed" ? "warning" : "neutral"}>{change.changeType}</Badge>
+                    <span className="font-semibold">{change.category || "—"}</span>
+                    <Badge tone={change.changeType === "removed" ? "warning" : "neutral"}>{change.changeType || "modified"}</Badge>
                     {change.eye && <Badge>{change.eye}</Badge>}
                     <span className="flex items-center gap-2 font-mono text-xs text-zinc-500">
-                      {change.before} <ArrowRight className="h-3 w-3" /> <strong className="text-[var(--foreground)]">{change.after}</strong>
+                      {change.before || "—"} <ArrowRight className="h-3 w-3" /> <strong className="text-[var(--foreground)]">{change.after || "—"}</strong>
                     </span>
-                    <span className="ml-auto font-mono text-xs font-bold">{change.delta}</span>
+                    <span className="ml-auto font-mono text-xs font-bold">{change.delta || "—"}</span>
                   </div>
                 ))}
               </div>
@@ -219,7 +227,7 @@ export function ClinicalEvolution({ encounterId, patientId }: { encounterId: str
           title="Intraocular pressure"
           description={summary.iopPeakOD !== undefined ? `Peak on record OD: ${summary.iopPeakOD} mmHg.` : "Tonometry per eye."}
           unit="mmHg"
-          threshold={trends.data?.thresholds.elevatedIOPMmHg ?? 21}
+          threshold={trends.data?.thresholds?.elevatedIOPMmHg ?? 21}
           points={points.map((point) => ({ date: point.date, od: point.iop?.od ?? null, os: point.iop?.os ?? null }))}
         />
         <TrendChart

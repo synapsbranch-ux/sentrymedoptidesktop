@@ -13,67 +13,6 @@ type codeEntry struct {
 	Description string `json:"description"`
 }
 
-// icd10Ophthalmology is a small offline reference of ICD-10-CM codes commonly used in an
-// optical/ophthalmology practice. It exists purely to speed up and standardize diagnosis
-// entry (search-as-you-type instead of free text) — it is not a complete or authoritative
-// coding table and clinics should verify codes against their local billing requirements.
-var icd10Ophthalmology = []codeEntry{
-	{"H52.10", "Myopia, unspecified eye"},
-	{"H52.11", "Myopia, right eye"},
-	{"H52.12", "Myopia, left eye"},
-	{"H52.13", "Myopia, bilateral"},
-	{"H52.00", "Hypermetropia, unspecified eye"},
-	{"H52.01", "Hypermetropia, right eye"},
-	{"H52.02", "Hypermetropia, left eye"},
-	{"H52.03", "Hypermetropia, bilateral"},
-	{"H52.201", "Astigmatism, unspecified, right eye"},
-	{"H52.202", "Astigmatism, unspecified, left eye"},
-	{"H52.203", "Astigmatism, unspecified, bilateral"},
-	{"H52.4", "Presbyopia"},
-	{"H52.221", "Irregular astigmatism, right eye"},
-	{"H52.222", "Irregular astigmatism, left eye"},
-	{"H25.10", "Age-related nuclear cataract, unspecified eye"},
-	{"H25.11", "Age-related nuclear cataract, right eye"},
-	{"H25.12", "Age-related nuclear cataract, left eye"},
-	{"H25.13", "Age-related nuclear cataract, bilateral"},
-	{"H26.9", "Cataract, unspecified"},
-	{"H40.9", "Unspecified glaucoma"},
-	{"H40.11X0", "Primary open-angle glaucoma, stage unspecified"},
-	{"H40.021", "Anatomically narrow angle, right eye"},
-	{"H40.022", "Anatomically narrow angle, left eye"},
-	{"H35.30", "Unspecified macular degeneration"},
-	{"H35.31", "Nonexudative age-related macular degeneration"},
-	{"H35.32", "Exudative age-related macular degeneration"},
-	{"E11.319", "Type 2 diabetes with unspecified diabetic retinopathy without macular edema"},
-	{"E11.311", "Type 2 diabetes with unspecified diabetic retinopathy with macular edema"},
-	{"H35.00", "Background retinopathy, unspecified"},
-	{"H10.9", "Unspecified conjunctivitis"},
-	{"H10.13", "Acute atopic conjunctivitis, bilateral"},
-	{"H10.401", "Chronic conjunctivitis, unspecified, right eye"},
-	{"H10.501", "Blepharoconjunctivitis, unspecified, right eye"},
-	{"H16.9", "Unspecified keratitis"},
-	{"H18.601", "Keratoconus, unspecified, stable, right eye"},
-	{"H18.602", "Keratoconus, unspecified, stable, left eye"},
-	{"H04.121", "Dry eye syndrome of right lacrimal gland"},
-	{"H04.123", "Dry eye syndrome, bilateral"},
-	{"H53.2", "Diplopia"},
-	{"H53.9", "Unspecified visual disturbance"},
-	{"H53.40", "Unspecified visual field defect"},
-	{"H50.00", "Unspecified esotropia"},
-	{"H50.10", "Unspecified exotropia"},
-	{"H02.401", "Unspecified ptosis of right eyelid"},
-	{"H02.402", "Unspecified ptosis of left eyelid"},
-	{"H00.011", "Hordeolum externum, right eye"},
-	{"H00.012", "Hordeolum externum, left eye"},
-	{"H11.001", "Pterygium of right eye, unspecified"},
-	{"H11.002", "Pterygium of left eye, unspecified"},
-	{"H43.10", "Vitreous hemorrhage, unspecified eye"},
-	{"H33.20", "Serous retinal detachment, unspecified eye"},
-	{"Z01.00", "Encounter for eye examination without abnormal findings"},
-	{"Z01.01", "Encounter for eye examination with abnormal findings"},
-	{"Z96.1", "Presence of intraocular lens"},
-}
-
 // procedureCodes is a small offline reference of CPT-style procedure and material codes
 // commonly billed in an optical/ophthalmology practice, paired with short generic
 // descriptions. Descriptions are written independently of any copyrighted coding manual;
@@ -121,14 +60,23 @@ func searchCodes(codes []codeEntry, query string, limit int) []codeEntry {
 
 func (s *Server) registerCodingRoutes(r chi.Router) {
 	r.Get("/codes/icd10", s.handleICD10Search)
+	s.registerDiagnosisReferenceRoutes(r)
 	r.Get("/codes/procedures", s.handleProcedureCodesSearch)
 	r.Get("/encounters/{id}/superbill", s.handleSuperbillGet)
 	r.Get("/encounters/{id}/superbill/candidate-invoices", s.handleSuperbillCandidateInvoices)
 	r.With(s.requireDoctor).Post("/encounters/{id}/superbill/link-invoice", s.handleSuperbillLinkInvoice)
 }
 
+// The type-ahead on the diagnosis field. It reads the same reference table the
+// library browses, so a clinician can type a code ("H52.13") or the complaint in
+// their own words ("red eye", "blurry vision") and get the same entries.
 func (s *Server) handleICD10Search(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": searchCodes(icd10Ophthalmology, r.URL.Query().Get("q"), 25)})
+	items, _, err := s.searchDiagnosisCodes(r.Context(), r.URL.Query().Get("q"), "", 25, 0)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DIAGNOSIS_CODE_SEARCH_FAILED", "Could not search the diagnosis reference.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (s *Server) handleProcedureCodesSearch(w http.ResponseWriter, r *http.Request) {

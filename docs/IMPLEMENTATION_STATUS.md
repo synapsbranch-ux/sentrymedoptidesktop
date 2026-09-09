@@ -19,6 +19,12 @@ The following areas have a responsive UI, Go API, SQLite persistence, server-sid
 - guided refunds with immutable credit notes and transactional return-to-stock selection;
 - optical laboratory orders, advanced fitting measurements, QC gate, delivery and branded printing;
 - live doctor/nurse dashboards, visit/revenue/status/sales charts, finance reports, CSV and branded browser PDF/print output;
+- searchable diagnosis reference of 502 ophthalmology ICD-10 codes with lay-language synonyms, browsable by category and extendable by CSV import;
+- income ledger generated from every payment, refund and insurer remittance, manual income entries, quotes convertible to invoices, and an end-to-end profit and loss view;
+- POS service types shared with scheduling, prescription-to-cart lookup, split tenders, parked sales, barcode scanning, sales history and the register Z-report;
+- human resources: staff records, positions, attendance, payroll runs, payslips and templated contract generation;
+- images on stock items and lab orders, batch lab dispatch and a batched printed requisition;
+- separate thermal-receipt and standard-paper print paths with their own page geometries;
 - audit log, manual and scheduled SQLite-safe backups, configurable backup folder, retention and guarded restore;
 - one responsive mobile-first PWA shared by desktop and LAN clients, touch-scroll navigation and bottom-sheet dialogs, SSE with polling recovery, QR access and persistent local certificate authority;
 - privacy-filtered live public queue/appointment display with TV URL, QR access and clinic announcement;

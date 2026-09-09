@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -45,6 +46,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/encounters/{id}", s.handleEncounterGet)
 	r.Put("/encounters/{id}", s.handleEncounterUpdate)
 	r.Put("/encounters/{id}/pretest", s.handlePretestSave)
+	r.Post("/encounters/{id}/pretest/skip", s.handlePretestSkip)
 	r.Put("/encounters/{id}/sections/{section}", s.handleEncounterSectionSave)
 	r.With(s.requireDoctor).Post("/encounters/{id}/diagnoses", s.handleDiagnosisCreate)
 	r.With(s.requireDoctor).Post("/encounters/{id}/finalize", s.handleEncounterFinalize)
@@ -140,6 +142,33 @@ const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COA
 
 const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(civil_status,''), COALESCE(religion,''), COALESCE(religion_other,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
 
+// insertPatient registers a patient inside an existing transaction. It is shared
+// by the patient screen and by the prescription flow, which registers the person
+// it is written for in the same step, so both paths get the same duplicate
+// check, the same medical record number sequence and the same history stub.
+func (s *Server) insertPatient(ctx context.Context, tx *sql.Tx, input patientPayload, userID string) (string, string, error) {
+	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
+	tags, _ := json.Marshal(input.Tags)
+	number, err := s.nextNumber(ctx, tx, "patient", "PT", false)
+	if err != nil {
+		return "", "", err
+	}
+	var duplicateID, duplicateNumber string
+	duplicateErr := tx.QueryRowContext(ctx, `SELECT id,medical_record_number FROM patients WHERE archived_at IS NULL AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
+	if duplicateErr == nil {
+		return "", "", &APIError{Code: "POSSIBLE_DUPLICATE_PATIENT", Message: "A possible duplicate patient already exists.", Details: map[string]any{"patientId": duplicateID, "medicalRecordNumber": duplicateNumber}}
+	}
+	if duplicateErr != sql.ErrNoRows {
+		return "", "", duplicateErr
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, userID, userID); err != nil {
+		return "", "", err
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO patient_histories(id,patient_id,created_at,updated_at,updated_by) VALUES(?,?,?,?,?)", uuid.NewString(), id, now, now, userID)
+	return id, number, err
+}
+
 func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 	var input patientPayload
 	if err := decodeJSON(r, &input); err != nil {
@@ -158,29 +187,10 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
-	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
-	tags, _ := json.Marshal(input.Tags)
-	var number string
+	var id, number string
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
-		number, err = s.nextNumber(r.Context(), tx, "patient", "PT", false)
-		if err != nil {
-			return err
-		}
-		var duplicateID, duplicateNumber string
-		duplicateErr := tx.QueryRowContext(r.Context(), `SELECT id,medical_record_number FROM patients WHERE archived_at IS NULL AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
-		if duplicateErr == nil {
-			return &APIError{Code: "POSSIBLE_DUPLICATE_PATIENT", Message: "A possible duplicate patient already exists.", Details: map[string]any{"patientId": duplicateID, "medicalRecordNumber": duplicateNumber}}
-		}
-		if duplicateErr != sql.ErrNoRows {
-			return duplicateErr
-		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
-		if err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(r.Context(), "INSERT INTO patient_histories(id,patient_id,created_at,updated_at,updated_by) VALUES(?,?,?,?,?)", uuid.NewString(), id, now, now, user.ID)
+		id, number, err = s.insertPatient(r.Context(), tx, input, user.ID)
 		return err
 	})
 	if err != nil {
@@ -314,9 +324,13 @@ type appointmentPayload struct {
 	StartsAt       string `json:"startsAt"`
 	Duration       int    `json:"durationMinutes"`
 	Type           string `json:"type"`
-	Reason         string `json:"reason"`
-	Notes          string `json:"notes"`
-	Version        int    `json:"version,omitempty"`
+	// The clinic service being booked. Its name and duration fill in the
+	// appointment, and the till later prices the visit from the same record —
+	// booking still never requires a payment.
+	ServiceItemID string `json:"serviceItemId"`
+	Reason        string `json:"reason"`
+	Notes         string `json:"notes"`
+	Version       int    `json:"version,omitempty"`
 }
 
 func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) {
@@ -338,8 +352,17 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 		where += " AND julianday(a.starts_at)>=julianday(?) AND julianday(a.starts_at)<julianday(?)"
 		args = append(args, from, to)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(a.practitioner_id,''),COALESCE(u.display_name,''),a.starts_at,a.duration_minutes,a.type,COALESCE(a.reason,''),COALESCE(a.notes,''),a.status,a.version
-		FROM appointments a JOIN patients p ON p.id=a.patient_id LEFT JOIN users u ON u.id=a.practitioner_id WHERE `+where+` ORDER BY a.starts_at LIMIT 500`, args...)
+	// A calendar view asks for a date range, which is itself the server-side
+	// window; the default page is large enough to hold a busy month, and an
+	// agenda list can page through it explicitly.
+	paging := paginationFrom(r, 500, 1000)
+	appointmentCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM appointments a WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "APPOINTMENT_LIST_FAILED", "Could not load appointments.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(a.practitioner_id,''),COALESCE(u.display_name,''),a.starts_at,a.duration_minutes,a.type,COALESCE(a.reason,''),COALESCE(a.notes,''),a.status,a.version,COALESCE(a.service_item_id,''),COALESCE(svc.sale_price_minor,0),COALESCE(svc.currency,'')
+		FROM appointments a JOIN patients p ON p.id=a.patient_id LEFT JOIN users u ON u.id=a.practitioner_id LEFT JOIN inventory_items svc ON svc.id=a.service_item_id WHERE `+where+` ORDER BY a.starts_at LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_LIST_FAILED", "Could not load appointments.")
 		return
@@ -347,15 +370,16 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, patientID, mrn, patientName, practitionerID, practitionerName, startsAt, kind, reason, notes, status string
+		var id, patientID, mrn, patientName, practitionerID, practitionerName, startsAt, kind, reason, notes, status, serviceItemID, serviceCurrency string
 		var duration, version int
-		if err := rows.Scan(&id, &patientID, &mrn, &patientName, &practitionerID, &practitionerName, &startsAt, &duration, &kind, &reason, &notes, &status, &version); err != nil {
+		var servicePrice int64
+		if err := rows.Scan(&id, &patientID, &mrn, &patientName, &practitionerID, &practitionerName, &startsAt, &duration, &kind, &reason, &notes, &status, &version, &serviceItemID, &servicePrice, &serviceCurrency); err != nil {
 			writeError(w, http.StatusInternalServerError, "APPOINTMENT_LIST_FAILED", "Could not load appointments.")
 			return
 		}
-		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "practitionerId": practitionerID, "practitionerName": practitionerName, "startsAt": startsAt, "durationMinutes": duration, "type": kind, "reason": reason, "notes": notes, "status": status, "version": version})
+		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "practitionerId": practitionerID, "practitionerName": practitionerName, "startsAt": startsAt, "durationMinutes": duration, "type": kind, "reason": reason, "notes": notes, "status": status, "version": version, "serviceItemId": serviceItemID, "servicePriceMinor": servicePrice, "serviceCurrency": serviceCurrency})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(appointmentCount)))
 }
 
 // appointmentConflict reports whether the given slot overlaps an existing active appointment.
@@ -388,6 +412,25 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
+	if input.ServiceItemID != "" {
+		var name string
+		var duration int
+		err := s.db.QueryRowContext(r.Context(), "SELECT name,duration_minutes FROM inventory_items WHERE id=? AND archived_at IS NULL AND category='service' AND bookable=1", input.ServiceItemID).Scan(&name, &duration)
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusUnprocessableEntity, "SERVICE_NOT_BOOKABLE", "That clinic service is not offered as an appointment type.")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "APPOINTMENT_CREATE_FAILED", "Could not read the clinic service.")
+			return
+		}
+		if input.Type == "" {
+			input.Type = name
+		}
+		if input.Duration == 0 {
+			input.Duration = duration
+		}
+	}
 	if input.Duration == 0 {
 		input.Duration = 30
 	}
@@ -412,8 +455,8 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(r.Context(), `INSERT INTO appointments(id,patient_id,practitioner_id,starts_at,duration_minutes,type,reason,notes,status,created_at,updated_at,created_by,updated_by)
-		VALUES(?,?,?,?,?,?,?,?, 'scheduled',?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.PractitionerID), input.StartsAt, input.Duration, input.Type, nilIfEmpty(input.Reason), nilIfEmpty(input.Notes), now, now, user.ID, user.ID)
+	_, err := s.db.ExecContext(r.Context(), `INSERT INTO appointments(id,patient_id,practitioner_id,starts_at,duration_minutes,type,service_item_id,reason,notes,status,created_at,updated_at,created_by,updated_by)
+		VALUES(?,?,?,?,?,?,?,?,?, 'scheduled',?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.PractitionerID), input.StartsAt, input.Duration, input.Type, nilIfEmpty(input.ServiceItemID), nilIfEmpty(input.Reason), nilIfEmpty(input.Notes), now, now, user.ID, user.ID)
 	if err != nil {
 		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
 			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
@@ -424,7 +467,7 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 	}
 	s.audit(r.Context(), &user, "create", "appointment", id, "Created appointment", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "appointment.created", EntityType: "appointment", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "scheduled", "version": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "scheduled", "version": 1, "durationMinutes": input.Duration, "type": input.Type})
 }
 
 func (s *Server) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request) {

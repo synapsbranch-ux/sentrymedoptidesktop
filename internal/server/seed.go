@@ -41,12 +41,12 @@ func SeedDevelopment(ctx context.Context, db *database.DB) error {
 		}
 		clinic, _ := json.Marshal(map[string]any{"name": "Development Eye Clinic", "address": "Local development only", "phone": "", "email": "", "timezone": "America/Port-au-Prince", "currency": "HTG"})
 		settings := map[string]string{
-			"clinic":    string(clinic),
-			"financial": `{"currencies":["HTG","USD"],"baseCurrency":"HTG","exchangeRate":"1","taxRate":"0"}`,
-			"clinical":  `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
-			"backup":    `{"intervalHours":4,"retentionDays":30}`,
-			"appearance": `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
-			"localization": `{"language":"en"}`,
+			"clinic":         string(clinic),
+			"financial":      `{"currencies":["HTG","USD"],"baseCurrency":"HTG","exchangeRate":"1","taxRate":"0"}`,
+			"clinical":       `{"appointmentDuration":30,"enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"]}`,
+			"backup":         `{"intervalHours":4,"retentionDays":30}`,
+			"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
+			"localization":   `{"language":"en"}`,
 			"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
 		}
 		for key, value := range settings {

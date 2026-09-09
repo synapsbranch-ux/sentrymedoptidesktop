@@ -12,8 +12,11 @@ func (s *Server) validateAppointment(r *http.Request, input *appointmentPayload)
 	}
 	input.PatientID = strings.TrimSpace(input.PatientID)
 	input.PractitionerID = strings.TrimSpace(input.PractitionerID)
-	if !allowedValue(input.Type, []string{"eye_exam", "follow_up", "contact_lens", "optical_delivery"}) || input.Type == "" {
-		return &APIError{Code: "INVALID_APPOINTMENT_TYPE", Message: "Choose a supported appointment type."}
+	// A booking made from one of the clinic's own services carries that service's
+	// name as its type, so the fixed list only governs the legacy slugs a client
+	// can still send when no service is named.
+	if input.ServiceItemID == "" && (!allowedValue(input.Type, []string{"eye_exam", "follow_up", "contact_lens", "optical_delivery"}) || input.Type == "") {
+		return &APIError{Code: "INVALID_APPOINTMENT_TYPE", Message: "Choose a supported appointment type, or book one of the clinic's own services."}
 	}
 	at, err := time.Parse(time.RFC3339, input.StartsAt)
 	if err != nil {

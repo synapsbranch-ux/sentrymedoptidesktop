@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -277,6 +276,7 @@ func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	defaults := map[string]string{
+		"printing":       `{"documentPaper":"A4","receiptWidth":"80mm"}`,
 		"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
 		"localization":   `{"language":"en"}`,
 		"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
@@ -316,7 +316,7 @@ type settingsUpdateRequest struct {
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
-	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "localization": true, "public_display": true}
+	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "localization": true, "public_display": true, "printing": true}
 	if !allowed[key] {
 		writeError(w, http.StatusNotFound, "SETTING_NOT_FOUND", "This setting cannot be changed.")
 		return
@@ -367,10 +367,15 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		var value struct {
 			TranscriptionEnabled bool                       `json:"transcriptionEnabled"`
 			TranscriptionCommand string                     `json:"transcriptionCommand"`
+			PretestPolicy        string                     `json:"pretestPolicy"`
 			Analytics            *clinicalAnalyticsSettings `json:"analytics"`
 		}
 		if json.Unmarshal(raw, &value) != nil || len(value.TranscriptionCommand) > 1000 {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_SETTING", "Clinical settings are invalid.")
+			return
+		}
+		if value.PretestPolicy != "" && value.PretestPolicy != "required" && value.PretestPolicy != "optional" {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_PRETEST_POLICY", "The pre-test policy must be either required or optional.")
 			return
 		}
 		if value.TranscriptionCommand != "" {
@@ -388,6 +393,18 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_THRESHOLDS", "Clinical alert thresholds or the optional CCT correction coefficient are invalid.")
 				return
 			}
+		}
+	}
+	if key == "printing" {
+		var value struct {
+			DocumentPaper string `json:"documentPaper"`
+			ReceiptWidth  string `json:"receiptWidth"`
+		}
+		// A till roll and a sheet of paper are separate settings because they are
+		// separate printers; neither default is inferred from the other.
+		if json.Unmarshal(raw, &value) != nil || !map[string]bool{"A4": true, "Letter": true}[value.DocumentPaper] || !map[string]bool{"58mm": true, "80mm": true}[value.ReceiptWidth] {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_PRINTING_SETTING", "Choose A4 or Letter for documents and a 58 mm or 80 mm receipt roll.")
+			return
 		}
 	}
 	if key == "backup" {
@@ -688,12 +705,14 @@ func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	if requested, _ := strconv.Atoi(r.URL.Query().Get("limit")); requested > 0 && requested <= 500 {
-		limit = requested
+	paging := paginationFrom(r, 100, 500)
+	entryCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM audit_logs")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AUDIT_FAILED", "Could not load the audit log.")
+		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id, COALESCE(u.display_name,'System'), a.action, a.entity_type, COALESCE(a.entity_id,''), a.summary, COALESCE(a.ip_address,''), a.created_at
-		FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT ?`, limit)
+		FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT ? OFFSET ?`, paging.Limit, paging.Offset())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AUDIT_FAILED", "Could not load the audit log.")
 		return
@@ -708,7 +727,7 @@ func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]string{"id": id, "user": user, "action": action, "entityType": entityType, "entityId": entityID, "summary": summary, "ipAddress": ip, "createdAt": created})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, mergeMeta(paging.Meta(entryCount), map[string]any{"items": items}))
 }
 
 func (s *Server) handleBackupsList(w http.ResponseWriter, r *http.Request) {

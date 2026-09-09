@@ -22,9 +22,15 @@ type supplierPayload struct {
 }
 
 func (s *Server) handleSuppliersList(w http.ResponseWriter, r *http.Request) {
+	paging := paginationFrom(r, 100, 500)
+	supplierCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM suppliers WHERE archived_at IS NULL")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SUPPLIER_LIST_FAILED", "Could not load suppliers.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT s.id,s.company,COALESCE(s.contact_person,''),COALESCE(s.phone,''),COALESCE(s.email,''),COALESCE(s.address,''),COALESCE(s.notes,''),s.version,s.updated_at,COUNT(i.id)
 		FROM suppliers s LEFT JOIN inventory_items i ON i.supplier_id=s.id AND i.archived_at IS NULL
-		WHERE s.archived_at IS NULL GROUP BY s.id ORDER BY s.company COLLATE NOCASE`)
+		WHERE s.archived_at IS NULL GROUP BY s.id ORDER BY s.company COLLATE NOCASE LIMIT ? OFFSET ?`, paging.Limit, paging.Offset())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "SUPPLIER_LIST_FAILED", "Could not load suppliers.")
 		return
@@ -40,7 +46,7 @@ func (s *Server) handleSuppliersList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "company": company, "contactPerson": contact, "phone": phone, "email": email, "address": address, "notes": notes, "productCount": productCount, "version": version, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(supplierCount)))
 }
 
 func validateSupplier(input *supplierPayload) error {
@@ -144,9 +150,15 @@ func (s *Server) handlePurchaseOrdersList(w http.ResponseWriter, r *http.Request
 		where += " AND po.status=?"
 		args = append(args, status)
 	}
+	paging := paginationFrom(r, 50, 200)
+	orderCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM purchase_orders po WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PURCHASE_ORDER_LIST_FAILED", "Could not load purchase orders.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT po.id,po.order_number,po.supplier_id,s.company,po.status,po.currency,COALESCE(po.expected_at,''),COALESCE(po.notes,''),po.version,po.created_at,po.updated_at,COUNT(poi.id),COALESCE(SUM(poi.quantity_ordered),0),COALESCE(SUM(poi.quantity_received),0),COALESCE(SUM(poi.quantity_ordered*poi.unit_cost_minor),0)
 		FROM purchase_orders po JOIN suppliers s ON s.id=po.supplier_id LEFT JOIN purchase_order_items poi ON poi.purchase_order_id=po.id
-		WHERE `+where+` GROUP BY po.id ORDER BY po.created_at DESC LIMIT 500`, args...)
+		WHERE `+where+` GROUP BY po.id ORDER BY po.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PURCHASE_ORDER_LIST_FAILED", "Could not load purchase orders.")
 		return
@@ -163,7 +175,7 @@ func (s *Server) handlePurchaseOrdersList(w http.ResponseWriter, r *http.Request
 		}
 		items = append(items, map[string]any{"id": id, "orderNumber": number, "supplierId": supplierID, "supplierName": supplierName, "status": orderStatus, "currency": currency, "expectedAt": expectedAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "lineCount": lineCount, "quantityOrdered": ordered, "quantityReceived": received, "totalMinor": total})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(orderCount)))
 }
 
 func (s *Server) handlePurchaseOrderGet(w http.ResponseWriter, r *http.Request) {

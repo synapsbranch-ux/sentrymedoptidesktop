@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
+  FileCheck2,
   FileText,
   FlaskConical,
   Glasses,
@@ -61,6 +62,7 @@ const nav = [
       { to: "/stock-takes", label: "Stock takes", icon: ClipboardCheck },
       { to: "/purchasing", label: "Purchasing", icon: Truck, doctorOnly: true },
       { to: "/pos", label: "Point of Sale", icon: ShoppingCart },
+      { to: "/quotes", label: "Quotes", icon: FileCheck2 },
       { to: "/billing", label: "Billing", icon: Receipt },
     ],
   },
@@ -69,6 +71,7 @@ const nav = [
     items: [
       { to: "/insurance", label: "Insurance", icon: ShieldCheck },
       { to: "/finance", label: "Finance", icon: WalletCards, doctorOnly: true },
+      { to: "/hr", label: "Human resources", icon: Users, doctorOnly: true },
       { to: "/reports", label: "Reports", icon: BarChart3, doctorOnly: true },
     ],
   },

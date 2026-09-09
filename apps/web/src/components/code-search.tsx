@@ -3,7 +3,7 @@ import { api } from "../api";
 import { useDebouncedValue, useLoad } from "../hooks";
 import { Input } from "./ui/input";
 
-export interface CodeEntry { code: string; description: string }
+export interface CodeEntry { code: string; description: string; category?: string; synonyms?: string[] }
 
 export function CodeCombobox({ endpoint, placeholder, onSelect }: { endpoint: "/codes/icd10" | "/codes/procedures"; placeholder: string; onSelect(entry: CodeEntry): void }) {
   const [query, setQuery] = React.useState("");
@@ -43,6 +43,9 @@ export function CodeCombobox({ endpoint, placeholder, onSelect }: { endpoint: "/
               }}
             >
               <span className="font-mono font-bold">{item.code}</span> — {item.description}
+              {/* The lay terms that matched are shown so it is clear why an entry
+                  came back for a plain-language search such as "red eye". */}
+              {item.synonyms && item.synonyms.length > 0 && <span className="mt-0.5 block truncate text-xs text-[var(--muted-foreground)]">{item.synonyms.slice(0, 4).join(" · ")}</span>}
             </button>
           ))}
         </div>

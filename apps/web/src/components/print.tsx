@@ -1,5 +1,6 @@
 import * as React from "react";
-import { useClinicIdentity } from "../clinic";
+import { clinicPrinting, useClinicIdentity } from "../clinic";
+import { printDocument } from "./printing";
 
 export function PrintHeader({ documentTitle, number, date }: { documentTitle: string; number: string; date: string }) {
   const clinic = useClinicIdentity();
@@ -29,4 +30,9 @@ export function SignatureArea({ doctor, signatureSource, signedAt }: { doctor?: 
   </div>;
 }
 
-export function triggerPrint() { window.setTimeout(() => window.print(), 50); }
+/**
+ * Prints the standard-paper document already on screen. Receipts do not come
+ * through here — they have their own path in `printing.tsx`, because a till roll
+ * and a sheet of A4 are different page geometries.
+ */
+export function triggerPrint() { printDocument(clinicPrinting().documentPaper); }

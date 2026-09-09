@@ -120,7 +120,7 @@ export function DocumentViewer({ document: item, onClose }: { document: Viewable
               <img
                 alt={item.displayName}
                 src={objectURL}
-                className="print-area max-w-none origin-center transition-transform"
+                className="print-area document-print max-w-none origin-center transition-transform"
                 style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
               />
             </div>

@@ -25,7 +25,13 @@ type expensePayload struct {
 
 func (s *Server) handleExpensesList(w http.ResponseWriter, r *http.Request) {
 	from, to := reportRange(r)
-	rows, err := s.db.QueryContext(r.Context(), `SELECT e.id,e.category,e.description,e.amount_minor,e.currency,e.exchange_rate,e.expense_date,COALESCE(pm.name,''),COALESCE(e.vendor,''),COALESCE(e.document_id,''),u.display_name,e.created_at FROM expenses e LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id JOIN users u ON u.id=e.created_by WHERE e.expense_date>=? AND e.expense_date<=? ORDER BY e.expense_date DESC`, from, to)
+	paging := paginationFrom(r, 50, 200)
+	expenseCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM expenses e WHERE e.expense_date>=? AND e.expense_date<=?", from, to)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "EXPENSE_LIST_FAILED", "Could not load expenses.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT e.id,e.category,e.description,e.amount_minor,e.currency,e.exchange_rate,e.expense_date,COALESCE(pm.name,''),COALESCE(e.vendor,''),COALESCE(e.document_id,''),u.display_name,e.created_at FROM expenses e LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id JOIN users u ON u.id=e.created_by WHERE e.expense_date>=? AND e.expense_date<=? ORDER BY e.expense_date DESC LIMIT ? OFFSET ?`, paging.Args(from, to)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "EXPENSE_LIST_FAILED", "Could not load expenses.")
 		return
@@ -41,7 +47,7 @@ func (s *Server) handleExpensesList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "category": category, "description": description, "amountMinor": amount, "currency": currency, "exchangeRate": rate, "expenseDate": date, "paymentMethod": method, "vendor": vendor, "documentId": documentID, "createdBy": user, "createdAt": createdAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "from": from, "to": to})
+	writeJSON(w, http.StatusOK, withItems(items, mergeMeta(paging.Meta(expenseCount), map[string]any{"from": from, "to": to})))
 }
 
 func (s *Server) handleExpenseCreate(w http.ResponseWriter, r *http.Request) {

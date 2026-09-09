@@ -23,7 +23,12 @@ type invoiceLinePayload struct {
 }
 
 type invoicePayload struct {
-	PatientID     string               `json:"patientId"`
+	PatientID string `json:"patientId"`
+	// What this sale is for, when it is for something. An appointment and a
+	// consultation are never blocked on payment; these only record the link when
+	// a payment does happen, so revenue can be traced back to the visit.
+	AppointmentID string               `json:"appointmentId"`
+	EncounterID   string               `json:"encounterId"`
 	Currency      string               `json:"currency"`
 	ExchangeRate  string               `json:"exchangeRate"`
 	DiscountMinor int64                `json:"discountMinor"`
@@ -55,11 +60,17 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		where += " AND i.patient_id=?"
 		args = append(args, patientID)
 	}
+	paging := paginationFrom(r, 50, 200)
+	invoiceCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM invoices i WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT i.id,i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)),COALESCE(i.due_at,''),i.version,i.created_at,i.updated_at
 		FROM invoices i LEFT JOIN patients p ON p.id=i.patient_id
 		LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) pay ON pay.invoice_id=i.id
 		LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id
-		WHERE `+where+` ORDER BY i.created_at DESC LIMIT 1000`, args...)
+		WHERE `+where+` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
 		return
@@ -76,7 +87,7 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(invoiceCount)))
 }
 
 func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +241,10 @@ func (s *Server) createInvoiceTx(ctx *http.Request, tx *sql.Tx, input invoicePay
 	if total < 0 {
 		return "", "", 0, &APIError{Code: "INVALID_INVOICE_TOTAL", Message: "Invoice total cannot be negative."}
 	}
-	if _, err = tx.ExecContext(ctx.Context(), `INSERT INTO invoices(id,invoice_number,patient_id,status,currency,exchange_rate,subtotal_minor,discount_minor,tax_minor,total_minor,due_at,notes,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, nilIfEmpty(input.PatientID), status, input.Currency, input.ExchangeRate, subtotal, input.DiscountMinor, input.TaxMinor, total, nilIfEmpty(input.DueAt), nilIfEmpty(input.Notes), now, now, user.ID, user.ID); err != nil {
+	if err = validateInvoiceLinks(ctx, tx, input); err != nil {
+		return "", "", 0, err
+	}
+	if _, err = tx.ExecContext(ctx.Context(), `INSERT INTO invoices(id,invoice_number,patient_id,appointment_id,encounter_id,status,currency,exchange_rate,subtotal_minor,discount_minor,tax_minor,total_minor,due_at,notes,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, nilIfEmpty(input.PatientID), nilIfEmpty(input.AppointmentID), nilIfEmpty(input.EncounterID), status, input.Currency, input.ExchangeRate, subtotal, input.DiscountMinor, input.TaxMinor, total, nilIfEmpty(input.DueAt), nilIfEmpty(input.Notes), now, now, user.ID, user.ID); err != nil {
 		return "", "", 0, err
 	}
 	for _, item := range input.Items {
@@ -402,8 +416,23 @@ func (s *Server) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 type posPayload struct {
-	Invoice invoicePayload  `json:"invoice"`
+	Invoice invoicePayload `json:"invoice"`
+	// A single payment, kept for older clients.
 	Payment *paymentPayload `json:"payment"`
+	// One sale can be settled with several tenders — part cash, part card, part
+	// insurance — each recorded as its own payment against the same invoice.
+	Payments []paymentPayload `json:"payments"`
+}
+
+// tenders returns every payment on a checkout, whichever field carried it.
+func (p posPayload) tenders() []paymentPayload {
+	if len(p.Payments) > 0 {
+		return p.Payments
+	}
+	if p.Payment != nil {
+		return []paymentPayload{*p.Payment}
+	}
+	return nil
 }
 
 func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
@@ -420,19 +449,30 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	var invoiceID, invoiceNumber, paymentID, receipt string
 	var total, balance int64
+	var receipts []map[string]any
 	replay, err := s.idempotentTx(r, input, func(tx *sql.Tx) error {
 		var err error
+		receipts = []map[string]any{}
 		invoiceID, invoiceNumber, total, err = s.createInvoiceTx(r, tx, input.Invoice, user, true)
 		if err != nil {
 			return err
 		}
 		balance = total
-		if input.Payment != nil && input.Payment.AmountMinor > 0 {
-			paymentID, receipt, balance, err = s.recordPaymentTx(r, tx, invoiceID, *input.Payment, user)
+		// Each tender is its own payment against the one invoice, so a sale split
+		// across cash, card and insurance reconciles per method at close of day.
+		for _, tender := range input.tenders() {
+			if tender.AmountMinor <= 0 {
+				continue
+			}
+			paymentID, receipt, balance, err = s.recordPaymentTx(r, tx, invoiceID, tender, user)
+			if err != nil {
+				return err
+			}
+			receipts = append(receipts, map[string]any{"paymentId": paymentID, "receiptNumber": receipt, "amountMinor": tender.AmountMinor, "paymentMethodId": tender.PaymentMethodID})
 		}
-		return err
+		return nil
 	}, func() any {
-		return map[string]any{"invoiceId": invoiceID, "invoiceNumber": invoiceNumber, "totalMinor": total, "balanceMinor": balance, "paymentId": paymentID, "receiptNumber": receipt}
+		return map[string]any{"invoiceId": invoiceID, "invoiceNumber": invoiceNumber, "totalMinor": total, "balanceMinor": balance, "paymentId": paymentID, "receiptNumber": receipt, "payments": receipts}
 	})
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
@@ -449,7 +489,35 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 	s.audit(r.Context(), &user, "checkout", "invoice", invoiceID, "Completed POS checkout "+invoiceNumber, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "pos.completed", EntityType: "invoice", EntityID: invoiceID})
 	s.broker.Publish(realtime.Event{Type: "inventory.changed", EntityType: "invoice", EntityID: invoiceID})
-	writeJSON(w, http.StatusCreated, map[string]any{"invoiceId": invoiceID, "invoiceNumber": invoiceNumber, "totalMinor": total, "balanceMinor": balance, "paymentId": paymentID, "receiptNumber": receipt})
+	writeJSON(w, http.StatusCreated, map[string]any{"invoiceId": invoiceID, "invoiceNumber": invoiceNumber, "totalMinor": total, "balanceMinor": balance, "paymentId": paymentID, "receiptNumber": receipt, "payments": receipts})
+}
+
+// validateInvoiceLinks refuses a sale filed against somebody else's appointment
+// or consultation. Both links are optional; a wrong one is not.
+func validateInvoiceLinks(r *http.Request, tx *sql.Tx, input invoicePayload) error {
+	check := func(query, id, code, message string) error {
+		if id == "" {
+			return nil
+		}
+		var owner string
+		switch err := tx.QueryRowContext(r.Context(), query, id).Scan(&owner); {
+		case err == sql.ErrNoRows:
+			return &APIError{Code: code, Message: message}
+		case err != nil:
+			return err
+		case input.PatientID != "" && owner != input.PatientID:
+			return &APIError{Code: code, Message: message}
+		case input.PatientID == "":
+			return &APIError{Code: code, Message: message}
+		}
+		return nil
+	}
+	if err := check("SELECT patient_id FROM appointments WHERE id=? AND archived_at IS NULL", input.AppointmentID,
+		"APPOINTMENT_PATIENT_MISMATCH", "That appointment does not belong to this customer."); err != nil {
+		return err
+	}
+	return check("SELECT patient_id FROM encounters WHERE id=? AND archived_at IS NULL", input.EncounterID,
+		"ENCOUNTER_PATIENT_MISMATCH", "That consultation does not belong to this customer.")
 }
 
 func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {

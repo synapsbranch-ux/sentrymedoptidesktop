@@ -5,9 +5,10 @@ import {
   FlaskConical,
   Plus,
   Printer,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "../api";
+import { api, APIError } from "../api";
 import { PrintHeader, triggerPrint } from "../components/print";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -20,14 +21,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../components/ui/dialog";
-import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
+import { Badge, EmptyState, ErrorState, Pager, Skeleton } from "../components/ui/data";
 import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { DateTimeInput } from "../components/ui/date-time";
-import { useLoad } from "../hooks";
+import { useLoad, usePagedList } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
 import type { LabOrder } from "../types";
 import { PatientPicker } from "../components/patient-search";
+import { ImageGallery } from "../components/image-gallery";
 
 const stages = [
   "draft",
@@ -43,10 +45,23 @@ export function LabPage() {
   const { revision } = useRealtime();
   const [open, setOpen] = React.useState(false);
   const [printing, setPrinting] = React.useState<LabOrder | null>(null);
-  const orders = useLoad(
-    () => api.get<{ items: LabOrder[] }>("/lab-orders"),
-    [revision],
-  );
+  // A clinic sends a day's work to the lab together, so orders are selected on
+  // the board and moved or printed as one batch.
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [batchPrinting, setBatchPrinting] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id]);
+  const sendBatch = async (status: string) => {
+    setSending(true);
+    try {
+      const result = await api.post<{ updated: number }>("/lab-orders/bulk-status", { orderIds: selected, status });
+      toast.success(`${result.updated} lab order(s) marked ${status.replaceAll("_", " ")}`);
+      setSelected([]);
+      orders.reload();
+    } catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "The batch was rolled back; nothing changed."); }
+    finally { setSending(false); }
+  };
+  const orders = usePagedList<LabOrder>((page, limit) => `/lab-orders?page=${page}&limit=${limit}`, [revision]);
   const move = async (order: LabOrder) => {
     const next =
       stages[Math.min(stages.indexOf(order.status) + 1, stages.length - 1)];
@@ -107,13 +122,24 @@ export function LabPage() {
           />
         </Dialog>
       </div>
+      {selected.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-black bg-[var(--muted)] p-3">
+          <span className="text-sm font-semibold">{selected.length} order(s) selected</span>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => setBatchPrinting(true)}><Printer className="h-3.5 w-3.5" />Print requisition</Button>
+            <Button size="sm" disabled={sending} onClick={() => sendBatch("at_lab")}><Send className="h-3.5 w-3.5" />Send to lab</Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected([])}>Clear</Button>
+          </div>
+        </div>
+      )}
       {orders.loading ? (
         <Skeleton className="mt-6 h-96" />
       ) : orders.error ? (
         <div className="mt-6">
           <ErrorState message={orders.error.message} retry={orders.reload} />
         </div>
-      ) : orders.data?.items.length ? (
+      ) : orders.items.length ? (
+        <>
         <div className="mt-6 flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => (
             <section key={stage} className="w-72 shrink-0">
@@ -122,20 +148,21 @@ export function LabPage() {
                   {stage.replaceAll("_", " ")}
                 </h2>
                 <Badge>
-                  {orders.data?.items.filter((item) => item.status === stage)
+                  {orders.items.filter((item) => item.status === stage)
                     .length ?? 0}
                 </Badge>
               </div>
               <div className="space-y-3">
-                {orders.data?.items
+                {orders.items
                   .filter((item) => item.status === stage)
                   .map((order) => (
                     <Card key={order.id}>
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-[11px] font-bold">
-                            {order.orderNumber}
-                          </span>
+                          <label className="flex items-center gap-2">
+                            <input type="checkbox" aria-label={`Select ${order.orderNumber}`} checked={selected.includes(order.id)} onChange={() => toggle(order.id)} />
+                            <span className="font-mono text-[11px] font-bold">{order.orderNumber}</span>
+                          </label>
                           {order.expectedAt &&
                             new Date(order.expectedAt) < new Date() &&
                             !["ready", "delivered"].includes(order.status) && (
@@ -193,6 +220,9 @@ export function LabPage() {
             </section>
           ))}
         </div>
+        {/* The board shows one page of orders; the rest stay on the server. */}
+        <Pager page={orders.page} pageSize={orders.pageSize} total={orders.total} hasMore={orders.hasMore} onPrevious={orders.previous} onNext={orders.next} />
+        </>
       ) : (
         <div className="mt-6">
           <EmptyState
@@ -210,6 +240,9 @@ export function LabPage() {
       >
         {printing && <LabOrderPrint order={printing} />}
       </Dialog>
+      <Dialog open={batchPrinting} onOpenChange={(value) => !value && setBatchPrinting(false)}>
+        {batchPrinting && <BatchRequisition orderIds={selected} />}
+      </Dialog>
     </div>
   );
 }
@@ -225,7 +258,13 @@ function LabOrderPrint({ order }: { order: LabOrder }) {
           Print or save this workshop document as PDF.
         </DialogDescription>
       </DialogHeader>
-      <article className="print-area space-y-6 bg-white p-3 text-black sm:p-8">
+      {/* Reference photographs — the frame the patient brought in, a note the
+          workshop needs to see — live with the order rather than beside it. */}
+      <div className="no-print rounded-lg border p-4">
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider">Reference images</h3>
+        <ImageGallery entityType="lab_order" entityId={order.id} canEdit emptyHint="No reference images on this order yet." />
+      </div>
+      <article className="print-area document-print space-y-6 bg-white p-3 text-black sm:p-8">
         <PrintHeader
           documentTitle="Optical laboratory order"
           number={order.orderNumber}
@@ -430,4 +469,43 @@ function LabOrderForm({ onSaved }: { onSaved(): void }) {
       </form>
     </DialogContent>
   );
+}
+
+interface RequisitionOrder { id: string; orderNumber: string; medicalRecordNumber: string; patientName: string; patientPhone: string; supplierName: string; frameName: string; lensName: string; lensType: string; material: string; coatings: string[]; tint: string; treatments: string[]; measurements: Record<string, string>; notes: string; expectedAt: string; status: string }
+interface Requisition { clinic: { name: string; address: string; phone: string }; generatedAt: string; orders: RequisitionOrder[] }
+
+/**
+ * One printed requisition covering a whole batch — what a courier carries to the
+ * lab — instead of a stack printed one screen at a time. It is a standard-paper
+ * document, not a till receipt, so it uses the A4/Letter print path.
+ */
+function BatchRequisition({ orderIds }: { orderIds: string[] }) {
+  const requisition = useLoad(() => api.get<Requisition>(`/lab-orders/requisition?orderIds=${orderIds.join(",")}`), [orderIds.join(",")]);
+  return <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+    <DialogHeader className="no-print">
+      <DialogTitle>Lab requisition · {orderIds.length} order(s)</DialogTitle>
+      <DialogDescription>One sheet for the whole batch, grouped by lab. Print it on standard paper and send it with the work.</DialogDescription>
+    </DialogHeader>
+    {requisition.loading ? <Skeleton className="h-72" /> : requisition.error || !requisition.data ? <ErrorState message={requisition.error?.message ?? "Requisition unavailable"} retry={requisition.reload} /> : <>
+      <article className="print-area document-print space-y-5 bg-white p-3 text-black sm:p-8">
+        <PrintHeader documentTitle="Optical laboratory requisition" number={`${requisition.data.orders.length} order(s)`} date={dateTime(requisition.data.generatedAt)} />
+        <table className="w-full text-left text-xs">
+          <thead><tr className="border-b border-black">{["Order", "Patient", "Lab", "Frame", "Lens", "Expected"].map((heading) => <th key={heading} className="py-2 pr-3 font-bold uppercase tracking-wide">{heading}</th>)}</tr></thead>
+          <tbody>{requisition.data.orders.map((order) => <tr key={order.id} className="border-b border-zinc-300 align-top">
+            <td className="py-2 pr-3 font-mono font-bold">{order.orderNumber}</td>
+            <td className="py-2 pr-3">{order.patientName}<div className="font-mono text-[10px] text-zinc-500">{order.medicalRecordNumber}</div></td>
+            <td className="py-2 pr-3">{order.supplierName || "—"}</td>
+            <td className="py-2 pr-3">{order.frameName || "—"}</td>
+            <td className="py-2 pr-3">{order.lensName || order.lensType || "—"}{order.material ? ` · ${order.material}` : ""}{order.coatings?.length ? ` · ${order.coatings.join(", ")}` : ""}</td>
+            <td className="py-2 pr-3">{order.expectedAt ? dateTime(order.expectedAt) : "—"}</td>
+          </tr>)}</tbody>
+        </table>
+        <div className="mt-10 flex justify-between gap-8 text-xs">
+          <div className="w-64 border-t border-black pt-2">Released by (clinic)</div>
+          <div className="w-64 border-t border-black pt-2">Received by (laboratory)</div>
+        </div>
+      </article>
+      <div className="no-print flex justify-end"><Button onClick={triggerPrint}><Printer className="h-4 w-4" />Print requisition</Button></div>
+    </>}
+  </DialogContent>;
 }

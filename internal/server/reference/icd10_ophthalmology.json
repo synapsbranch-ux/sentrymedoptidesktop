@@ -1,0 +1,3014 @@
+[
+ {
+  "code": "A71.9",
+  "description": "Trachoma, unspecified",
+  "category": "Conjunctiva",
+  "synonyms": "trachoma"
+ },
+ {
+  "code": "B00.52",
+  "description": "Herpesviral keratitis",
+  "category": "Cornea",
+  "synonyms": "herpes simplex keratitis; dendritic ulcer; cold sore in the eye"
+ },
+ {
+  "code": "B02.30",
+  "description": "Zoster ocular disease, unspecified",
+  "category": "Cornea",
+  "synonyms": "herpes zoster ophthalmicus; shingles in the eye"
+ },
+ {
+  "code": "B30.1",
+  "description": "Conjunctivitis due to adenovirus",
+  "category": "Conjunctiva",
+  "synonyms": "adenoviral conjunctivitis; epidemic conjunctivitis"
+ },
+ {
+  "code": "B30.9",
+  "description": "Viral conjunctivitis, unspecified",
+  "category": "Conjunctiva",
+  "synonyms": "viral conjunctivitis; red eye; pink eye; bloodshot; eye redness; watery red eye"
+ },
+ {
+  "code": "C69.21",
+  "description": "Malignant neoplasm of right retina",
+  "category": "Neoplasm",
+  "synonyms": "retinoblastoma right eye"
+ },
+ {
+  "code": "C69.22",
+  "description": "Malignant neoplasm of left retina",
+  "category": "Neoplasm",
+  "synonyms": "retinoblastoma left eye"
+ },
+ {
+  "code": "C69.31",
+  "description": "Malignant neoplasm of right choroid",
+  "category": "Neoplasm",
+  "synonyms": "choroidal melanoma right eye"
+ },
+ {
+  "code": "C69.32",
+  "description": "Malignant neoplasm of left choroid",
+  "category": "Neoplasm",
+  "synonyms": "choroidal melanoma left eye"
+ },
+ {
+  "code": "D31.31",
+  "description": "Benign neoplasm of right choroid",
+  "category": "Neoplasm",
+  "synonyms": "choroidal naevus right eye; benign choroidal lesion"
+ },
+ {
+  "code": "D31.32",
+  "description": "Benign neoplasm of left choroid",
+  "category": "Neoplasm",
+  "synonyms": "choroidal naevus left eye"
+ },
+ {
+  "code": "E08.319",
+  "description": "Diabetes mellitus due to underlying condition with unspecified diabetic retinopathy without macular edema",
+  "category": "Diabetes",
+  "synonyms": "secondary diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E09.319",
+  "description": "Drug or chemical induced diabetes mellitus with unspecified diabetic retinopathy without macular edema",
+  "category": "Diabetes",
+  "synonyms": "drug induced diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E10.311",
+  "description": "Type 1 diabetes mellitus with unspecified diabetic retinopathy with macular edema",
+  "category": "Diabetes",
+  "synonyms": "type 1 diabetic retinopathy; diabetes eye damage; sugar in the eye; with macular oedema"
+ },
+ {
+  "code": "E10.319",
+  "description": "Type 1 diabetes mellitus with unspecified diabetic retinopathy without macular edema",
+  "category": "Diabetes",
+  "synonyms": "type 1 diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.311",
+  "description": "Type 2 diabetes mellitus with unspecified diabetic retinopathy with macular edema",
+  "category": "Diabetes",
+  "synonyms": "diabetic retinopathy; diabetes eye damage; sugar in the eye; with macular oedema"
+ },
+ {
+  "code": "E11.319",
+  "description": "Type 2 diabetes mellitus with unspecified diabetic retinopathy without macular edema",
+  "category": "Diabetes",
+  "synonyms": "diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3211",
+  "description": "Type 2 diabetes mellitus with mild nonproliferative diabetic retinopathy with macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "mild NPDR right eye with oedema; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3212",
+  "description": "Type 2 diabetes mellitus with mild nonproliferative diabetic retinopathy with macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "mild NPDR left eye with oedema; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3291",
+  "description": "Type 2 diabetes mellitus with mild nonproliferative diabetic retinopathy without macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "mild NPDR right eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3292",
+  "description": "Type 2 diabetes mellitus with mild nonproliferative diabetic retinopathy without macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "mild NPDR left eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3391",
+  "description": "Type 2 diabetes mellitus with moderate nonproliferative diabetic retinopathy without macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "moderate NPDR right eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3392",
+  "description": "Type 2 diabetes mellitus with moderate nonproliferative diabetic retinopathy without macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "moderate NPDR left eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3491",
+  "description": "Type 2 diabetes mellitus with severe nonproliferative diabetic retinopathy without macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "severe NPDR right eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3492",
+  "description": "Type 2 diabetes mellitus with severe nonproliferative diabetic retinopathy without macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "severe NPDR left eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3511",
+  "description": "Type 2 diabetes mellitus with proliferative diabetic retinopathy with macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "PDR right eye with oedema; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3512",
+  "description": "Type 2 diabetes mellitus with proliferative diabetic retinopathy with macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "PDR left eye with oedema; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3591",
+  "description": "Type 2 diabetes mellitus with proliferative diabetic retinopathy without macular edema, right eye",
+  "category": "Diabetes",
+  "synonyms": "PDR right eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.3592",
+  "description": "Type 2 diabetes mellitus with proliferative diabetic retinopathy without macular edema, left eye",
+  "category": "Diabetes",
+  "synonyms": "PDR left eye; diabetic retinopathy; diabetes eye damage; sugar in the eye"
+ },
+ {
+  "code": "E11.36",
+  "description": "Type 2 diabetes mellitus with diabetic cataract",
+  "category": "Diabetes",
+  "synonyms": "diabetic cataract"
+ },
+ {
+  "code": "E11.39",
+  "description": "Type 2 diabetes mellitus with other diabetic ophthalmic complication",
+  "category": "Diabetes",
+  "synonyms": "other diabetic eye complication"
+ },
+ {
+  "code": "G45.3",
+  "description": "Amaurosis fugax",
+  "category": "Vision",
+  "synonyms": "amaurosis fugax; transient blindness; curtain across vision"
+ },
+ {
+  "code": "H00.011",
+  "description": "Hordeolum externum right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "stye right upper lid; lump on eyelid; boil on eyelid"
+ },
+ {
+  "code": "H00.012",
+  "description": "Hordeolum externum right lower eyelid",
+  "category": "Eyelid",
+  "synonyms": "stye right lower lid; lump on eyelid"
+ },
+ {
+  "code": "H00.014",
+  "description": "Hordeolum externum left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "stye left upper lid; lump on eyelid"
+ },
+ {
+  "code": "H00.015",
+  "description": "Hordeolum externum left lower eyelid",
+  "category": "Eyelid",
+  "synonyms": "stye left lower lid; lump on eyelid"
+ },
+ {
+  "code": "H00.019",
+  "description": "Hordeolum externum unspecified eye, unspecified eyelid",
+  "category": "Eyelid",
+  "synonyms": "stye; lump on eyelid; boil on eyelid"
+ },
+ {
+  "code": "H00.11",
+  "description": "Chalazion right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "chalazion right upper lid; painless eyelid lump; meibomian cyst"
+ },
+ {
+  "code": "H00.12",
+  "description": "Chalazion right lower eyelid",
+  "category": "Eyelid",
+  "synonyms": "chalazion right lower lid; painless eyelid lump"
+ },
+ {
+  "code": "H00.14",
+  "description": "Chalazion left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "chalazion left upper lid; painless eyelid lump"
+ },
+ {
+  "code": "H00.15",
+  "description": "Chalazion left lower eyelid",
+  "category": "Eyelid",
+  "synonyms": "chalazion left lower lid; painless eyelid lump"
+ },
+ {
+  "code": "H00.19",
+  "description": "Chalazion unspecified eye, unspecified eyelid",
+  "category": "Eyelid",
+  "synonyms": "chalazion; painless eyelid lump; meibomian cyst"
+ },
+ {
+  "code": "H01.001",
+  "description": "Unspecified blepharitis right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "blepharitis right upper lid; crusty eyelids; itchy lid margins"
+ },
+ {
+  "code": "H01.004",
+  "description": "Unspecified blepharitis left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "blepharitis left upper lid; crusty eyelids"
+ },
+ {
+  "code": "H01.009",
+  "description": "Unspecified blepharitis, unspecified eye, unspecified eyelid",
+  "category": "Eyelid",
+  "synonyms": "blepharitis; crusty eyelids; sore lid margins; dandruff on lashes"
+ },
+ {
+  "code": "H01.021",
+  "description": "Squamous blepharitis right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "squamous blepharitis right upper lid"
+ },
+ {
+  "code": "H01.111",
+  "description": "Allergic dermatitis of right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "eyelid allergy right upper lid; itchy swollen eyelid"
+ },
+ {
+  "code": "H01.9",
+  "description": "Unspecified inflammation of eyelid",
+  "category": "Eyelid",
+  "synonyms": "eyelid inflammation; sore eyelid"
+ },
+ {
+  "code": "H02.001",
+  "description": "Unspecified entropion of right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "entropion right upper lid; eyelid turning inward; lashes rubbing eye"
+ },
+ {
+  "code": "H02.004",
+  "description": "Unspecified entropion of left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "entropion left upper lid; eyelid turning inward"
+ },
+ {
+  "code": "H02.009",
+  "description": "Unspecified entropion of unspecified eye, unspecified lid",
+  "category": "Eyelid",
+  "synonyms": "entropion; eyelid turns inward; lashes scratching eye"
+ },
+ {
+  "code": "H02.101",
+  "description": "Unspecified ectropion of right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "ectropion right upper lid; eyelid turning outward; watery eye"
+ },
+ {
+  "code": "H02.109",
+  "description": "Unspecified ectropion of unspecified eye, unspecified lid",
+  "category": "Eyelid",
+  "synonyms": "ectropion; eyelid turns outward; drooping lower lid; watery eye"
+ },
+ {
+  "code": "H02.401",
+  "description": "Unspecified ptosis of right eyelid",
+  "category": "Eyelid",
+  "synonyms": "droopy eyelid right; ptosis right eye; lid covering vision"
+ },
+ {
+  "code": "H02.402",
+  "description": "Unspecified ptosis of left eyelid",
+  "category": "Eyelid",
+  "synonyms": "droopy eyelid left; ptosis left eye"
+ },
+ {
+  "code": "H02.403",
+  "description": "Unspecified ptosis of bilateral eyelids",
+  "category": "Eyelid",
+  "synonyms": "droopy eyelids both; ptosis both eyes"
+ },
+ {
+  "code": "H02.409",
+  "description": "Unspecified ptosis of unspecified eyelid",
+  "category": "Eyelid",
+  "synonyms": "droopy eyelid; ptosis; heavy eyelid"
+ },
+ {
+  "code": "H02.511",
+  "description": "Eyelid retraction right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "lid retraction right; staring eye; thyroid eye"
+ },
+ {
+  "code": "H02.531",
+  "description": "Eyelid lagophthalmos right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "cannot close eye right; lagophthalmos"
+ },
+ {
+  "code": "H02.6",
+  "description": "Xanthelasma of eyelid",
+  "category": "Eyelid",
+  "synonyms": "cholesterol deposits on eyelid; yellow eyelid plaques"
+ },
+ {
+  "code": "H02.831",
+  "description": "Dermatochalasis of right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "excess eyelid skin right; hooded eyelid"
+ },
+ {
+  "code": "H02.834",
+  "description": "Dermatochalasis of left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "excess eyelid skin left; hooded eyelid"
+ },
+ {
+  "code": "H02.841",
+  "description": "Edema of right upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "swollen eyelid right; puffy eyelid"
+ },
+ {
+  "code": "H02.844",
+  "description": "Edema of left upper eyelid",
+  "category": "Eyelid",
+  "synonyms": "swollen eyelid left; puffy eyelid"
+ },
+ {
+  "code": "H02.9",
+  "description": "Unspecified disorder of eyelid",
+  "category": "Eyelid",
+  "synonyms": "eyelid problem"
+ },
+ {
+  "code": "H04.121",
+  "description": "Dry eye syndrome of right lacrimal gland",
+  "category": "Lacrimal",
+  "synonyms": "dry eye right; gritty eye; sandy feeling; burning eye"
+ },
+ {
+  "code": "H04.122",
+  "description": "Dry eye syndrome of left lacrimal gland",
+  "category": "Lacrimal",
+  "synonyms": "dry eye left; gritty eye; sandy feeling"
+ },
+ {
+  "code": "H04.123",
+  "description": "Dry eye syndrome of bilateral lacrimal glands",
+  "category": "Lacrimal",
+  "synonyms": "dry eyes both; gritty eyes; sandy feeling; burning eyes; sore dry eyes"
+ },
+ {
+  "code": "H04.201",
+  "description": "Unspecified epiphora, right side",
+  "category": "Lacrimal",
+  "synonyms": "watery eye right; tearing right eye; eye keeps watering"
+ },
+ {
+  "code": "H04.202",
+  "description": "Unspecified epiphora, left side",
+  "category": "Lacrimal",
+  "synonyms": "watery eye left; tearing left eye"
+ },
+ {
+  "code": "H04.203",
+  "description": "Unspecified epiphora, bilateral",
+  "category": "Lacrimal",
+  "synonyms": "watery eyes both; tearing"
+ },
+ {
+  "code": "H04.301",
+  "description": "Unspecified dacryoadenitis, right lacrimal gland",
+  "category": "Lacrimal",
+  "synonyms": "tear gland inflammation right"
+ },
+ {
+  "code": "H04.331",
+  "description": "Acute lacrimal canaliculitis, right lacrimal passage",
+  "category": "Lacrimal",
+  "synonyms": "canaliculitis right"
+ },
+ {
+  "code": "H04.411",
+  "description": "Chronic dacryocystitis of right lacrimal passage",
+  "category": "Lacrimal",
+  "synonyms": "chronic tear sac infection right; lump beside nose"
+ },
+ {
+  "code": "H04.531",
+  "description": "Neonatal obstruction of right nasolacrimal duct",
+  "category": "Lacrimal",
+  "synonyms": "blocked tear duct baby right; sticky eye newborn"
+ },
+ {
+  "code": "H04.533",
+  "description": "Neonatal obstruction of bilateral nasolacrimal duct",
+  "category": "Lacrimal",
+  "synonyms": "blocked tear ducts baby; sticky eyes newborn"
+ },
+ {
+  "code": "H04.561",
+  "description": "Stenosis of right lacrimal punctum",
+  "category": "Lacrimal",
+  "synonyms": "narrow tear opening right"
+ },
+ {
+  "code": "H05.011",
+  "description": "Cellulitis of right orbit",
+  "category": "Orbit",
+  "synonyms": "orbital cellulitis right; swollen infected eye socket"
+ },
+ {
+  "code": "H05.012",
+  "description": "Cellulitis of left orbit",
+  "category": "Orbit",
+  "synonyms": "orbital cellulitis left; swollen infected eye socket"
+ },
+ {
+  "code": "H05.20",
+  "description": "Unspecified exophthalmos",
+  "category": "Orbit",
+  "synonyms": "bulging eye; proptosis; protruding eye"
+ },
+ {
+  "code": "H05.221",
+  "description": "Edema of right orbit",
+  "category": "Orbit",
+  "synonyms": "orbital swelling right"
+ },
+ {
+  "code": "H05.9",
+  "description": "Unspecified disorder of orbit",
+  "category": "Orbit",
+  "synonyms": "orbit problem; eye socket problem"
+ },
+ {
+  "code": "H10.011",
+  "description": "Acute follicular conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "follicular conjunctivitis right; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.012",
+  "description": "Acute follicular conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "follicular conjunctivitis left; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.013",
+  "description": "Acute follicular conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "follicular conjunctivitis both eyes; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.021",
+  "description": "Other mucopurulent conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "pus discharge right eye; sticky eye; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.022",
+  "description": "Other mucopurulent conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "pus discharge left eye; sticky eye; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.023",
+  "description": "Other mucopurulent conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "pus discharge both eyes; sticky eyes; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.10",
+  "description": "Acute atopic conjunctivitis, unspecified eye",
+  "category": "Conjunctiva",
+  "synonyms": "allergic conjunctivitis; itchy eyes; hay fever eyes; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.11",
+  "description": "Acute atopic conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "allergic conjunctivitis right; itchy eye"
+ },
+ {
+  "code": "H10.12",
+  "description": "Acute atopic conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "allergic conjunctivitis left; itchy eye"
+ },
+ {
+  "code": "H10.13",
+  "description": "Acute atopic conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "allergic conjunctivitis both eyes; itchy eyes"
+ },
+ {
+  "code": "H10.211",
+  "description": "Acute toxic conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "chemical conjunctivitis right eye"
+ },
+ {
+  "code": "H10.212",
+  "description": "Acute toxic conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "chemical conjunctivitis left eye"
+ },
+ {
+  "code": "H10.30",
+  "description": "Unspecified acute conjunctivitis, unspecified eye",
+  "category": "Conjunctiva",
+  "synonyms": "acute conjunctivitis; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.31",
+  "description": "Unspecified acute conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "acute conjunctivitis right eye; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.32",
+  "description": "Unspecified acute conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "acute conjunctivitis left eye; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.33",
+  "description": "Unspecified acute conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "acute conjunctivitis both eyes; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H10.401",
+  "description": "Unspecified chronic conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "chronic conjunctivitis right eye"
+ },
+ {
+  "code": "H10.402",
+  "description": "Unspecified chronic conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "chronic conjunctivitis left eye"
+ },
+ {
+  "code": "H10.403",
+  "description": "Unspecified chronic conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "chronic conjunctivitis both eyes"
+ },
+ {
+  "code": "H10.411",
+  "description": "Chronic giant papillary conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "giant papillary conjunctivitis right; contact lens allergy"
+ },
+ {
+  "code": "H10.412",
+  "description": "Chronic giant papillary conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "giant papillary conjunctivitis left; contact lens allergy"
+ },
+ {
+  "code": "H10.413",
+  "description": "Chronic giant papillary conjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "giant papillary conjunctivitis; contact lens allergy"
+ },
+ {
+  "code": "H10.421",
+  "description": "Simple chronic conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "simple chronic conjunctivitis right"
+ },
+ {
+  "code": "H10.422",
+  "description": "Simple chronic conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "simple chronic conjunctivitis left"
+ },
+ {
+  "code": "H10.431",
+  "description": "Chronic follicular conjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "chronic follicular conjunctivitis right"
+ },
+ {
+  "code": "H10.432",
+  "description": "Chronic follicular conjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "chronic follicular conjunctivitis left"
+ },
+ {
+  "code": "H10.44",
+  "description": "Vernal conjunctivitis",
+  "category": "Conjunctiva",
+  "synonyms": "vernal keratoconjunctivitis; seasonal itchy eyes in children"
+ },
+ {
+  "code": "H10.45",
+  "description": "Other chronic allergic conjunctivitis",
+  "category": "Conjunctiva",
+  "synonyms": "chronic allergic conjunctivitis; itchy eyes"
+ },
+ {
+  "code": "H10.501",
+  "description": "Unspecified blepharoconjunctivitis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "blepharoconjunctivitis right eye; red lid and eye"
+ },
+ {
+  "code": "H10.502",
+  "description": "Unspecified blepharoconjunctivitis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "blepharoconjunctivitis left eye; red lid and eye"
+ },
+ {
+  "code": "H10.503",
+  "description": "Unspecified blepharoconjunctivitis, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "blepharoconjunctivitis both eyes"
+ },
+ {
+  "code": "H10.9",
+  "description": "Unspecified conjunctivitis",
+  "category": "Conjunctiva",
+  "synonyms": "conjunctivitis; red eye; pink eye; bloodshot; eye redness"
+ },
+ {
+  "code": "H11.001",
+  "description": "Unspecified pterygium of right eye",
+  "category": "Conjunctiva",
+  "synonyms": "pterygium right eye; growth on the eye; surfer's eye"
+ },
+ {
+  "code": "H11.002",
+  "description": "Unspecified pterygium of left eye",
+  "category": "Conjunctiva",
+  "synonyms": "pterygium left eye; growth on the eye"
+ },
+ {
+  "code": "H11.003",
+  "description": "Unspecified pterygium of eye, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "pterygium both eyes; growth on the eye"
+ },
+ {
+  "code": "H11.151",
+  "description": "Pinguecula, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "pinguecula right eye; yellow bump on the white of the eye"
+ },
+ {
+  "code": "H11.152",
+  "description": "Pinguecula, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "pinguecula left eye; yellow bump on the white of the eye"
+ },
+ {
+  "code": "H11.153",
+  "description": "Pinguecula, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "pinguecula both eyes"
+ },
+ {
+  "code": "H11.221",
+  "description": "Conjunctival granuloma, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "conjunctival granuloma right eye"
+ },
+ {
+  "code": "H11.231",
+  "description": "Symblepharon, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "eyelid stuck to eye right"
+ },
+ {
+  "code": "H11.30",
+  "description": "Conjunctival hemorrhage, unspecified eye",
+  "category": "Conjunctiva",
+  "synonyms": "subconjunctival haemorrhage; blood in the eye; red patch on the white of the eye"
+ },
+ {
+  "code": "H11.31",
+  "description": "Conjunctival hemorrhage, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "subconjunctival haemorrhage right eye; blood spot in eye"
+ },
+ {
+  "code": "H11.32",
+  "description": "Conjunctival hemorrhage, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "subconjunctival haemorrhage left eye; blood spot in eye"
+ },
+ {
+  "code": "H11.33",
+  "description": "Conjunctival hemorrhage, bilateral",
+  "category": "Conjunctiva",
+  "synonyms": "subconjunctival haemorrhage both eyes"
+ },
+ {
+  "code": "H11.821",
+  "description": "Conjunctivochalasis, right eye",
+  "category": "Conjunctiva",
+  "synonyms": "loose conjunctiva right eye"
+ },
+ {
+  "code": "H11.822",
+  "description": "Conjunctivochalasis, left eye",
+  "category": "Conjunctiva",
+  "synonyms": "loose conjunctiva left eye"
+ },
+ {
+  "code": "H15.001",
+  "description": "Unspecified scleritis, right eye",
+  "category": "Sclera",
+  "synonyms": "scleritis right eye; deep aching red eye"
+ },
+ {
+  "code": "H15.002",
+  "description": "Unspecified scleritis, left eye",
+  "category": "Sclera",
+  "synonyms": "scleritis left eye; deep aching red eye"
+ },
+ {
+  "code": "H15.101",
+  "description": "Unspecified episcleritis, right eye",
+  "category": "Sclera",
+  "synonyms": "episcleritis right eye; localised red patch on eye"
+ },
+ {
+  "code": "H15.102",
+  "description": "Unspecified episcleritis, left eye",
+  "category": "Sclera",
+  "synonyms": "episcleritis left eye; localised red patch on eye"
+ },
+ {
+  "code": "H15.109",
+  "description": "Unspecified episcleritis, unspecified eye",
+  "category": "Sclera",
+  "synonyms": "episcleritis; red patch on the white of the eye"
+ },
+ {
+  "code": "H16.001",
+  "description": "Unspecified corneal ulcer, right eye",
+  "category": "Cornea",
+  "synonyms": "corneal ulcer right eye; painful eye with white spot"
+ },
+ {
+  "code": "H16.002",
+  "description": "Unspecified corneal ulcer, left eye",
+  "category": "Cornea",
+  "synonyms": "corneal ulcer left eye; painful eye with white spot"
+ },
+ {
+  "code": "H16.011",
+  "description": "Central corneal ulcer, right eye",
+  "category": "Cornea",
+  "synonyms": "central corneal ulcer right"
+ },
+ {
+  "code": "H16.012",
+  "description": "Central corneal ulcer, left eye",
+  "category": "Cornea",
+  "synonyms": "central corneal ulcer left"
+ },
+ {
+  "code": "H16.061",
+  "description": "Mycotic corneal ulcer, right eye",
+  "category": "Cornea",
+  "synonyms": "fungal corneal ulcer right"
+ },
+ {
+  "code": "H16.071",
+  "description": "Perforated corneal ulcer, right eye",
+  "category": "Cornea",
+  "synonyms": "perforated corneal ulcer right"
+ },
+ {
+  "code": "H16.101",
+  "description": "Unspecified superficial keratitis, right eye",
+  "category": "Cornea",
+  "synonyms": "superficial keratitis right eye; sore scratched cornea"
+ },
+ {
+  "code": "H16.102",
+  "description": "Unspecified superficial keratitis, left eye",
+  "category": "Cornea",
+  "synonyms": "superficial keratitis left eye"
+ },
+ {
+  "code": "H16.103",
+  "description": "Unspecified superficial keratitis, bilateral",
+  "category": "Cornea",
+  "synonyms": "superficial keratitis both eyes"
+ },
+ {
+  "code": "H16.141",
+  "description": "Punctate keratitis, right eye",
+  "category": "Cornea",
+  "synonyms": "punctate keratitis right; superficial punctate keratopathy"
+ },
+ {
+  "code": "H16.142",
+  "description": "Punctate keratitis, left eye",
+  "category": "Cornea",
+  "synonyms": "punctate keratitis left"
+ },
+ {
+  "code": "H16.143",
+  "description": "Punctate keratitis, bilateral",
+  "category": "Cornea",
+  "synonyms": "punctate keratitis both eyes; SPK"
+ },
+ {
+  "code": "H16.211",
+  "description": "Exposure keratoconjunctivitis, right eye",
+  "category": "Cornea",
+  "synonyms": "exposure keratopathy right"
+ },
+ {
+  "code": "H16.221",
+  "description": "Keratoconjunctivitis sicca, not specified as Sjogren's, right eye",
+  "category": "Cornea",
+  "synonyms": "dry eye keratitis right; dry eye disease"
+ },
+ {
+  "code": "H16.222",
+  "description": "Keratoconjunctivitis sicca, not specified as Sjogren's, left eye",
+  "category": "Cornea",
+  "synonyms": "dry eye keratitis left"
+ },
+ {
+  "code": "H16.223",
+  "description": "Keratoconjunctivitis sicca, not specified as Sjogren's, bilateral",
+  "category": "Cornea",
+  "synonyms": "dry eye keratitis both eyes; dry eye disease"
+ },
+ {
+  "code": "H16.231",
+  "description": "Neurotrophic keratoconjunctivitis, right eye",
+  "category": "Cornea",
+  "synonyms": "neurotrophic keratitis right; numb cornea"
+ },
+ {
+  "code": "H16.9",
+  "description": "Unspecified keratitis",
+  "category": "Cornea",
+  "synonyms": "keratitis; inflamed cornea; painful light sensitive eye"
+ },
+ {
+  "code": "H17.00",
+  "description": "Adherent leukoma, unspecified eye",
+  "category": "Cornea",
+  "synonyms": "adherent corneal scar"
+ },
+ {
+  "code": "H17.10",
+  "description": "Central corneal opacity, unspecified eye",
+  "category": "Cornea",
+  "synonyms": "corneal scar; white patch on the cornea; corneal opacity"
+ },
+ {
+  "code": "H17.11",
+  "description": "Central corneal opacity, right eye",
+  "category": "Cornea",
+  "synonyms": "corneal scar right eye; white patch on cornea"
+ },
+ {
+  "code": "H17.12",
+  "description": "Central corneal opacity, left eye",
+  "category": "Cornea",
+  "synonyms": "corneal scar left eye; white patch on cornea"
+ },
+ {
+  "code": "H17.811",
+  "description": "Minor opacity of cornea, right eye",
+  "category": "Cornea",
+  "synonyms": "minor corneal opacity right"
+ },
+ {
+  "code": "H17.89",
+  "description": "Other corneal scars and opacities",
+  "category": "Cornea",
+  "synonyms": "other corneal scar"
+ },
+ {
+  "code": "H18.10",
+  "description": "Bullous keratopathy, unspecified eye",
+  "category": "Cornea",
+  "synonyms": "bullous keratopathy; swollen painful cornea after surgery"
+ },
+ {
+  "code": "H18.11",
+  "description": "Bullous keratopathy, right eye",
+  "category": "Cornea",
+  "synonyms": "bullous keratopathy right eye"
+ },
+ {
+  "code": "H18.12",
+  "description": "Bullous keratopathy, left eye",
+  "category": "Cornea",
+  "synonyms": "bullous keratopathy left eye"
+ },
+ {
+  "code": "H18.21",
+  "description": "Corneal edema secondary to contact lens",
+  "category": "Cornea",
+  "synonyms": "contact lens corneal swelling; overwear"
+ },
+ {
+  "code": "H18.51",
+  "description": "Endothelial corneal dystrophy",
+  "category": "Cornea",
+  "synonyms": "Fuchs dystrophy; endothelial dystrophy; misty morning vision"
+ },
+ {
+  "code": "H18.52",
+  "description": "Epithelial (juvenile) corneal dystrophy",
+  "category": "Cornea",
+  "synonyms": "map dot fingerprint dystrophy; epithelial dystrophy"
+ },
+ {
+  "code": "H18.53",
+  "description": "Granular corneal dystrophy",
+  "category": "Cornea",
+  "synonyms": "granular dystrophy"
+ },
+ {
+  "code": "H18.54",
+  "description": "Lattice corneal dystrophy",
+  "category": "Cornea",
+  "synonyms": "lattice dystrophy"
+ },
+ {
+  "code": "H18.55",
+  "description": "Macular corneal dystrophy",
+  "category": "Cornea",
+  "synonyms": "macular corneal dystrophy"
+ },
+ {
+  "code": "H18.601",
+  "description": "Keratoconus, unspecified, right eye",
+  "category": "Cornea",
+  "synonyms": "keratoconus right eye; cone shaped cornea; distorted vision hard to correct"
+ },
+ {
+  "code": "H18.602",
+  "description": "Keratoconus, unspecified, left eye",
+  "category": "Cornea",
+  "synonyms": "keratoconus left eye; cone shaped cornea"
+ },
+ {
+  "code": "H18.603",
+  "description": "Keratoconus, unspecified, bilateral",
+  "category": "Cornea",
+  "synonyms": "keratoconus both eyes; cone shaped cornea"
+ },
+ {
+  "code": "H18.611",
+  "description": "Keratoconus, stable, right eye",
+  "category": "Cornea",
+  "synonyms": "stable keratoconus right eye"
+ },
+ {
+  "code": "H18.612",
+  "description": "Keratoconus, stable, left eye",
+  "category": "Cornea",
+  "synonyms": "stable keratoconus left eye"
+ },
+ {
+  "code": "H18.613",
+  "description": "Keratoconus, stable, bilateral",
+  "category": "Cornea",
+  "synonyms": "stable keratoconus both eyes"
+ },
+ {
+  "code": "H18.621",
+  "description": "Keratoconus, unstable, right eye",
+  "category": "Cornea",
+  "synonyms": "progressive keratoconus right eye"
+ },
+ {
+  "code": "H18.622",
+  "description": "Keratoconus, unstable, left eye",
+  "category": "Cornea",
+  "synonyms": "progressive keratoconus left eye"
+ },
+ {
+  "code": "H18.623",
+  "description": "Keratoconus, unstable, bilateral",
+  "category": "Cornea",
+  "synonyms": "progressive keratoconus both eyes"
+ },
+ {
+  "code": "H18.831",
+  "description": "Recurrent erosion of cornea, right eye",
+  "category": "Cornea",
+  "synonyms": "recurrent corneal erosion right; wakes with sharp eye pain"
+ },
+ {
+  "code": "H18.832",
+  "description": "Recurrent erosion of cornea, left eye",
+  "category": "Cornea",
+  "synonyms": "recurrent corneal erosion left"
+ },
+ {
+  "code": "H18.833",
+  "description": "Recurrent erosion of cornea, bilateral",
+  "category": "Cornea",
+  "synonyms": "recurrent corneal erosion both eyes"
+ },
+ {
+  "code": "H18.9",
+  "description": "Unspecified disorder of cornea",
+  "category": "Cornea",
+  "synonyms": "corneal problem"
+ },
+ {
+  "code": "H20.011",
+  "description": "Primary iridocyclitis, right eye",
+  "category": "Uvea",
+  "synonyms": "iritis right eye; anterior uveitis right; painful light sensitive red eye"
+ },
+ {
+  "code": "H20.012",
+  "description": "Primary iridocyclitis, left eye",
+  "category": "Uvea",
+  "synonyms": "iritis left eye; anterior uveitis left"
+ },
+ {
+  "code": "H20.013",
+  "description": "Primary iridocyclitis, bilateral",
+  "category": "Uvea",
+  "synonyms": "iritis both eyes; anterior uveitis"
+ },
+ {
+  "code": "H20.021",
+  "description": "Recurrent acute iridocyclitis, right eye",
+  "category": "Uvea",
+  "synonyms": "recurrent iritis right eye"
+ },
+ {
+  "code": "H20.022",
+  "description": "Recurrent acute iridocyclitis, left eye",
+  "category": "Uvea",
+  "synonyms": "recurrent iritis left eye"
+ },
+ {
+  "code": "H20.9",
+  "description": "Unspecified iridocyclitis",
+  "category": "Uvea",
+  "synonyms": "iritis; uveitis; inflamed iris"
+ },
+ {
+  "code": "H21.1X1",
+  "description": "Other vascular disorders of iris and ciliary body, right eye",
+  "category": "Uvea",
+  "synonyms": "iris vascular disorder right"
+ },
+ {
+  "code": "H21.221",
+  "description": "Degeneration of ciliary body, right eye",
+  "category": "Uvea",
+  "synonyms": "ciliary body degeneration right"
+ },
+ {
+  "code": "H21.31",
+  "description": "Cyst of iris, ciliary body or anterior chamber",
+  "category": "Uvea",
+  "synonyms": "iris cyst"
+ },
+ {
+  "code": "H21.501",
+  "description": "Unspecified adhesions of iris, right eye",
+  "category": "Uvea",
+  "synonyms": "synechiae right eye; iris adhesions"
+ },
+ {
+  "code": "H21.502",
+  "description": "Unspecified adhesions of iris, left eye",
+  "category": "Uvea",
+  "synonyms": "synechiae left eye; iris adhesions"
+ },
+ {
+  "code": "H21.9",
+  "description": "Unspecified disorder of iris and ciliary body",
+  "category": "Uvea",
+  "synonyms": "iris problem"
+ },
+ {
+  "code": "H25.011",
+  "description": "Cortical age-related cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "cortical cataract right eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.012",
+  "description": "Cortical age-related cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "cortical cataract left eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.013",
+  "description": "Cortical age-related cataract, bilateral",
+  "category": "Cataract",
+  "synonyms": "cortical cataract both eyes; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.041",
+  "description": "Posterior subcapsular polar age-related cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "posterior subcapsular cataract right; PSC; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.042",
+  "description": "Posterior subcapsular polar age-related cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "posterior subcapsular cataract left; PSC"
+ },
+ {
+  "code": "H25.043",
+  "description": "Posterior subcapsular polar age-related cataract, bilateral",
+  "category": "Cataract",
+  "synonyms": "posterior subcapsular cataract both eyes; PSC"
+ },
+ {
+  "code": "H25.10",
+  "description": "Age-related nuclear cataract, unspecified eye",
+  "category": "Cataract",
+  "synonyms": "nuclear cataract; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.11",
+  "description": "Age-related nuclear cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "nuclear cataract right eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.12",
+  "description": "Age-related nuclear cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "nuclear cataract left eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.13",
+  "description": "Age-related nuclear cataract, bilateral",
+  "category": "Cataract",
+  "synonyms": "nuclear cataract both eyes; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.811",
+  "description": "Combined forms of age-related cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "mixed cataract right eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.812",
+  "description": "Combined forms of age-related cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "mixed cataract left eye; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.813",
+  "description": "Combined forms of age-related cataract, bilateral",
+  "category": "Cataract",
+  "synonyms": "mixed cataract both eyes; cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H25.9",
+  "description": "Unspecified age-related cataract",
+  "category": "Cataract",
+  "synonyms": "cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H26.001",
+  "description": "Unspecified infantile and juvenile cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "childhood cataract right eye; white pupil child"
+ },
+ {
+  "code": "H26.003",
+  "description": "Unspecified infantile and juvenile cataract, bilateral",
+  "category": "Cataract",
+  "synonyms": "childhood cataract both eyes"
+ },
+ {
+  "code": "H26.101",
+  "description": "Unspecified traumatic cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "traumatic cataract right eye; cataract after injury"
+ },
+ {
+  "code": "H26.102",
+  "description": "Unspecified traumatic cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "traumatic cataract left eye"
+ },
+ {
+  "code": "H26.211",
+  "description": "Cataract with neovascularization, right eye",
+  "category": "Cataract",
+  "synonyms": "complicated cataract right eye"
+ },
+ {
+  "code": "H26.491",
+  "description": "Other secondary cataract, right eye",
+  "category": "Cataract",
+  "synonyms": "secondary cataract right eye"
+ },
+ {
+  "code": "H26.492",
+  "description": "Other secondary cataract, left eye",
+  "category": "Cataract",
+  "synonyms": "secondary cataract left eye"
+ },
+ {
+  "code": "H26.9",
+  "description": "Unspecified cataract",
+  "category": "Cataract",
+  "synonyms": "cataract; cloudy lens; milky eye; misty vision; glare at night"
+ },
+ {
+  "code": "H27.00",
+  "description": "Aphakia, unspecified eye",
+  "category": "Lens",
+  "synonyms": "no lens in eye; aphakia"
+ },
+ {
+  "code": "H27.01",
+  "description": "Aphakia, right eye",
+  "category": "Lens",
+  "synonyms": "aphakia right eye; lens removed"
+ },
+ {
+  "code": "H27.02",
+  "description": "Aphakia, left eye",
+  "category": "Lens",
+  "synonyms": "aphakia left eye; lens removed"
+ },
+ {
+  "code": "H27.111",
+  "description": "Subluxation of lens, right eye",
+  "category": "Lens",
+  "synonyms": "dislocated lens right eye; wobbly lens"
+ },
+ {
+  "code": "H27.112",
+  "description": "Subluxation of lens, left eye",
+  "category": "Lens",
+  "synonyms": "dislocated lens left eye"
+ },
+ {
+  "code": "H30.001",
+  "description": "Unspecified focal chorioretinal inflammation, right eye",
+  "category": "Retina",
+  "synonyms": "focal chorioretinitis right eye"
+ },
+ {
+  "code": "H30.90",
+  "description": "Unspecified chorioretinal inflammation, unspecified eye",
+  "category": "Retina",
+  "synonyms": "chorioretinitis; posterior uveitis"
+ },
+ {
+  "code": "H31.001",
+  "description": "Unspecified chorioretinal scars, right eye",
+  "category": "Retina",
+  "synonyms": "chorioretinal scar right eye"
+ },
+ {
+  "code": "H31.002",
+  "description": "Unspecified chorioretinal scars, left eye",
+  "category": "Retina",
+  "synonyms": "chorioretinal scar left eye"
+ },
+ {
+  "code": "H31.401",
+  "description": "Unspecified choroidal detachment, right eye",
+  "category": "Retina",
+  "synonyms": "choroidal detachment right eye"
+ },
+ {
+  "code": "H33.001",
+  "description": "Unspecified retinal detachment with retinal break, right eye",
+  "category": "Retina",
+  "synonyms": "retinal detachment right eye; curtain over vision; shadow in vision"
+ },
+ {
+  "code": "H33.002",
+  "description": "Unspecified retinal detachment with retinal break, left eye",
+  "category": "Retina",
+  "synonyms": "retinal detachment left eye; curtain over vision"
+ },
+ {
+  "code": "H33.011",
+  "description": "Retinal detachment with single break, right eye",
+  "category": "Retina",
+  "synonyms": "retinal detachment single break right"
+ },
+ {
+  "code": "H33.20",
+  "description": "Serous retinal detachment, unspecified eye",
+  "category": "Retina",
+  "synonyms": "serous retinal detachment; fluid under the retina"
+ },
+ {
+  "code": "H33.21",
+  "description": "Serous retinal detachment, right eye",
+  "category": "Retina",
+  "synonyms": "serous retinal detachment right eye"
+ },
+ {
+  "code": "H33.22",
+  "description": "Serous retinal detachment, left eye",
+  "category": "Retina",
+  "synonyms": "serous retinal detachment left eye"
+ },
+ {
+  "code": "H33.301",
+  "description": "Unspecified retinal break, right eye",
+  "category": "Retina",
+  "synonyms": "retinal tear right eye; flashes and floaters"
+ },
+ {
+  "code": "H33.302",
+  "description": "Unspecified retinal break, left eye",
+  "category": "Retina",
+  "synonyms": "retinal tear left eye; flashes and floaters"
+ },
+ {
+  "code": "H33.311",
+  "description": "Horseshoe tear of retina without detachment, right eye",
+  "category": "Retina",
+  "synonyms": "horseshoe retinal tear right eye"
+ },
+ {
+  "code": "H33.8",
+  "description": "Other retinal detachments",
+  "category": "Retina",
+  "synonyms": "other retinal detachment"
+ },
+ {
+  "code": "H34.00",
+  "description": "Transient retinal artery occlusion, unspecified eye",
+  "category": "Retina",
+  "synonyms": "amaurosis fugax; brief blindness; curtain came down briefly"
+ },
+ {
+  "code": "H34.11",
+  "description": "Central retinal artery occlusion, right eye",
+  "category": "Retina",
+  "synonyms": "CRAO right eye; sudden painless blindness right"
+ },
+ {
+  "code": "H34.12",
+  "description": "Central retinal artery occlusion, left eye",
+  "category": "Retina",
+  "synonyms": "CRAO left eye; sudden painless blindness left"
+ },
+ {
+  "code": "H34.211",
+  "description": "Partial retinal artery occlusion, right eye",
+  "category": "Retina",
+  "synonyms": "branch retinal artery occlusion right; BRAO"
+ },
+ {
+  "code": "H34.8110",
+  "description": "Central retinal vein occlusion, right eye, with macular edema",
+  "category": "Retina",
+  "synonyms": "CRVO right eye with macular oedema; sudden blurred vision right"
+ },
+ {
+  "code": "H34.8120",
+  "description": "Central retinal vein occlusion, left eye, with macular edema",
+  "category": "Retina",
+  "synonyms": "CRVO left eye with macular oedema"
+ },
+ {
+  "code": "H34.8310",
+  "description": "Tributary (branch) retinal vein occlusion, right eye, with macular edema",
+  "category": "Retina",
+  "synonyms": "BRVO right eye with macular oedema"
+ },
+ {
+  "code": "H34.8320",
+  "description": "Tributary (branch) retinal vein occlusion, left eye, with macular edema",
+  "category": "Retina",
+  "synonyms": "BRVO left eye with macular oedema"
+ },
+ {
+  "code": "H35.00",
+  "description": "Unspecified background retinopathy",
+  "category": "Retina",
+  "synonyms": "background retinopathy"
+ },
+ {
+  "code": "H35.011",
+  "description": "Changes in retinal vascular appearance, right eye",
+  "category": "Retina",
+  "synonyms": "hypertensive retinal changes right eye"
+ },
+ {
+  "code": "H35.031",
+  "description": "Hypertensive retinopathy, right eye",
+  "category": "Retina",
+  "synonyms": "hypertensive retinopathy right eye; high blood pressure eye damage"
+ },
+ {
+  "code": "H35.032",
+  "description": "Hypertensive retinopathy, left eye",
+  "category": "Retina",
+  "synonyms": "hypertensive retinopathy left eye; high blood pressure eye damage"
+ },
+ {
+  "code": "H35.033",
+  "description": "Hypertensive retinopathy, bilateral",
+  "category": "Retina",
+  "synonyms": "hypertensive retinopathy both eyes; high blood pressure eye damage"
+ },
+ {
+  "code": "H35.051",
+  "description": "Retinal neovascularization, unspecified, right eye",
+  "category": "Retina",
+  "synonyms": "retinal new vessels right eye"
+ },
+ {
+  "code": "H35.101",
+  "description": "Retinopathy of prematurity, unspecified, right eye",
+  "category": "Retina",
+  "synonyms": "ROP right eye; premature baby retinopathy"
+ },
+ {
+  "code": "H35.171",
+  "description": "Retrolental fibroplasia, right eye",
+  "category": "Retina",
+  "synonyms": "retrolental fibroplasia right eye"
+ },
+ {
+  "code": "H35.30",
+  "description": "Unspecified macular degeneration",
+  "category": "Macula",
+  "synonyms": "macular degeneration; AMD; central vision loss; cannot see faces"
+ },
+ {
+  "code": "H35.3110",
+  "description": "Nonexudative age-related macular degeneration, right eye, stage unspecified",
+  "category": "Macula",
+  "synonyms": "dry AMD right eye; dry macular degeneration"
+ },
+ {
+  "code": "H35.3120",
+  "description": "Nonexudative age-related macular degeneration, left eye, stage unspecified",
+  "category": "Macula",
+  "synonyms": "dry AMD left eye; dry macular degeneration"
+ },
+ {
+  "code": "H35.3130",
+  "description": "Nonexudative age-related macular degeneration, bilateral, stage unspecified",
+  "category": "Macula",
+  "synonyms": "dry AMD both eyes; dry macular degeneration"
+ },
+ {
+  "code": "H35.3210",
+  "description": "Exudative age-related macular degeneration, right eye, stage unspecified",
+  "category": "Macula",
+  "synonyms": "wet AMD right eye; wet macular degeneration; distorted central vision"
+ },
+ {
+  "code": "H35.3220",
+  "description": "Exudative age-related macular degeneration, left eye, stage unspecified",
+  "category": "Macula",
+  "synonyms": "wet AMD left eye; wet macular degeneration"
+ },
+ {
+  "code": "H35.3230",
+  "description": "Exudative age-related macular degeneration, bilateral, stage unspecified",
+  "category": "Macula",
+  "synonyms": "wet AMD both eyes; wet macular degeneration"
+ },
+ {
+  "code": "H35.341",
+  "description": "Macular cyst, hole, or pseudohole, right eye",
+  "category": "Macula",
+  "synonyms": "macular hole right eye; central blind spot"
+ },
+ {
+  "code": "H35.342",
+  "description": "Macular cyst, hole, or pseudohole, left eye",
+  "category": "Macula",
+  "synonyms": "macular hole left eye"
+ },
+ {
+  "code": "H35.371",
+  "description": "Puckering of macula, right eye",
+  "category": "Macula",
+  "synonyms": "epiretinal membrane right eye; macular pucker; wavy vision"
+ },
+ {
+  "code": "H35.372",
+  "description": "Puckering of macula, left eye",
+  "category": "Macula",
+  "synonyms": "epiretinal membrane left eye; macular pucker"
+ },
+ {
+  "code": "H35.373",
+  "description": "Puckering of macula, bilateral",
+  "category": "Macula",
+  "synonyms": "epiretinal membrane both eyes; macular pucker"
+ },
+ {
+  "code": "H35.81",
+  "description": "Retinal edema",
+  "category": "Retina",
+  "synonyms": "retinal swelling; macular oedema"
+ },
+ {
+  "code": "H35.82",
+  "description": "Retinal ischemia",
+  "category": "Retina",
+  "synonyms": "retinal ischaemia"
+ },
+ {
+  "code": "H35.89",
+  "description": "Other specified retinal disorders",
+  "category": "Retina",
+  "synonyms": "other retinal disorder"
+ },
+ {
+  "code": "H35.9",
+  "description": "Unspecified retinal disorder",
+  "category": "Retina",
+  "synonyms": "retinal problem"
+ },
+ {
+  "code": "H36",
+  "description": "Retinal disorders in diseases classified elsewhere",
+  "category": "Retina",
+  "synonyms": "retinal disorder from systemic disease"
+ },
+ {
+  "code": "H40.001",
+  "description": "Preglaucoma, unspecified, right eye",
+  "category": "Glaucoma",
+  "synonyms": "preglaucoma right eye; glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H40.002",
+  "description": "Preglaucoma, unspecified, left eye",
+  "category": "Glaucoma",
+  "synonyms": "preglaucoma left eye; glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H40.003",
+  "description": "Preglaucoma, unspecified, bilateral",
+  "category": "Glaucoma",
+  "synonyms": "preglaucoma both eyes; glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H40.011",
+  "description": "Open angle with borderline findings, low risk, right eye",
+  "category": "Glaucoma",
+  "synonyms": "glaucoma suspect right eye; borderline pressure"
+ },
+ {
+  "code": "H40.012",
+  "description": "Open angle with borderline findings, low risk, left eye",
+  "category": "Glaucoma",
+  "synonyms": "glaucoma suspect left eye; borderline pressure"
+ },
+ {
+  "code": "H40.013",
+  "description": "Open angle with borderline findings, low risk, bilateral",
+  "category": "Glaucoma",
+  "synonyms": "glaucoma suspect both eyes; borderline pressure"
+ },
+ {
+  "code": "H40.021",
+  "description": "Anatomical narrow angle, right eye",
+  "category": "Glaucoma",
+  "synonyms": "narrow angle right eye; occludable angle"
+ },
+ {
+  "code": "H40.022",
+  "description": "Anatomical narrow angle, left eye",
+  "category": "Glaucoma",
+  "synonyms": "narrow angle left eye; occludable angle"
+ },
+ {
+  "code": "H40.023",
+  "description": "Anatomical narrow angle, bilateral",
+  "category": "Glaucoma",
+  "synonyms": "narrow angles both eyes; occludable angles"
+ },
+ {
+  "code": "H40.031",
+  "description": "Steroid responder, right eye",
+  "category": "Glaucoma",
+  "synonyms": "steroid responder right eye"
+ },
+ {
+  "code": "H40.051",
+  "description": "Ocular hypertension, right eye",
+  "category": "Glaucoma",
+  "synonyms": "ocular hypertension right eye; raised pressure without damage"
+ },
+ {
+  "code": "H40.052",
+  "description": "Ocular hypertension, left eye",
+  "category": "Glaucoma",
+  "synonyms": "ocular hypertension left eye"
+ },
+ {
+  "code": "H40.053",
+  "description": "Ocular hypertension, bilateral",
+  "category": "Glaucoma",
+  "synonyms": "ocular hypertension both eyes; raised pressure without damage"
+ },
+ {
+  "code": "H40.10X0",
+  "description": "Unspecified open-angle glaucoma, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "open angle glaucoma; POAG; glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H40.11X0",
+  "description": "Primary open-angle glaucoma, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "primary open angle glaucoma; POAG; glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H40.11X1",
+  "description": "Primary open-angle glaucoma, mild stage",
+  "category": "Glaucoma",
+  "synonyms": "mild POAG; early glaucoma"
+ },
+ {
+  "code": "H40.11X2",
+  "description": "Primary open-angle glaucoma, moderate stage",
+  "category": "Glaucoma",
+  "synonyms": "moderate POAG"
+ },
+ {
+  "code": "H40.11X3",
+  "description": "Primary open-angle glaucoma, severe stage",
+  "category": "Glaucoma",
+  "synonyms": "severe POAG; advanced glaucoma"
+ },
+ {
+  "code": "H40.1210",
+  "description": "Low-tension glaucoma, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "normal tension glaucoma right eye; low tension glaucoma"
+ },
+ {
+  "code": "H40.1220",
+  "description": "Low-tension glaucoma, left eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "normal tension glaucoma left eye"
+ },
+ {
+  "code": "H40.1230",
+  "description": "Low-tension glaucoma, bilateral, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "normal tension glaucoma both eyes"
+ },
+ {
+  "code": "H40.1310",
+  "description": "Pigmentary glaucoma, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "pigmentary glaucoma right eye"
+ },
+ {
+  "code": "H40.1410",
+  "description": "Capsular glaucoma with pseudoexfoliation of lens, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "pseudoexfoliation glaucoma right eye; PXF glaucoma"
+ },
+ {
+  "code": "H40.1420",
+  "description": "Capsular glaucoma with pseudoexfoliation of lens, left eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "pseudoexfoliation glaucoma left eye"
+ },
+ {
+  "code": "H40.211",
+  "description": "Acute angle-closure glaucoma, right eye",
+  "category": "Glaucoma",
+  "synonyms": "acute angle closure right eye; sudden painful red eye with haloes; glaucoma attack"
+ },
+ {
+  "code": "H40.212",
+  "description": "Acute angle-closure glaucoma, left eye",
+  "category": "Glaucoma",
+  "synonyms": "acute angle closure left eye; sudden painful red eye with haloes"
+ },
+ {
+  "code": "H40.2210",
+  "description": "Chronic angle-closure glaucoma, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "chronic angle closure right eye"
+ },
+ {
+  "code": "H40.2220",
+  "description": "Chronic angle-closure glaucoma, left eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "chronic angle closure left eye"
+ },
+ {
+  "code": "H40.2230",
+  "description": "Chronic angle-closure glaucoma, bilateral, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "chronic angle closure both eyes"
+ },
+ {
+  "code": "H40.231",
+  "description": "Intermittent angle-closure glaucoma, right eye",
+  "category": "Glaucoma",
+  "synonyms": "intermittent angle closure right eye"
+ },
+ {
+  "code": "H40.31X0",
+  "description": "Glaucoma secondary to eye trauma, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "traumatic glaucoma right eye"
+ },
+ {
+  "code": "H40.41X0",
+  "description": "Glaucoma secondary to eye inflammation, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "uveitic glaucoma right eye"
+ },
+ {
+  "code": "H40.51X0",
+  "description": "Glaucoma secondary to other eye disorders, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "secondary glaucoma right eye"
+ },
+ {
+  "code": "H40.61X0",
+  "description": "Glaucoma secondary to drugs, right eye, stage unspecified",
+  "category": "Glaucoma",
+  "synonyms": "steroid induced glaucoma right eye"
+ },
+ {
+  "code": "H40.9",
+  "description": "Unspecified glaucoma",
+  "category": "Glaucoma",
+  "synonyms": "glaucoma; high eye pressure; raised IOP"
+ },
+ {
+  "code": "H42",
+  "description": "Glaucoma in diseases classified elsewhere",
+  "category": "Glaucoma",
+  "synonyms": "glaucoma from systemic disease"
+ },
+ {
+  "code": "H43.00",
+  "description": "Vitreous prolapse, unspecified eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous prolapse"
+ },
+ {
+  "code": "H43.10",
+  "description": "Vitreous hemorrhage, unspecified eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous haemorrhage; sudden floaters and vision loss; blood in the eye"
+ },
+ {
+  "code": "H43.11",
+  "description": "Vitreous hemorrhage, right eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous haemorrhage right eye; sudden dark floaters"
+ },
+ {
+  "code": "H43.12",
+  "description": "Vitreous hemorrhage, left eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous haemorrhage left eye; sudden dark floaters"
+ },
+ {
+  "code": "H43.13",
+  "description": "Vitreous hemorrhage, bilateral",
+  "category": "Vitreous",
+  "synonyms": "vitreous haemorrhage both eyes"
+ },
+ {
+  "code": "H43.391",
+  "description": "Other vitreous opacities, right eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous opacity right eye; floaters right eye"
+ },
+ {
+  "code": "H43.392",
+  "description": "Other vitreous opacities, left eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous opacity left eye; floaters left eye"
+ },
+ {
+  "code": "H43.811",
+  "description": "Vitreous degeneration, right eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous degeneration right eye; floaters; posterior vitreous detachment"
+ },
+ {
+  "code": "H43.812",
+  "description": "Vitreous degeneration, left eye",
+  "category": "Vitreous",
+  "synonyms": "vitreous degeneration left eye; floaters; posterior vitreous detachment"
+ },
+ {
+  "code": "H43.813",
+  "description": "Vitreous degeneration, bilateral",
+  "category": "Vitreous",
+  "synonyms": "vitreous degeneration both eyes; floaters; PVD"
+ },
+ {
+  "code": "H43.9",
+  "description": "Unspecified disorder of vitreous body",
+  "category": "Vitreous",
+  "synonyms": "vitreous problem; floaters"
+ },
+ {
+  "code": "H44.001",
+  "description": "Unspecified purulent endophthalmitis, right eye",
+  "category": "Globe",
+  "synonyms": "endophthalmitis right eye; severe infection inside the eye"
+ },
+ {
+  "code": "H44.002",
+  "description": "Unspecified purulent endophthalmitis, left eye",
+  "category": "Globe",
+  "synonyms": "endophthalmitis left eye; severe infection inside the eye"
+ },
+ {
+  "code": "H44.20",
+  "description": "Unspecified degenerative myopia, unspecified eye",
+  "category": "Globe",
+  "synonyms": "pathological myopia; degenerative myopia; high myopia damage"
+ },
+ {
+  "code": "H44.2A1",
+  "description": "Degenerative myopia with choroidal neovascularization, right eye",
+  "category": "Globe",
+  "synonyms": "myopic CNV right eye"
+ },
+ {
+  "code": "H44.601",
+  "description": "Unspecified retained (old) intraocular foreign body, magnetic, right eye",
+  "category": "Globe",
+  "synonyms": "retained metal foreign body right eye"
+ },
+ {
+  "code": "H44.9",
+  "description": "Unspecified disorder of globe",
+  "category": "Globe",
+  "synonyms": "globe disorder"
+ },
+ {
+  "code": "H46.00",
+  "description": "Unspecified optic neuritis",
+  "category": "Optic nerve",
+  "synonyms": "optic neuritis; painful vision loss on eye movement"
+ },
+ {
+  "code": "H46.01",
+  "description": "Optic papillitis, right eye",
+  "category": "Optic nerve",
+  "synonyms": "papillitis right eye"
+ },
+ {
+  "code": "H46.10",
+  "description": "Unspecified retrobulbar neuritis",
+  "category": "Optic nerve",
+  "synonyms": "retrobulbar neuritis"
+ },
+ {
+  "code": "H46.9",
+  "description": "Unspecified optic neuritis",
+  "category": "Optic nerve",
+  "synonyms": "optic neuritis"
+ },
+ {
+  "code": "H47.011",
+  "description": "Ischemic optic neuropathy, right eye",
+  "category": "Optic nerve",
+  "synonyms": "ischaemic optic neuropathy right eye; AION; sudden altitudinal vision loss"
+ },
+ {
+  "code": "H47.012",
+  "description": "Ischemic optic neuropathy, left eye",
+  "category": "Optic nerve",
+  "synonyms": "ischaemic optic neuropathy left eye; AION"
+ },
+ {
+  "code": "H47.10",
+  "description": "Unspecified papilledema",
+  "category": "Optic nerve",
+  "synonyms": "papilloedema; swollen optic disc; raised intracranial pressure"
+ },
+ {
+  "code": "H47.11",
+  "description": "Papilledema associated with increased intracranial pressure",
+  "category": "Optic nerve",
+  "synonyms": "papilloedema raised ICP"
+ },
+ {
+  "code": "H47.211",
+  "description": "Primary optic atrophy, right eye",
+  "category": "Optic nerve",
+  "synonyms": "optic atrophy right eye; pale disc"
+ },
+ {
+  "code": "H47.212",
+  "description": "Primary optic atrophy, left eye",
+  "category": "Optic nerve",
+  "synonyms": "optic atrophy left eye; pale disc"
+ },
+ {
+  "code": "H47.231",
+  "description": "Glaucomatous optic atrophy, right eye",
+  "category": "Optic nerve",
+  "synonyms": "glaucomatous optic atrophy right eye; cupped disc"
+ },
+ {
+  "code": "H47.232",
+  "description": "Glaucomatous optic atrophy, left eye",
+  "category": "Optic nerve",
+  "synonyms": "glaucomatous optic atrophy left eye; cupped disc"
+ },
+ {
+  "code": "H47.313",
+  "description": "Drusen of optic disc, bilateral",
+  "category": "Optic nerve",
+  "synonyms": "optic disc drusen both eyes"
+ },
+ {
+  "code": "H47.41",
+  "description": "Disorders of optic chiasm in (due to) inflammatory disorders",
+  "category": "Optic nerve",
+  "synonyms": "chiasmal disorder"
+ },
+ {
+  "code": "H47.9",
+  "description": "Unspecified disorder of visual pathways",
+  "category": "Optic nerve",
+  "synonyms": "visual pathway disorder"
+ },
+ {
+  "code": "H49.00",
+  "description": "Third [oculomotor] nerve palsy, unspecified eye",
+  "category": "Motility",
+  "synonyms": "third nerve palsy; droopy lid and double vision"
+ },
+ {
+  "code": "H49.01",
+  "description": "Third [oculomotor] nerve palsy, right eye",
+  "category": "Motility",
+  "synonyms": "third nerve palsy right eye"
+ },
+ {
+  "code": "H49.02",
+  "description": "Third [oculomotor] nerve palsy, left eye",
+  "category": "Motility",
+  "synonyms": "third nerve palsy left eye"
+ },
+ {
+  "code": "H49.11",
+  "description": "Fourth [trochlear] nerve palsy, right eye",
+  "category": "Motility",
+  "synonyms": "fourth nerve palsy right eye; head tilt double vision"
+ },
+ {
+  "code": "H49.12",
+  "description": "Fourth [trochlear] nerve palsy, left eye",
+  "category": "Motility",
+  "synonyms": "fourth nerve palsy left eye"
+ },
+ {
+  "code": "H49.20",
+  "description": "Sixth [abducent] nerve palsy, unspecified eye",
+  "category": "Motility",
+  "synonyms": "sixth nerve palsy; cannot turn eye outward; horizontal double vision"
+ },
+ {
+  "code": "H49.21",
+  "description": "Sixth [abducent] nerve palsy, right eye",
+  "category": "Motility",
+  "synonyms": "sixth nerve palsy right eye"
+ },
+ {
+  "code": "H49.22",
+  "description": "Sixth [abducent] nerve palsy, left eye",
+  "category": "Motility",
+  "synonyms": "sixth nerve palsy left eye"
+ },
+ {
+  "code": "H49.40",
+  "description": "Progressive external ophthalmoplegia, unspecified eye",
+  "category": "Motility",
+  "synonyms": "progressive external ophthalmoplegia"
+ },
+ {
+  "code": "H49.881",
+  "description": "Other paralytic strabismus, right eye",
+  "category": "Motility",
+  "synonyms": "paralytic squint right eye"
+ },
+ {
+  "code": "H50.00",
+  "description": "Unspecified esotropia",
+  "category": "Strabismus",
+  "synonyms": "crossed eyes; turned in eye; squint; convergent squint"
+ },
+ {
+  "code": "H50.011",
+  "description": "Monocular esotropia, right eye",
+  "category": "Strabismus",
+  "synonyms": "right eye turns in; crossed right eye"
+ },
+ {
+  "code": "H50.012",
+  "description": "Monocular esotropia, left eye",
+  "category": "Strabismus",
+  "synonyms": "left eye turns in; crossed left eye"
+ },
+ {
+  "code": "H50.05",
+  "description": "Alternating esotropia",
+  "category": "Strabismus",
+  "synonyms": "alternating crossed eyes"
+ },
+ {
+  "code": "H50.10",
+  "description": "Unspecified exotropia",
+  "category": "Strabismus",
+  "synonyms": "eye turns out; divergent squint; wall eye"
+ },
+ {
+  "code": "H50.111",
+  "description": "Monocular exotropia, right eye",
+  "category": "Strabismus",
+  "synonyms": "right eye turns out"
+ },
+ {
+  "code": "H50.112",
+  "description": "Monocular exotropia, left eye",
+  "category": "Strabismus",
+  "synonyms": "left eye turns out"
+ },
+ {
+  "code": "H50.15",
+  "description": "Alternating exotropia",
+  "category": "Strabismus",
+  "synonyms": "alternating outward squint"
+ },
+ {
+  "code": "H50.21",
+  "description": "Vertical strabismus, right eye",
+  "category": "Strabismus",
+  "synonyms": "vertical squint right eye; one eye higher"
+ },
+ {
+  "code": "H50.22",
+  "description": "Vertical strabismus, left eye",
+  "category": "Strabismus",
+  "synonyms": "vertical squint left eye"
+ },
+ {
+  "code": "H50.31",
+  "description": "Intermittent monocular esotropia, right eye",
+  "category": "Strabismus",
+  "synonyms": "intermittent inward squint right eye"
+ },
+ {
+  "code": "H50.331",
+  "description": "Intermittent monocular exotropia, right eye",
+  "category": "Strabismus",
+  "synonyms": "intermittent outward squint right eye"
+ },
+ {
+  "code": "H50.40",
+  "description": "Unspecified heterotropia",
+  "category": "Strabismus",
+  "synonyms": "squint; strabismus; eye turn"
+ },
+ {
+  "code": "H50.9",
+  "description": "Unspecified strabismus",
+  "category": "Strabismus",
+  "synonyms": "squint; strabismus; eye turn; lazy eye appearance"
+ },
+ {
+  "code": "H51.0",
+  "description": "Palsy (spasm) of conjugate gaze",
+  "category": "Motility",
+  "synonyms": "gaze palsy"
+ },
+ {
+  "code": "H51.11",
+  "description": "Convergence insufficiency",
+  "category": "Motility",
+  "synonyms": "convergence insufficiency; eyes tire when reading; words run together"
+ },
+ {
+  "code": "H51.12",
+  "description": "Convergence excess",
+  "category": "Motility",
+  "synonyms": "convergence excess"
+ },
+ {
+  "code": "H51.20",
+  "description": "Internuclear ophthalmoplegia, unspecified eye",
+  "category": "Motility",
+  "synonyms": "internuclear ophthalmoplegia; INO"
+ },
+ {
+  "code": "H51.8",
+  "description": "Other specified disorders of binocular movement",
+  "category": "Motility",
+  "synonyms": "binocular movement disorder"
+ },
+ {
+  "code": "H51.9",
+  "description": "Unspecified disorder of binocular movement",
+  "category": "Motility",
+  "synonyms": "eye movement disorder"
+ },
+ {
+  "code": "H52.00",
+  "description": "Hypermetropia, unspecified eye",
+  "category": "Refraction",
+  "synonyms": "farsighted; far sighted; hyperopia; long sighted; blurry vision; blurred vision; cannot see clearly; poor vision; needs glasses"
+ },
+ {
+  "code": "H52.01",
+  "description": "Hypermetropia, right eye",
+  "category": "Refraction",
+  "synonyms": "farsighted right eye; hyperopia OD"
+ },
+ {
+  "code": "H52.02",
+  "description": "Hypermetropia, left eye",
+  "category": "Refraction",
+  "synonyms": "farsighted left eye; hyperopia OS"
+ },
+ {
+  "code": "H52.03",
+  "description": "Hypermetropia, bilateral",
+  "category": "Refraction",
+  "synonyms": "farsighted both eyes; hyperopia OU"
+ },
+ {
+  "code": "H52.10",
+  "description": "Myopia, unspecified eye",
+  "category": "Refraction",
+  "synonyms": "nearsighted; near sighted; short sighted; cannot see far; blurry vision; blurred vision; cannot see clearly; poor vision; needs glasses"
+ },
+ {
+  "code": "H52.11",
+  "description": "Myopia, right eye",
+  "category": "Refraction",
+  "synonyms": "nearsighted right eye; myopia OD"
+ },
+ {
+  "code": "H52.12",
+  "description": "Myopia, left eye",
+  "category": "Refraction",
+  "synonyms": "nearsighted left eye; myopia OS"
+ },
+ {
+  "code": "H52.13",
+  "description": "Myopia, bilateral",
+  "category": "Refraction",
+  "synonyms": "nearsighted both eyes; myopia OU"
+ },
+ {
+  "code": "H52.201",
+  "description": "Unspecified astigmatism, right eye",
+  "category": "Refraction",
+  "synonyms": "astigmatism OD; distorted vision right eye"
+ },
+ {
+  "code": "H52.202",
+  "description": "Unspecified astigmatism, left eye",
+  "category": "Refraction",
+  "synonyms": "astigmatism OS; distorted vision left eye"
+ },
+ {
+  "code": "H52.203",
+  "description": "Unspecified astigmatism, bilateral",
+  "category": "Refraction",
+  "synonyms": "astigmatism OU; distorted vision both eyes"
+ },
+ {
+  "code": "H52.209",
+  "description": "Unspecified astigmatism, unspecified eye",
+  "category": "Refraction",
+  "synonyms": "astigmatism; distorted vision; stretched vision"
+ },
+ {
+  "code": "H52.211",
+  "description": "Irregular astigmatism, right eye",
+  "category": "Refraction",
+  "synonyms": "irregular astigmatism OD"
+ },
+ {
+  "code": "H52.212",
+  "description": "Irregular astigmatism, left eye",
+  "category": "Refraction",
+  "synonyms": "irregular astigmatism OS"
+ },
+ {
+  "code": "H52.213",
+  "description": "Irregular astigmatism, bilateral",
+  "category": "Refraction",
+  "synonyms": "irregular astigmatism OU"
+ },
+ {
+  "code": "H52.221",
+  "description": "Regular astigmatism, right eye",
+  "category": "Refraction",
+  "synonyms": "regular astigmatism OD"
+ },
+ {
+  "code": "H52.222",
+  "description": "Regular astigmatism, left eye",
+  "category": "Refraction",
+  "synonyms": "regular astigmatism OS"
+ },
+ {
+  "code": "H52.223",
+  "description": "Regular astigmatism, bilateral",
+  "category": "Refraction",
+  "synonyms": "regular astigmatism OU"
+ },
+ {
+  "code": "H52.31",
+  "description": "Anisometropia",
+  "category": "Refraction",
+  "synonyms": "unequal refraction; one eye stronger; different prescription each eye"
+ },
+ {
+  "code": "H52.32",
+  "description": "Aniseikonia",
+  "category": "Refraction",
+  "synonyms": "different image size between eyes"
+ },
+ {
+  "code": "H52.4",
+  "description": "Presbyopia",
+  "category": "Refraction",
+  "synonyms": "reading glasses; cannot read small print; age related reading difficulty; arm's length reading"
+ },
+ {
+  "code": "H52.511",
+  "description": "Internal ophthalmoplegia, right eye",
+  "category": "Accommodation",
+  "synonyms": "paralysed accommodation right eye"
+ },
+ {
+  "code": "H52.512",
+  "description": "Internal ophthalmoplegia, left eye",
+  "category": "Accommodation",
+  "synonyms": "paralysed accommodation left eye"
+ },
+ {
+  "code": "H52.513",
+  "description": "Internal ophthalmoplegia, bilateral",
+  "category": "Accommodation",
+  "synonyms": "paralysed accommodation both eyes"
+ },
+ {
+  "code": "H52.521",
+  "description": "Paresis of accommodation, right eye",
+  "category": "Accommodation",
+  "synonyms": "weak focusing right eye"
+ },
+ {
+  "code": "H52.522",
+  "description": "Paresis of accommodation, left eye",
+  "category": "Accommodation",
+  "synonyms": "weak focusing left eye"
+ },
+ {
+  "code": "H52.523",
+  "description": "Paresis of accommodation, bilateral",
+  "category": "Accommodation",
+  "synonyms": "weak focusing both eyes"
+ },
+ {
+  "code": "H52.531",
+  "description": "Spasm of accommodation, right eye",
+  "category": "Accommodation",
+  "synonyms": "focusing spasm right eye"
+ },
+ {
+  "code": "H52.532",
+  "description": "Spasm of accommodation, left eye",
+  "category": "Accommodation",
+  "synonyms": "focusing spasm left eye"
+ },
+ {
+  "code": "H52.533",
+  "description": "Spasm of accommodation, bilateral",
+  "category": "Accommodation",
+  "synonyms": "focusing spasm both eyes; accommodative spasm"
+ },
+ {
+  "code": "H52.6",
+  "description": "Other disorders of refraction",
+  "category": "Refraction",
+  "synonyms": "other refractive error"
+ },
+ {
+  "code": "H52.7",
+  "description": "Unspecified disorder of refraction",
+  "category": "Refraction",
+  "synonyms": "refractive error; needs spectacles; blurry vision; blurred vision; cannot see clearly; needs glasses"
+ },
+ {
+  "code": "H53.001",
+  "description": "Unspecified amblyopia, right eye",
+  "category": "Vision",
+  "synonyms": "lazy eye right; amblyopia OD"
+ },
+ {
+  "code": "H53.002",
+  "description": "Unspecified amblyopia, left eye",
+  "category": "Vision",
+  "synonyms": "lazy eye left; amblyopia OS"
+ },
+ {
+  "code": "H53.003",
+  "description": "Unspecified amblyopia, bilateral",
+  "category": "Vision",
+  "synonyms": "lazy eye both eyes"
+ },
+ {
+  "code": "H53.011",
+  "description": "Deprivation amblyopia, right eye",
+  "category": "Vision",
+  "synonyms": "deprivation lazy eye right"
+ },
+ {
+  "code": "H53.012",
+  "description": "Deprivation amblyopia, left eye",
+  "category": "Vision",
+  "synonyms": "deprivation lazy eye left"
+ },
+ {
+  "code": "H53.021",
+  "description": "Refractive amblyopia, right eye",
+  "category": "Vision",
+  "synonyms": "refractive lazy eye right"
+ },
+ {
+  "code": "H53.022",
+  "description": "Refractive amblyopia, left eye",
+  "category": "Vision",
+  "synonyms": "refractive lazy eye left"
+ },
+ {
+  "code": "H53.031",
+  "description": "Strabismic amblyopia, right eye",
+  "category": "Vision",
+  "synonyms": "squint related lazy eye right"
+ },
+ {
+  "code": "H53.032",
+  "description": "Strabismic amblyopia, left eye",
+  "category": "Vision",
+  "synonyms": "squint related lazy eye left"
+ },
+ {
+  "code": "H53.10",
+  "description": "Unspecified subjective visual disturbance",
+  "category": "Vision",
+  "synonyms": "vision problem; visual complaint; sees badly; blurry vision; blurred vision"
+ },
+ {
+  "code": "H53.11",
+  "description": "Day blindness",
+  "category": "Vision",
+  "synonyms": "hemeralopia; worse vision in bright light"
+ },
+ {
+  "code": "H53.12",
+  "description": "Transient visual loss",
+  "category": "Vision",
+  "synonyms": "sudden brief loss of vision; vision went black; blacked out vision"
+ },
+ {
+  "code": "H53.13",
+  "description": "Sudden visual loss",
+  "category": "Vision",
+  "synonyms": "sudden blindness; lost vision suddenly"
+ },
+ {
+  "code": "H53.14",
+  "description": "Visual discomfort",
+  "category": "Vision",
+  "synonyms": "eye strain; asthenopia; tired eyes; sore eyes reading"
+ },
+ {
+  "code": "H53.15",
+  "description": "Visual distortions of shape and size",
+  "category": "Vision",
+  "synonyms": "metamorphopsia; straight lines look bent; wavy vision"
+ },
+ {
+  "code": "H53.16",
+  "description": "Psychophysical visual disturbances",
+  "category": "Vision",
+  "synonyms": "visual perception disturbance"
+ },
+ {
+  "code": "H53.19",
+  "description": "Other subjective visual disturbances",
+  "category": "Vision",
+  "synonyms": "floaters; flashes; photopsia; halos around lights; glare"
+ },
+ {
+  "code": "H53.2",
+  "description": "Diplopia",
+  "category": "Vision",
+  "synonyms": "double vision; sees two of everything; seeing double"
+ },
+ {
+  "code": "H53.30",
+  "description": "Unspecified disorder of binocular vision",
+  "category": "Vision",
+  "synonyms": "binocular vision problem"
+ },
+ {
+  "code": "H53.31",
+  "description": "Abnormal retinal correspondence",
+  "category": "Vision",
+  "synonyms": "abnormal retinal correspondence"
+ },
+ {
+  "code": "H53.32",
+  "description": "Fusion with defective stereopsis",
+  "category": "Vision",
+  "synonyms": "poor depth perception; no 3D vision"
+ },
+ {
+  "code": "H53.33",
+  "description": "Simultaneous visual perception without fusion",
+  "category": "Vision",
+  "synonyms": "no fusion"
+ },
+ {
+  "code": "H53.34",
+  "description": "Suppression of binocular vision",
+  "category": "Vision",
+  "synonyms": "suppression"
+ },
+ {
+  "code": "H53.40",
+  "description": "Unspecified visual field defect",
+  "category": "Vision",
+  "synonyms": "visual field loss; missing part of vision; blind spot"
+ },
+ {
+  "code": "H53.411",
+  "description": "Scotoma involving central area, right eye",
+  "category": "Vision",
+  "synonyms": "central blind spot right eye"
+ },
+ {
+  "code": "H53.412",
+  "description": "Scotoma involving central area, left eye",
+  "category": "Vision",
+  "synonyms": "central blind spot left eye"
+ },
+ {
+  "code": "H53.413",
+  "description": "Scotoma involving central area, bilateral",
+  "category": "Vision",
+  "synonyms": "central blind spot both eyes"
+ },
+ {
+  "code": "H53.421",
+  "description": "Scotoma of blind spot area, right eye",
+  "category": "Vision",
+  "synonyms": "enlarged blind spot right eye"
+ },
+ {
+  "code": "H53.422",
+  "description": "Scotoma of blind spot area, left eye",
+  "category": "Vision",
+  "synonyms": "enlarged blind spot left eye"
+ },
+ {
+  "code": "H53.431",
+  "description": "Sector or arcuate defects, right eye",
+  "category": "Vision",
+  "synonyms": "arcuate field defect right eye; glaucoma field loss"
+ },
+ {
+  "code": "H53.432",
+  "description": "Sector or arcuate defects, left eye",
+  "category": "Vision",
+  "synonyms": "arcuate field defect left eye; glaucoma field loss"
+ },
+ {
+  "code": "H53.451",
+  "description": "Other localized visual field defect, right eye",
+  "category": "Vision",
+  "synonyms": "localised field defect right eye"
+ },
+ {
+  "code": "H53.452",
+  "description": "Other localized visual field defect, left eye",
+  "category": "Vision",
+  "synonyms": "localised field defect left eye"
+ },
+ {
+  "code": "H53.461",
+  "description": "Homonymous bilateral field defects, right side",
+  "category": "Vision",
+  "synonyms": "hemianopia right side; stroke visual field loss"
+ },
+ {
+  "code": "H53.462",
+  "description": "Homonymous bilateral field defects, left side",
+  "category": "Vision",
+  "synonyms": "hemianopia left side; stroke visual field loss"
+ },
+ {
+  "code": "H53.47",
+  "description": "Heteronymous bilateral field defects",
+  "category": "Vision",
+  "synonyms": "bitemporal hemianopia; tunnel vision from pituitary"
+ },
+ {
+  "code": "H53.481",
+  "description": "Generalized contraction of visual field, right eye",
+  "category": "Vision",
+  "synonyms": "tunnel vision right eye"
+ },
+ {
+  "code": "H53.482",
+  "description": "Generalized contraction of visual field, left eye",
+  "category": "Vision",
+  "synonyms": "tunnel vision left eye"
+ },
+ {
+  "code": "H53.50",
+  "description": "Unspecified color vision deficiency",
+  "category": "Vision",
+  "synonyms": "colour blind; color blindness; cannot tell colours apart"
+ },
+ {
+  "code": "H53.51",
+  "description": "Achromatopsia",
+  "category": "Vision",
+  "synonyms": "total colour blindness; sees only grey"
+ },
+ {
+  "code": "H53.52",
+  "description": "Acquired color vision deficiency",
+  "category": "Vision",
+  "synonyms": "acquired colour blindness"
+ },
+ {
+  "code": "H53.53",
+  "description": "Deuteranomaly",
+  "category": "Vision",
+  "synonyms": "green colour weakness; red green colour blindness"
+ },
+ {
+  "code": "H53.54",
+  "description": "Protanomaly",
+  "category": "Vision",
+  "synonyms": "red colour weakness; red green colour blindness"
+ },
+ {
+  "code": "H53.55",
+  "description": "Tritanomaly",
+  "category": "Vision",
+  "synonyms": "blue yellow colour weakness"
+ },
+ {
+  "code": "H53.60",
+  "description": "Unspecified night blindness",
+  "category": "Vision",
+  "synonyms": "night blindness; cannot see in the dark; nyctalopia"
+ },
+ {
+  "code": "H53.61",
+  "description": "Abnormal dark adaptation curve",
+  "category": "Vision",
+  "synonyms": "slow dark adaptation"
+ },
+ {
+  "code": "H53.62",
+  "description": "Acquired night blindness",
+  "category": "Vision",
+  "synonyms": "acquired night blindness"
+ },
+ {
+  "code": "H53.63",
+  "description": "Congenital night blindness",
+  "category": "Vision",
+  "synonyms": "congenital night blindness"
+ },
+ {
+  "code": "H53.71",
+  "description": "Glare sensitivity",
+  "category": "Vision",
+  "synonyms": "glare; light sensitivity; dazzled by headlights"
+ },
+ {
+  "code": "H53.72",
+  "description": "Impaired contrast sensitivity",
+  "category": "Vision",
+  "synonyms": "washed out vision; poor contrast"
+ },
+ {
+  "code": "H53.8",
+  "description": "Other visual disturbances",
+  "category": "Vision",
+  "synonyms": "other visual disturbance"
+ },
+ {
+  "code": "H53.9",
+  "description": "Unspecified visual disturbance",
+  "category": "Vision",
+  "synonyms": "vision disturbance; visual problem; blurry vision; blurred vision; cannot see clearly; poor sight"
+ },
+ {
+  "code": "H54.0",
+  "description": "Blindness, both eyes",
+  "category": "Vision",
+  "synonyms": "blind both eyes; total blindness"
+ },
+ {
+  "code": "H54.10",
+  "description": "Blindness, one eye, low vision other eye, unspecified eyes",
+  "category": "Vision",
+  "synonyms": "blind one eye low vision other"
+ },
+ {
+  "code": "H54.2",
+  "description": "Low vision, both eyes",
+  "category": "Vision",
+  "synonyms": "low vision; poor sight both eyes; partially sighted"
+ },
+ {
+  "code": "H54.3",
+  "description": "Unqualified visual loss, both eyes",
+  "category": "Vision",
+  "synonyms": "visual loss both eyes"
+ },
+ {
+  "code": "H54.40",
+  "description": "Blindness, one eye, unspecified eye",
+  "category": "Vision",
+  "synonyms": "blind in one eye"
+ },
+ {
+  "code": "H54.41",
+  "description": "Blindness, right eye, normal vision left eye",
+  "category": "Vision",
+  "synonyms": "blind right eye"
+ },
+ {
+  "code": "H54.42",
+  "description": "Blindness, left eye, normal vision right eye",
+  "category": "Vision",
+  "synonyms": "blind left eye"
+ },
+ {
+  "code": "H54.50",
+  "description": "Low vision, one eye, unspecified eye",
+  "category": "Vision",
+  "synonyms": "low vision one eye"
+ },
+ {
+  "code": "H54.7",
+  "description": "Unspecified visual loss",
+  "category": "Vision",
+  "synonyms": "visual loss; loss of sight"
+ },
+ {
+  "code": "H54.8",
+  "description": "Legal blindness, as defined in USA",
+  "category": "Vision",
+  "synonyms": "legal blindness"
+ },
+ {
+  "code": "H55.00",
+  "description": "Unspecified nystagmus",
+  "category": "Motility",
+  "synonyms": "nystagmus; wobbly eyes; shaking eyes; dancing eyes"
+ },
+ {
+  "code": "H55.01",
+  "description": "Congenital nystagmus",
+  "category": "Motility",
+  "synonyms": "congenital nystagmus"
+ },
+ {
+  "code": "H55.02",
+  "description": "Latent nystagmus",
+  "category": "Motility",
+  "synonyms": "latent nystagmus"
+ },
+ {
+  "code": "H55.03",
+  "description": "Latent nystagmus",
+  "category": "Motility",
+  "synonyms": "latent nystagmus"
+ },
+ {
+  "code": "H55.89",
+  "description": "Other irregular eye movements",
+  "category": "Motility",
+  "synonyms": "irregular eye movements"
+ },
+ {
+  "code": "H57.00",
+  "description": "Unspecified anomaly of pupillary function",
+  "category": "Pupil",
+  "synonyms": "pupil abnormality; unequal pupils"
+ },
+ {
+  "code": "H57.01",
+  "description": "Argyll Robertson pupil, atypical",
+  "category": "Pupil",
+  "synonyms": "Argyll Robertson pupil"
+ },
+ {
+  "code": "H57.02",
+  "description": "Anisocoria",
+  "category": "Pupil",
+  "synonyms": "unequal pupils; one pupil bigger"
+ },
+ {
+  "code": "H57.03",
+  "description": "Miosis",
+  "category": "Pupil",
+  "synonyms": "small pupil"
+ },
+ {
+  "code": "H57.04",
+  "description": "Mydriasis",
+  "category": "Pupil",
+  "synonyms": "large pupil; dilated pupil"
+ },
+ {
+  "code": "H57.10",
+  "description": "Ocular pain, unspecified eye",
+  "category": "Symptom",
+  "synonyms": "eye pain; sore eye; painful eye; aching eye"
+ },
+ {
+  "code": "H57.11",
+  "description": "Ocular pain, right eye",
+  "category": "Symptom",
+  "synonyms": "eye pain right; sore right eye"
+ },
+ {
+  "code": "H57.12",
+  "description": "Ocular pain, left eye",
+  "category": "Symptom",
+  "synonyms": "eye pain left; sore left eye"
+ },
+ {
+  "code": "H57.13",
+  "description": "Ocular pain, bilateral",
+  "category": "Symptom",
+  "synonyms": "eye pain both eyes; sore eyes"
+ },
+ {
+  "code": "H57.8A1",
+  "description": "Foreign body sensation, right eye",
+  "category": "Symptom",
+  "synonyms": "something in my right eye; gritty right eye; feels like sand"
+ },
+ {
+  "code": "H57.8A2",
+  "description": "Foreign body sensation, left eye",
+  "category": "Symptom",
+  "synonyms": "something in my left eye; gritty left eye"
+ },
+ {
+  "code": "H57.8A3",
+  "description": "Foreign body sensation, bilateral",
+  "category": "Symptom",
+  "synonyms": "something in my eyes; gritty eyes"
+ },
+ {
+  "code": "H57.9",
+  "description": "Unspecified disorder of eye and adnexa",
+  "category": "Symptom",
+  "synonyms": "eye problem; eye complaint"
+ },
+ {
+  "code": "H59.031",
+  "description": "Cystoid macular edema following cataract surgery, right eye",
+  "category": "Post-surgical",
+  "synonyms": "CMO after cataract surgery right eye; Irvine Gass"
+ },
+ {
+  "code": "H59.032",
+  "description": "Cystoid macular edema following cataract surgery, left eye",
+  "category": "Post-surgical",
+  "synonyms": "CMO after cataract surgery left eye"
+ },
+ {
+  "code": "H59.811",
+  "description": "Chorioretinal scars after surgery for detachment, right eye",
+  "category": "Post-surgical",
+  "synonyms": "scar after retinal detachment surgery right eye"
+ },
+ {
+  "code": "Q10.0",
+  "description": "Congenital ptosis",
+  "category": "Congenital",
+  "synonyms": "congenital droopy eyelid"
+ },
+ {
+  "code": "Q10.5",
+  "description": "Congenital stenosis and stricture of lacrimal duct",
+  "category": "Congenital",
+  "synonyms": "congenital blocked tear duct"
+ },
+ {
+  "code": "Q12.0",
+  "description": "Congenital cataract",
+  "category": "Congenital",
+  "synonyms": "congenital cataract; white pupil newborn"
+ },
+ {
+  "code": "Q13.0",
+  "description": "Coloboma of iris",
+  "category": "Congenital",
+  "synonyms": "iris coloboma; keyhole pupil"
+ },
+ {
+  "code": "Q15.0",
+  "description": "Congenital glaucoma",
+  "category": "Congenital",
+  "synonyms": "congenital glaucoma; buphthalmos; big cloudy eye baby"
+ },
+ {
+  "code": "S05.00XA",
+  "description": "Injury of conjunctiva and corneal abrasion without foreign body, unspecified eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "corneal abrasion; scratched eye; eye injury"
+ },
+ {
+  "code": "S05.01XA",
+  "description": "Injury of conjunctiva and corneal abrasion without foreign body, right eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "corneal abrasion right eye; scratched right eye"
+ },
+ {
+  "code": "S05.02XA",
+  "description": "Injury of conjunctiva and corneal abrasion without foreign body, left eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "corneal abrasion left eye; scratched left eye"
+ },
+ {
+  "code": "S05.11XA",
+  "description": "Contusion of eyeball and orbital tissues, right eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "black eye right; blunt eye injury right"
+ },
+ {
+  "code": "S05.12XA",
+  "description": "Contusion of eyeball and orbital tissues, left eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "black eye left; blunt eye injury left"
+ },
+ {
+  "code": "T15.01XA",
+  "description": "Foreign body in cornea, right eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "foreign body in right cornea; metal in the eye"
+ },
+ {
+  "code": "T15.02XA",
+  "description": "Foreign body in cornea, left eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "foreign body in left cornea; metal in the eye"
+ },
+ {
+  "code": "T15.11XA",
+  "description": "Foreign body in conjunctival sac, right eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "foreign body under right eyelid"
+ },
+ {
+  "code": "T15.12XA",
+  "description": "Foreign body in conjunctival sac, left eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "foreign body under left eyelid"
+ },
+ {
+  "code": "T26.10XA",
+  "description": "Burn of cornea and conjunctival sac, unspecified eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "eye burn; welding flash burn"
+ },
+ {
+  "code": "T26.60XA",
+  "description": "Corrosion of cornea and conjunctival sac, unspecified eye, initial encounter",
+  "category": "Injury",
+  "synonyms": "chemical eye burn; acid or alkali in the eye"
+ },
+ {
+  "code": "Z01.00",
+  "description": "Encounter for examination of eyes and vision without abnormal findings",
+  "category": "Encounter",
+  "synonyms": "routine eye exam; normal eye check; annual check up"
+ },
+ {
+  "code": "Z01.01",
+  "description": "Encounter for examination of eyes and vision with abnormal findings",
+  "category": "Encounter",
+  "synonyms": "eye exam with abnormal findings"
+ },
+ {
+  "code": "Z13.5",
+  "description": "Encounter for screening for eye and ear disorders",
+  "category": "Encounter",
+  "synonyms": "vision screening"
+ },
+ {
+  "code": "Z94.7",
+  "description": "Corneal transplant status",
+  "category": "Encounter",
+  "synonyms": "corneal graft; had a corneal transplant"
+ },
+ {
+  "code": "Z96.1",
+  "description": "Presence of intraocular lens",
+  "category": "Encounter",
+  "synonyms": "pseudophakia; artificial lens; had cataract surgery; IOL"
+ },
+ {
+  "code": "Z97.3",
+  "description": "Presence of spectacles and contact lenses",
+  "category": "Encounter",
+  "synonyms": "wears glasses; wears contact lenses"
+ },
+ {
+  "code": "Z98.83",
+  "description": "Filtering (vent) bleb after glaucoma surgery status",
+  "category": "Encounter",
+  "synonyms": "trabeculectomy bleb; had glaucoma surgery"
+ }
+]

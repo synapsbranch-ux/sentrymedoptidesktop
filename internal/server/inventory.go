@@ -27,6 +27,11 @@ type inventoryPayload struct {
 	ReorderLevel   int            `json:"reorderLevel"`
 	TrackStock     bool           `json:"trackStock"`
 	ProcedureCode  string         `json:"procedureCode"`
+	// A service the clinic sells can also be booked: how long it takes and
+	// whether it appears as an appointment type live with the price rather than
+	// being retyped on the scheduling screen.
+	DurationMinutes int  `json:"durationMinutes"`
+	Bookable        bool `json:"bookable"`
 }
 
 func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +51,13 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 	if lowStock {
 		where += " AND track_stock=1 AND quantity<=reorder_level"
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,COALESCE(procedure_code,''),version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT 1000`, args...)
+	paging := paginationFrom(r, 50, 200)
+	itemCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM inventory_items WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,COALESCE(procedure_code,''),duration_minutes,bookable,version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
 		return
@@ -56,15 +67,15 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, sku, barcode, category, name, brand, model, attributes, supplierID, currency, procedureCode, updatedAt string
 		var cost, price int64
-		var quantity, reorder, version int
-		var tracked bool
-		if err := rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &procedureCode, &version, &updatedAt); err != nil {
+		var quantity, reorder, version, duration int
+		var tracked, bookable bool
+		if err := rows.Scan(&id, &sku, &barcode, &category, &name, &brand, &model, &attributes, &supplierID, &cost, &price, &currency, &quantity, &reorder, &tracked, &procedureCode, &duration, &bookable, &version, &updatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
 			return
 		}
-		items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
+		items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "durationMinutes": duration, "bookable": bookable, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(itemCount)))
 }
 
 func (s *Server) handleInventoryCreate(w http.ResponseWriter, r *http.Request) {
@@ -79,13 +90,21 @@ func (s *Server) handleInventoryCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_INVENTORY_ITEM", "SKU, name, valid category, and non-negative amounts are required.")
 		return
 	}
+	if input.DurationMinutes < 0 || input.DurationMinutes > 24*60 {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_SERVICE_DURATION", "A service duration must be between 0 minutes and 24 hours.")
+		return
+	}
+	if input.Bookable && input.Category != "service" {
+		writeError(w, http.StatusUnprocessableEntity, "ONLY_SERVICES_ARE_BOOKABLE", "Only a service can be offered as an appointment type.")
+		return
+	}
 	if input.Currency == "" {
 		input.Currency = "HTG"
 	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(r.Context(), `INSERT INTO inventory_items(id,sku,barcode,category,name,brand,model,attributes_json,supplier_id,cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,procedure_code,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, input.SKU, nilIfEmpty(input.Barcode), input.Category, input.Name, nilIfEmpty(input.Brand), nilIfEmpty(input.Model), marshalJSON(input.Attributes), nilIfEmpty(input.SupplierID), input.CostMinor, input.SalePriceMinor, strings.ToUpper(input.Currency), input.Quantity, input.ReorderLevel, boolInt(input.TrackStock), nilIfEmpty(input.ProcedureCode), now, now, user.ID)
+		_, err := tx.ExecContext(r.Context(), `INSERT INTO inventory_items(id,sku,barcode,category,name,brand,model,attributes_json,supplier_id,cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,procedure_code,duration_minutes,bookable,created_at,updated_at,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, input.SKU, nilIfEmpty(input.Barcode), input.Category, input.Name, nilIfEmpty(input.Brand), nilIfEmpty(input.Model), marshalJSON(input.Attributes), nilIfEmpty(input.SupplierID), input.CostMinor, input.SalePriceMinor, strings.ToUpper(input.Currency), input.Quantity, input.ReorderLevel, boolInt(input.TrackStock), nilIfEmpty(input.ProcedureCode), input.DurationMinutes, boolInt(input.Bookable), now, now, user.ID)
 		if err != nil {
 			return err
 		}

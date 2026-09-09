@@ -23,7 +23,8 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - manual offline insurance claims, insurer payments and receivable aging;
 - guided refunds, automatic credit notes and transactional product returns;
 - optical lab Kanban, advanced fitting values, QC gate and delivery status;
-- expenses, financial summaries, live charts and branded report/CSV/PDF-print export;
+- income ledger fed automatically from every payment, refund and insurer remittance, plus manual entries, quotes convertible to invoices, expenses, financial summaries, an end-to-end profit and loss view, live charts and branded report/CSV/PDF-print export;
+- staff records for employees and contractors, clock-in/out and manual attendance, payroll runs with per-employee payslips and templated contracts;
 - clinic-wide search, audit logs and configurable clinic identity;
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
 - installable, touch-first PWA with compact header, drawer and bottom navigation;
@@ -41,6 +42,27 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 ## Consultation recording and transcription
 
 A doctor or nurse can record a consultation from the "Recording" tab of an encounter. The patient's consent must be confirmed with a checkbox before recording starts; every recording (and who confirmed consent) is written to the audit log. Audio is stored locally under the clinic data directory and is never uploaded anywhere by SentryMed itself.
+
+### Recording from the desktop window on Linux
+
+The desktop application embeds a WebKitGTK webview, and that webview declines
+microphone access without ever showing a prompt. A doctor who selects **Start
+recording** in the desktop window on Linux therefore sees "Recording is not
+available on this device yet" no matter what the operating system's own
+microphone settings say — there is no permission to grant, because nothing was
+ever asked.
+
+The recording panel detects this and offers **Open in browser to record**, which
+opens the same consultation at the clinic's local address in the computer's own
+browser. The browser does prompt for the microphone, and the recording is saved
+to the same consultation and appears in the desktop window as soon as it is
+uploaded. Everything else in the desktop window keeps working normally.
+
+Windows and macOS desktop builds, and every LAN browser, prompt for the
+microphone in the usual way; only the Linux desktop window needs the browser
+fallback. Recording over the LAN requires the clinic's `https://` address, since
+browsers refuse the microphone on a plain `http://` page from anywhere except
+the computer's own localhost.
 
 Automatic transcription is optional and off by default. When enabled (**System → Clinic → Consultation recording & transcription**), the server runs a command you configure entirely on the clinic computer — no cloud speech API is called. A ready-to-use, offline, English-language reference implementation is included at `scripts/transcribe_pocketsphinx.py`:
 
@@ -65,6 +87,25 @@ The same session also runs two other tests on the lane screen:
 
 - **Colour vision screening.** Pseudo-isochromatic plates are generated rather than reproduced — the published Ishihara plates are copyrighted, and a scan would print at whatever size and colour the screen happened to render. Figure and ground share lightness and differ along the red-green confusion axis, so the number separates by hue alone. The expected number is shown only on the examiner's phone, never on the patient's screen. These plates flag a likely red-green deficiency for referral; they do not classify or grade one, and a normal result does not rule out a subtle defect.
 - **Amsler grid.** The patient traces distortions directly on the lane screen with a finger, the examiner sees the tracing appear on the phone, and the doctor decides whether it enters the record. Saved grids show up on the consultation's **Charts → Amsler** tab with the previous visit behind them in grey, so a scotoma that grew reads as a change.
+
+## Printing
+
+Receipts and documents print through two separate paths, because they go to two
+different printers with two different page geometries.
+
+- **Till receipts** render into an isolated frame with its own `@page { size:
+  58mm auto | 80mm auto; margin: 0 }` rule and a monospace, single-column
+  layout. The clinic application's own stylesheet never reaches that document,
+  so nothing about the screen layout can widen a receipt.
+- **Everything else** — invoices, quotes, prescriptions, lab orders and
+  requisitions, patient summaries, reports — renders on the page inside a
+  `.print-area.document-print` element and prints at A4 or US Letter with
+  margins.
+
+Both paper choices are set under **System → Clinic → Printing**, independently:
+a clinic can have a thermal roll and no A4 printer, or the reverse. There is
+deliberately no single generic "print this page" call, because one page
+geometry cannot serve both without being wrong for one of them.
 
 ## Architecture
 

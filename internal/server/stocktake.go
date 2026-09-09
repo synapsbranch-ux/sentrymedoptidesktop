@@ -23,9 +23,15 @@ func (s *Server) handleStockTakesList(w http.ResponseWriter, r *http.Request) {
 		where += " AND st.status=?"
 		args = append(args, status)
 	}
+	paging := paginationFrom(r, 50, 200)
+	sessionCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM stock_take_sessions st WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "STOCK_TAKE_LIST_FAILED", "Could not load stock takes.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT st.id,st.stock_take_number,st.status,COALESCE(st.category,''),COALESCE(st.notes,''),st.version,st.started_at,COALESCE(st.completed_at,''),u.display_name,COUNT(si.id),COALESCE(SUM(CASE WHEN si.counted_quantity IS NOT NULL THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN si.counted_quantity IS NOT NULL AND si.counted_quantity<>si.expected_quantity THEN 1 ELSE 0 END),0)
 		FROM stock_take_sessions st JOIN users u ON u.id=st.created_by LEFT JOIN stock_take_items si ON si.stock_take_id=st.id
-		WHERE `+where+` GROUP BY st.id ORDER BY st.started_at DESC LIMIT 250`, args...)
+		WHERE `+where+` GROUP BY st.id ORDER BY st.started_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "STOCK_TAKE_LIST_FAILED", "Could not load stock takes.")
 		return
@@ -41,7 +47,7 @@ func (s *Server) handleStockTakesList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "stockTakeNumber": number, "status": takeStatus, "category": category, "notes": notes, "version": version, "startedAt": startedAt, "completedAt": completedAt, "createdBy": createdBy, "itemCount": itemCount, "countedCount": countedCount, "differenceCount": differenceCount})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(sessionCount)))
 }
 
 func (s *Server) handleStockTakeGet(w http.ResponseWriter, r *http.Request) {

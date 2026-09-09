@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { describeMicrophoneFailure, inspectMicrophoneEnvironment } from "./microphone";
 
-const secure = { isSecureContext: true, hasMediaDevices: true, hasMediaRecorder: true, origin: "https://clinic.local:8787", policyAllowsMicrophone: true };
+const secure = { isSecureContext: true, hasMediaDevices: true, hasMediaRecorder: true, origin: "https://clinic.local:8787", policyAllowsMicrophone: true, isDesktopShell: false, platform: "linux" };
 const insecure = { ...secure, isSecureContext: false, origin: "http://192.168.1.20:8787" };
 
 function domError(name: string) {
@@ -28,6 +28,22 @@ describe("microphone availability", () => {
 
   it("allows the request when nothing is known to block it", () => {
     expect(inspectMicrophoneEnvironment(secure)).toBeNull();
+  });
+
+  // The desktop window has no address bar, so "open the padlock menu" is not an
+  // instruction anyone there can follow.
+  it("gives the desktop window its own instruction, not the browser one", () => {
+    const desktop = { ...secure, isSecureContext: false, isDesktopShell: true };
+    const problem = inspectMicrophoneEnvironment(desktop);
+    expect(problem?.reason).toBe("desktop_shell_blocked");
+    expect(problem?.guidance).not.toContain("address bar");
+    expect(problem?.guidance).toContain("Open in browser to record");
+  });
+
+  it("treats a refusal inside the desktop window as the desktop problem", () => {
+    const problem = describeMicrophoneFailure(domError("NotAllowedError"), { ...secure, isDesktopShell: true });
+    expect(problem.reason).toBe("desktop_shell_blocked");
+    expect(problem.guidance).toContain("Open in browser to record");
   });
 });
 

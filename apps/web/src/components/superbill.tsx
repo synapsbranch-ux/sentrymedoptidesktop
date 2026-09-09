@@ -104,7 +104,7 @@ function SuperbillDialog({ encounterId }: { encounterId: string }) {
           <InvoiceLinker encounterId={encounterId} onLinked={superbill.reload} />
         </div>
       )}
-      <div className="print-area rounded-lg border p-5">
+      <div className="print-area document-print rounded-lg border p-5">
         <PrintHeader documentTitle="Superbill" number={data.patient.medicalRecordNumber} date={dateTime(data.visitDate)} />
         <div className="mt-5 grid gap-1 text-sm">
           <div><strong>Patient:</strong> {data.patient.name} ({data.patient.medicalRecordNumber})</div>

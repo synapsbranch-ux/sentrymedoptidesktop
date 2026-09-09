@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { useLoad } from "../hooks";
+import { useLoad, usePagedList } from "../hooks";
 import { dateTime, money } from "../lib";
 import { useRealtime } from "../realtime";
 import { PrintHeader, triggerPrint } from "../components/print";
@@ -35,6 +35,7 @@ import {
   Badge,
   EmptyState,
   ErrorState,
+  Pager,
   Skeleton,
   Table,
   Td,
@@ -74,10 +75,7 @@ export function BillingPage() {
   const { revision } = useRealtime();
   const [selectedID, setSelectedID] = React.useState<string | null>(null);
   const [registerOpen, setRegisterOpen] = React.useState(false);
-  const invoices = useLoad(
-    () => api.get<{ items: Invoice[] }>("/invoices"),
-    [revision],
-  );
+  const invoices = usePagedList<Invoice>((page, limit) => `/invoices?page=${page}&limit=${limit}`, [revision]);
   const register = useLoad(
     () =>
       api.get<{
@@ -104,11 +102,15 @@ export function BillingPage() {
             Payments are immutable records; balances are always derived.
           </p>
         </div>
-        <Button variant="outline" onClick={() => setRegisterOpen(true)}>
-          <Wallet className="h-4 w-4" />
-          {register.data?.open ? "Close register" : "Open register"}
-        </Button>
+        <div className="flex gap-2">
+          {register.data?.open && register.data.id && <RegisterReportButton sessionId={register.data.id} />}
+          <Button variant="outline" onClick={() => setRegisterOpen(true)}>
+            <Wallet className="h-4 w-4" />
+            {register.data?.open ? "Close register" : "Open register"}
+          </Button>
+        </div>
       </div>
+      <SalesHistory />
       <Card className="mt-6 overflow-hidden">
         <CardHeader>
           <CardTitle>Invoices</CardTitle>
@@ -127,7 +129,7 @@ export function BillingPage() {
               retry={invoices.reload}
             />
           </div>
-        ) : invoices.data?.items.length ? (
+        ) : invoices.items.length ? (
           <>
             <div className="hidden md:block">
               <Table>
@@ -143,7 +145,7 @@ export function BillingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.data.items.map((item) => (
+                  {invoices.items.map((item) => (
                     <tr
                       key={item.id}
                       onClick={() => setSelectedID(item.id)}
@@ -184,7 +186,7 @@ export function BillingPage() {
               </Table>
             </div>
             <div className="divide-y md:hidden">
-              {invoices.data.items.map((item) => (
+              {invoices.items.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setSelectedID(item.id)}
@@ -210,6 +212,7 @@ export function BillingPage() {
                 </button>
               ))}
             </div>
+            <Pager page={invoices.page} pageSize={invoices.pageSize} total={invoices.total} hasMore={invoices.hasMore} onPrevious={invoices.previous} onNext={invoices.next} />
           </>
         ) : (
           <EmptyState
@@ -337,7 +340,7 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
           </Button>
         </div>
       </DialogHeader>
-      <div className="print-area rounded-lg border p-5">
+      <div className="print-area document-print rounded-lg border p-5">
         <PrintHeader
           documentTitle="Invoice"
           number={invoice.invoiceNumber}
@@ -702,4 +705,79 @@ function RegisterForm({
       </form>
     </DialogContent>
   );
+}
+
+interface SaleRow { id: string; invoiceNumber: string; patientName: string; status: string; currency: string; totalMinor: number; paidMinor: number; refundedMinor: number; balanceMinor: number; cashier: string; paymentMethods: string[]; createdAt: string }
+
+/**
+ * What the till has actually sold, filterable the way a cashier or a manager
+ * asks the question — by day, by who was on the register, by how it was paid.
+ * Every filter is applied on the server, so this stays usable at any volume.
+ */
+function SalesHistory() {
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [cashierId, setCashierId] = React.useState("");
+  const [paymentMethodId, setPaymentMethodId] = React.useState("");
+  const users = useLoad(() => api.get<{ items: { id: string; displayName: string }[] }>("/users"), []);
+  const methods = useLoad(() => api.get<{ items: { id: string; name: string }[] }>("/payment-methods"), []);
+  const sales = usePagedList<SaleRow>(
+    (page, limit) => `/pos/sales?from=${from}&to=${to}&cashierId=${cashierId}&paymentMethodId=${paymentMethodId}&page=${page}&limit=${limit}`,
+    [from, to, cashierId, paymentMethodId],
+  );
+  return <Card className="mt-6 overflow-hidden">
+    <CardHeader><CardTitle>Sales history</CardTitle><CardDescription>Every sale the till has rung up, with what has been paid against it.</CardDescription></CardHeader>
+    <CardContent>
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="From"><Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></Field>
+        <Field label="To"><Input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></Field>
+        <Field label="Cashier"><Select value={cashierId} onChange={(event) => setCashierId(event.target.value)}><option value="">Anyone</option>{users.data?.items.map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</Select></Field>
+        <Field label="Payment method"><Select value={paymentMethodId} onChange={(event) => setPaymentMethodId(event.target.value)}><option value="">Any method</option>{methods.data?.items.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</Select></Field>
+      </div>
+      {sales.loading ? <Skeleton className="h-64" /> : sales.error ? <ErrorState message={sales.error.message} retry={sales.reload} /> : sales.items.length ? <>
+        <Table>
+          <thead><tr><Th>Sale</Th><Th>Customer</Th><Th>Cashier</Th><Th>Paid with</Th><Th>Total</Th><Th>Outstanding</Th><Th>When</Th></tr></thead>
+          <tbody>{sales.items.map((sale) => <tr key={sale.id}>
+            <Td className="font-mono text-xs font-bold">{sale.invoiceNumber}</Td>
+            <Td>{sale.patientName}</Td>
+            <Td>{sale.cashier}</Td>
+            <Td>{sale.paymentMethods.length ? sale.paymentMethods.join(", ") : <Badge tone="warning">Unpaid</Badge>}</Td>
+            <Td className="font-mono">{money(sale.totalMinor, sale.currency)}</Td>
+            <Td className="font-mono font-bold">{money(sale.balanceMinor, sale.currency)}</Td>
+            <Td className="text-xs text-zinc-500">{dateTime(sale.createdAt)}</Td>
+          </tr>)}</tbody>
+        </Table>
+        <Pager page={sales.page} pageSize={sales.pageSize} total={sales.total} hasMore={sales.hasMore} onPrevious={sales.previous} onNext={sales.next} />
+      </> : <EmptyState title="No sales in this range" description="Widen the dates or clear the filters." />}
+    </CardContent>
+  </Card>;
+}
+
+interface RegisterReport { currency: string; openingFloatMinor: number; openedBy: string; salesCount: number; takingsMinor: number; refundsMinor: number; netMinor: number; expectedCashMinor: number; byMethod: { method: string; payments: number; amountMinor: number; refundedMinor: number; netMinor: number }[] }
+
+/** The end-of-day Z-report, readable before the drawer is counted. */
+function RegisterReportButton({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = React.useState(false);
+  return <>
+    <Button variant="outline" onClick={() => setOpen(true)}><Receipt className="h-4 w-4" />Z-report</Button>
+    <Dialog open={open} onOpenChange={setOpen}>{open && <RegisterReportView sessionId={sessionId} />}</Dialog>
+  </>;
+}
+
+function RegisterReportView({ sessionId }: { sessionId: string }) {
+  const report = useLoad(() => api.get<RegisterReport>(`/cash-register/${sessionId}/report`), [sessionId]);
+  return <DialogContent>
+    <DialogHeader><DialogTitle>Register report</DialogTitle><DialogDescription>What this register has taken since it was opened, and what the drawer should hold if it were counted now.</DialogDescription></DialogHeader>
+    {report.loading ? <Skeleton className="h-56" /> : report.error || !report.data ? <ErrorState message={report.error?.message ?? "Report unavailable"} retry={report.reload} /> : <div className="grid gap-4">
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        {([["Opened by", report.data.openedBy], ["Sales", String(report.data.salesCount)], ["Opening float", money(report.data.openingFloatMinor, report.data.currency)], ["Taken", money(report.data.takingsMinor, report.data.currency)], ["Refunded", money(report.data.refundsMinor, report.data.currency)], ["Expected cash in drawer", money(report.data.expectedCashMinor, report.data.currency)]] as const).map(([label, value]) => (
+          <div key={label}><div className="text-xs font-bold uppercase text-zinc-500">{label}</div><div className="mt-1 font-mono font-bold">{value}</div></div>
+        ))}
+      </div>
+      <Table>
+        <thead><tr><Th>Method</Th><Th>Payments</Th><Th>Taken</Th><Th>Refunded</Th><Th>Net</Th></tr></thead>
+        <tbody>{report.data.byMethod.map((line) => <tr key={line.method}><Td>{line.method}</Td><Td className="font-mono">{line.payments}</Td><Td className="font-mono">{money(line.amountMinor, report.data!.currency)}</Td><Td className="font-mono">{money(line.refundedMinor, report.data!.currency)}</Td><Td className="font-mono font-bold">{money(line.netMinor, report.data!.currency)}</Td></tr>)}</tbody>
+      </Table>
+    </div>}
+  </DialogContent>;
 }

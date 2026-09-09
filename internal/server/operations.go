@@ -38,6 +38,7 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.Post("/invoices/{id}/payments", s.handlePaymentCreate)
 	r.With(s.requireDoctor).Post("/payments/{id}/refunds", s.handleRefundCreate)
 	r.Post("/pos/checkout", s.handlePOSCheckout)
+	s.registerPOSRoutes(r)
 	r.Get("/payment-methods", s.handlePaymentMethodsList)
 	r.Get("/cash-register", s.handleCashRegisterCurrent)
 	r.Post("/cash-register/open", s.handleCashRegisterOpen)

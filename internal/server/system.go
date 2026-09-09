@@ -367,10 +367,15 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 		var value struct {
 			TranscriptionEnabled bool                       `json:"transcriptionEnabled"`
 			TranscriptionCommand string                     `json:"transcriptionCommand"`
+			PretestPolicy        string                     `json:"pretestPolicy"`
 			Analytics            *clinicalAnalyticsSettings `json:"analytics"`
 		}
 		if json.Unmarshal(raw, &value) != nil || len(value.TranscriptionCommand) > 1000 {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_SETTING", "Clinical settings are invalid.")
+			return
+		}
+		if value.PretestPolicy != "" && value.PretestPolicy != "required" && value.PretestPolicy != "optional" {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_PRETEST_POLICY", "The pre-test policy must be either required or optional.")
 			return
 		}
 		if value.TranscriptionCommand != "" {

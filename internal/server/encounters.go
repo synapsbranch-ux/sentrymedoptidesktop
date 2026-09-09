@@ -38,7 +38,7 @@ func (s *Server) handleEncountersList(w http.ResponseWriter, r *http.Request) {
 		where += " AND e.patient_id=?"
 		args = append(args, patientID)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT e.id,e.encounter_number,e.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(e.appointment_id,''),COALESCE(e.doctor_id,''),COALESCE(u.display_name,''),COALESCE(e.visit_reason,''),COALESCE(e.chief_complaint,''),COALESCE(e.assessment,''),e.status,COALESCE(e.finalized_at,''),e.version,e.created_at,e.updated_at
+	rows, err := s.db.QueryContext(r.Context(), `SELECT e.id,e.encounter_number,e.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(e.appointment_id,''),COALESCE(e.doctor_id,''),COALESCE(u.display_name,''),COALESCE(e.visit_reason,''),COALESCE(e.chief_complaint,''),COALESCE(e.assessment,''),e.status,e.workflow_stage,COALESCE(e.finalized_at,''),e.version,e.created_at,e.updated_at
 		FROM encounters e JOIN patients p ON p.id=e.patient_id LEFT JOIN users u ON u.id=e.doctor_id WHERE `+where+` ORDER BY e.created_at DESC LIMIT 500`, args...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LIST_FAILED", "Could not load consultations.")
@@ -47,13 +47,13 @@ func (s *Server) handleEncountersList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, number, patientID, mrn, patientName, appointmentID, doctorID, doctorName, reason, complaint, assessment, status, finalizedAt, createdAt, updatedAt string
+		var id, number, patientID, mrn, patientName, appointmentID, doctorID, doctorName, reason, complaint, assessment, status, workflowStage, finalizedAt, createdAt, updatedAt string
 		var version int
-		if err := rows.Scan(&id, &number, &patientID, &mrn, &patientName, &appointmentID, &doctorID, &doctorName, &reason, &complaint, &assessment, &status, &finalizedAt, &version, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&id, &number, &patientID, &mrn, &patientName, &appointmentID, &doctorID, &doctorName, &reason, &complaint, &assessment, &status, &workflowStage, &finalizedAt, &version, &createdAt, &updatedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, "ENCOUNTER_LIST_FAILED", "Could not load consultations.")
 			return
 		}
-		items = append(items, map[string]any{"id": id, "encounterNumber": number, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "appointmentId": appointmentID, "doctorId": doctorID, "doctorName": doctorName, "visitReason": reason, "chiefComplaint": complaint, "assessment": assessment, "status": status, "finalizedAt": finalizedAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
+		items = append(items, map[string]any{"id": id, "encounterNumber": number, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "appointmentId": appointmentID, "doctorId": doctorID, "doctorName": doctorName, "visitReason": reason, "chiefComplaint": complaint, "assessment": assessment, "status": status, "workflowStage": workflowStage, "finalizedAt": finalizedAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -74,6 +74,13 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 	if user.Role == "doctor" {
 		doctorID = user.ID
 	}
+	// A consultation opens in the pre-test stage and moves on when the pre-test is
+	// completed or skipped. A doctor starting the consultation themself is already
+	// past that point, so the record is not parked in a stage nobody will clear.
+	stage, queueStage := stagePreTest, "pre_test"
+	if user.Role == "doctor" {
+		stage, queueStage = stageDoctorExam, "in_consultation"
+	}
 	var number string
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
@@ -85,8 +92,8 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 			patientLink{"SELECT patient_id FROM appointments WHERE id=? AND archived_at IS NULL AND status NOT IN ('cancelled','completed','no_show')", input.AppointmentID}); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO encounters(id,encounter_number,patient_id,appointment_id,doctor_id,visit_reason,chief_complaint,hpi,assessment,treatment_plan,follow_up,status,created_at,updated_at,created_by,updated_by)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.AppointmentID), doctorID, nilIfEmpty(input.VisitReason), nilIfEmpty(input.ChiefComplaint), nilIfEmpty(input.HPI), nilIfEmpty(input.Assessment), nilIfEmpty(input.TreatmentPlan), nilIfEmpty(input.FollowUp), now, now, user.ID, user.ID)
+		_, err = tx.ExecContext(r.Context(), `INSERT INTO encounters(id,encounter_number,patient_id,appointment_id,doctor_id,visit_reason,chief_complaint,hpi,assessment,treatment_plan,follow_up,status,workflow_stage,created_at,updated_at,created_by,updated_by)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.AppointmentID), doctorID, nilIfEmpty(input.VisitReason), nilIfEmpty(input.ChiefComplaint), nilIfEmpty(input.HPI), nilIfEmpty(input.Assessment), nilIfEmpty(input.TreatmentPlan), nilIfEmpty(input.FollowUp), stage, now, now, user.ID, user.ID)
 		if err != nil {
 			return err
 		}
@@ -98,7 +105,7 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		_, err = tx.ExecContext(r.Context(), "UPDATE queue_entries SET encounter_id=?,stage='in_consultation',version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND completed_at IS NULL", id, now, user.ID, input.PatientID)
+		_, err = tx.ExecContext(r.Context(), "UPDATE queue_entries SET encounter_id=?,stage=?,version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND completed_at IS NULL", id, queueStage, now, user.ID, input.PatientID)
 		return err
 	})
 	if err != nil {
@@ -111,18 +118,18 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r.Context(), &user, "create", "encounter", id, "Started consultation "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "consultation.created", EntityType: "encounter", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "encounterNumber": number, "status": "draft", "version": 1, "pretestVersion": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "encounterNumber": number, "status": "draft", "version": 1, "pretestVersion": 1, "workflowStage": stage})
 }
 
 func (s *Server) handleEncounterGet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var encounter struct {
-		ID, Number, PatientID, PatientName, AppointmentID, DoctorID, DoctorName, VisitReason, ChiefComplaint, HPI, Assessment, TreatmentPlan, FollowUp, Status, FinalizedAt, CreatedAt, UpdatedAt string
-		Version                                                                                                                                                                                   int
+		ID, Number, PatientID, PatientName, AppointmentID, DoctorID, DoctorName, VisitReason, ChiefComplaint, HPI, Assessment, TreatmentPlan, FollowUp, Status, WorkflowStage, FinalizedAt, CreatedAt, UpdatedAt string
+		Version                                                                                                                                                                                                  int
 	}
-	err := s.db.QueryRowContext(r.Context(), `SELECT e.id,e.encounter_number,e.patient_id,p.first_name||' '||p.last_name,COALESCE(e.appointment_id,''),COALESCE(e.doctor_id,''),COALESCE(u.display_name,''),COALESCE(e.visit_reason,''),COALESCE(e.chief_complaint,''),COALESCE(e.hpi,''),COALESCE(e.assessment,''),COALESCE(e.treatment_plan,''),COALESCE(e.follow_up,''),e.status,COALESCE(e.finalized_at,''),e.version,e.created_at,e.updated_at
+	err := s.db.QueryRowContext(r.Context(), `SELECT e.id,e.encounter_number,e.patient_id,p.first_name||' '||p.last_name,COALESCE(e.appointment_id,''),COALESCE(e.doctor_id,''),COALESCE(u.display_name,''),COALESCE(e.visit_reason,''),COALESCE(e.chief_complaint,''),COALESCE(e.hpi,''),COALESCE(e.assessment,''),COALESCE(e.treatment_plan,''),COALESCE(e.follow_up,''),e.status,e.workflow_stage,COALESCE(e.finalized_at,''),e.version,e.created_at,e.updated_at
 		FROM encounters e JOIN patients p ON p.id=e.patient_id LEFT JOIN users u ON u.id=e.doctor_id WHERE e.id=? AND e.archived_at IS NULL`, id).
-		Scan(&encounter.ID, &encounter.Number, &encounter.PatientID, &encounter.PatientName, &encounter.AppointmentID, &encounter.DoctorID, &encounter.DoctorName, &encounter.VisitReason, &encounter.ChiefComplaint, &encounter.HPI, &encounter.Assessment, &encounter.TreatmentPlan, &encounter.FollowUp, &encounter.Status, &encounter.FinalizedAt, &encounter.Version, &encounter.CreatedAt, &encounter.UpdatedAt)
+		Scan(&encounter.ID, &encounter.Number, &encounter.PatientID, &encounter.PatientName, &encounter.AppointmentID, &encounter.DoctorID, &encounter.DoctorName, &encounter.VisitReason, &encounter.ChiefComplaint, &encounter.HPI, &encounter.Assessment, &encounter.TreatmentPlan, &encounter.FollowUp, &encounter.Status, &encounter.WorkflowStage, &encounter.FinalizedAt, &encounter.Version, &encounter.CreatedAt, &encounter.UpdatedAt)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "ENCOUNTER_NOT_FOUND", "Consultation was not found.")
 		return
@@ -137,12 +144,16 @@ func (s *Server) handleEncounterGet(w http.ResponseWriter, r *http.Request) {
 		"chiefComplaint": encounter.ChiefComplaint, "hpi": encounter.HPI, "assessment": encounter.Assessment, "treatmentPlan": encounter.TreatmentPlan,
 		"followUp": encounter.FollowUp, "status": encounter.Status, "finalizedAt": encounter.FinalizedAt, "version": encounter.Version,
 		"createdAt": encounter.CreatedAt, "updatedAt": encounter.UpdatedAt,
+		"workflowStage": encounter.WorkflowStage, "pretestPolicy": s.pretestPolicy(r.Context()),
 	}
-	var pretestID, complaint, vitals, acuity, autoRefraction, keratometry, iop, pupils, eom, cover, fields, color, stereo, pachy, lensometry, completedAt, updatedAt string
+	if encounter.Status == "draft" {
+		response["finalizeWarnings"] = s.finalizeWarnings(r.Context(), id)
+	}
+	var pretestID, complaint, vitals, acuity, autoRefraction, keratometry, iop, pupils, eom, cover, fields, color, stereo, pachy, lensometry, completedAt, skippedAt, skipReason, updatedAt string
 	var pretestVersion int
-	if err := s.db.QueryRowContext(r.Context(), `SELECT id,COALESCE(chief_complaint,''),vitals_json,visual_acuity_json,autorefraction_json,keratometry_json,iop_json,COALESCE(pupils,''),COALESCE(eom,''),COALESCE(cover_test,''),COALESCE(confrontation_fields,''),COALESCE(color_vision,''),COALESCE(stereopsis,''),pachymetry_json,lensometry_json,COALESCE(completed_at,''),version,updated_at FROM pretests WHERE encounter_id=?`, id).
-		Scan(&pretestID, &complaint, &vitals, &acuity, &autoRefraction, &keratometry, &iop, &pupils, &eom, &cover, &fields, &color, &stereo, &pachy, &lensometry, &completedAt, &pretestVersion, &updatedAt); err == nil {
-		response["pretest"] = map[string]any{"id": pretestID, "chiefComplaint": complaint, "vitals": rawJSON(vitals), "visualAcuity": rawJSON(acuity), "autorefraction": rawJSON(autoRefraction), "keratometry": rawJSON(keratometry), "iop": rawJSON(iop), "pupils": pupils, "eom": eom, "coverTest": cover, "confrontationFields": fields, "colorVision": color, "stereopsis": stereo, "pachymetry": rawJSON(pachy), "lensometry": rawJSON(lensometry), "completedAt": completedAt, "version": pretestVersion, "updatedAt": updatedAt}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT id,COALESCE(chief_complaint,''),vitals_json,visual_acuity_json,autorefraction_json,keratometry_json,iop_json,COALESCE(pupils,''),COALESCE(eom,''),COALESCE(cover_test,''),COALESCE(confrontation_fields,''),COALESCE(color_vision,''),COALESCE(stereopsis,''),pachymetry_json,lensometry_json,COALESCE(completed_at,''),COALESCE(skipped_at,''),COALESCE(skip_reason,''),version,updated_at FROM pretests WHERE encounter_id=?`, id).
+		Scan(&pretestID, &complaint, &vitals, &acuity, &autoRefraction, &keratometry, &iop, &pupils, &eom, &cover, &fields, &color, &stereo, &pachy, &lensometry, &completedAt, &skippedAt, &skipReason, &pretestVersion, &updatedAt); err == nil {
+		response["pretest"] = map[string]any{"id": pretestID, "chiefComplaint": complaint, "vitals": rawJSON(vitals), "visualAcuity": rawJSON(acuity), "autorefraction": rawJSON(autoRefraction), "keratometry": rawJSON(keratometry), "iop": rawJSON(iop), "pupils": pupils, "eom": eom, "coverTest": cover, "confrontationFields": fields, "colorVision": color, "stereopsis": stereo, "pachymetry": rawJSON(pachy), "lensometry": rawJSON(lensometry), "completedAt": completedAt, "skippedAt": skippedAt, "skipReason": skipReason, "version": pretestVersion, "updatedAt": updatedAt}
 	}
 	sections := map[string]any{}
 	rows, rowsErr := s.db.QueryContext(r.Context(), "SELECT section_type,data_json,version,updated_at FROM encounter_sections WHERE encounter_id=?", id)
@@ -265,12 +276,20 @@ func (s *Server) handlePretestSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "The pre-test was modified by another user. Review the latest changes before saving.")
 		return
 	}
+	stage := stagePreTest
 	if input.Complete {
-		_, _ = s.db.ExecContext(r.Context(), "UPDATE queue_entries SET stage='waiting_doctor',version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND completed_at IS NULL", time.Now().UTC().Format(time.RFC3339Nano), user.ID, encounterID)
+		// Completing the pre-test is what routes the patient to the doctor. Before
+		// this the queue was pushed to 'waiting_doctor' but the consultation itself
+		// had no stage to move into, so the doctor's exam was never opened.
+		if err := advanceToDoctorExam(r.Context(), s.db, encounterID, user.ID, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			writeError(w, http.StatusInternalServerError, "PRETEST_ROUTING_FAILED", "The pre-test was saved but the consultation could not be moved to the doctor's exam.")
+			return
+		}
+		stage = stageDoctorExam
 	}
 	s.audit(r.Context(), &user, "update", "pretest", encounterID, "Updated ophthalmic pre-test", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "pretest.changed", EntityType: "encounter", EntityID: encounterID})
-	writeJSON(w, http.StatusOK, map[string]any{"encounterId": encounterID, "version": input.Version + 1, "complete": input.Complete})
+	writeJSON(w, http.StatusOK, map[string]any{"encounterId": encounterID, "version": input.Version + 1, "complete": input.Complete, "workflowStage": stage})
 }
 
 type sectionPayload struct {
@@ -381,7 +400,8 @@ func (s *Server) handleDiagnosisCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEncounterFinalize(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Version int `json:"version"`
+		Version             int  `json:"version"`
+		AcknowledgeWarnings bool `json:"acknowledgeWarnings"`
 	}
 	if err := decodeJSON(r, &input); err != nil || input.Version < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "The current consultation version is required.")
@@ -389,13 +409,15 @@ func (s *Server) handleEncounterFinalize(w http.ResponseWriter, r *http.Request)
 	}
 	user, _ := userFromContext(r.Context())
 	id, now := chi.URLParam(r, "id"), time.Now().UTC().Format(time.RFC3339Nano)
-	var diagnosisCount int
-	_ = s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM diagnoses WHERE encounter_id=?", id).Scan(&diagnosisCount)
-	if diagnosisCount == 0 {
-		writeError(w, http.StatusUnprocessableEntity, "DIAGNOSIS_REQUIRED", "Add at least one diagnosis before finalizing.")
+	// Finalizing is the doctor's sign-off, not a completeness check. A missing
+	// diagnosis, prescription or examination section is surfaced as a warning the
+	// doctor confirms once — it no longer locks the consultation open.
+	warnings := s.finalizeWarnings(r.Context(), id)
+	if len(warnings) > 0 && !input.AcknowledgeWarnings {
+		writeJSON(w, http.StatusUnprocessableEntity, APIError{Code: "FINALIZE_WARNINGS", Message: "This consultation is incomplete. Confirm to sign it anyway.", Details: map[string]any{"warnings": warnings}})
 		return
 	}
-	result, err := s.db.ExecContext(r.Context(), `UPDATE encounters SET status='finalized',finalized_at=?,finalized_by=?,doctor_id=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND status='draft'`, now, user.ID, user.ID, now, user.ID, id, input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE encounters SET status='finalized',workflow_stage=?,finalized_at=?,finalized_by=?,doctor_id=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND status='draft'`, stageDoctorExam, now, user.ID, user.ID, now, user.ID, id, input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "FINALIZE_FAILED", "Could not finalize the consultation.")
 		return
@@ -406,9 +428,13 @@ func (s *Server) handleEncounterFinalize(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_, _ = s.db.ExecContext(r.Context(), "UPDATE queue_entries SET stage='checkout',version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND completed_at IS NULL", now, user.ID, id)
-	s.audit(r.Context(), &user, "finalize", "encounter", id, "Digitally signed and locked consultation", "", "", r)
+	detail := "Digitally signed and locked consultation"
+	if len(warnings) > 0 {
+		detail += ", acknowledging " + encodeWarnings(warnings)
+	}
+	s.audit(r.Context(), &user, "finalize", "encounter", id, detail, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "consultation.finalized", EntityType: "encounter", EntityID: id})
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "finalized", "finalizedAt": now, "version": input.Version + 1})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "finalized", "finalizedAt": now, "version": input.Version + 1, "acknowledgedWarnings": warningCodes(warnings)})
 }
 
 func (s *Server) handleAddendumCreate(w http.ResponseWriter, r *http.Request) {

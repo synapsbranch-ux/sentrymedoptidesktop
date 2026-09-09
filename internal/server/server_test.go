@@ -252,7 +252,7 @@ func TestFinalizedEncounterIsLockedAndAudited(t *testing.T) {
 	if prescription.Code != http.StatusCreated {
 		t.Fatalf("prescription: %d %s", prescription.Code, prescription.Body.String())
 	}
-	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1, "acknowledgeWarnings": true}, a.doctor)
 	if finalized.Code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
 	}
@@ -872,7 +872,7 @@ func TestEyeDiagramRBACAndLocking(t *testing.T) {
 	if diagnosis.Code != http.StatusCreated {
 		t.Fatalf("diagnosis create: %d %s", diagnosis.Code, diagnosis.Body.String())
 	}
-	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1, "acknowledgeWarnings": true}, a.doctor)
 	if finalized.Code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
 	}
@@ -1056,7 +1056,7 @@ func TestConsultationRecordingRequiresConsentAndLocksAfterFinalize(t *testing.T)
 	if diagnosis.Code != http.StatusCreated {
 		t.Fatalf("diagnosis: %d %s", diagnosis.Code, diagnosis.Body.String())
 	}
-	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1}, a.doctor)
+	finalized := a.request(http.MethodPost, "/api/v1/encounters/"+encounterID+"/finalize", map[string]any{"version": 1, "acknowledgeWarnings": true}, a.doctor)
 	if finalized.Code != http.StatusOK {
 		t.Fatalf("finalize: %d %s", finalized.Code, finalized.Body.String())
 	}

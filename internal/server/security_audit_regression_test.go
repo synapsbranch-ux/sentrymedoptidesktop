@@ -111,7 +111,7 @@ func TestFinalizedClinicalChildrenRejectWritesAtDatabaseBoundary(t *testing.T) {
 	if res := a.request("POST", "/api/v1/encounters/"+id+"/diagnoses", map[string]any{"diagnosis": "Recorded"}, a.doctor); res.Code != 201 {
 		t.Fatal(res.Body.String())
 	}
-	if res := a.request("POST", "/api/v1/encounters/"+id+"/finalize", map[string]any{"version": 1}, a.doctor); res.Code != 200 {
+	if res := a.request("POST", "/api/v1/encounters/"+id+"/finalize", map[string]any{"version": 1, "acknowledgeWarnings": true}, a.doctor); res.Code != 200 {
 		t.Fatal(res.Body.String())
 	}
 	for _, query := range []string{"UPDATE pretests SET chief_complaint='tamper' WHERE encounter_id=?", "DELETE FROM diagnoses WHERE encounter_id=?", "UPDATE encounters SET assessment='tamper' WHERE id=?", "DELETE FROM encounters WHERE id=?"} {

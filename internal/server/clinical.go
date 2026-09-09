@@ -45,6 +45,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Get("/encounters/{id}", s.handleEncounterGet)
 	r.Put("/encounters/{id}", s.handleEncounterUpdate)
 	r.Put("/encounters/{id}/pretest", s.handlePretestSave)
+	r.Post("/encounters/{id}/pretest/skip", s.handlePretestSkip)
 	r.Put("/encounters/{id}/sections/{section}", s.handleEncounterSectionSave)
 	r.With(s.requireDoctor).Post("/encounters/{id}/diagnoses", s.handleDiagnosisCreate)
 	r.With(s.requireDoctor).Post("/encounters/{id}/finalize", s.handleEncounterFinalize)

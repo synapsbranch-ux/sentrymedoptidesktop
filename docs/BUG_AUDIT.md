@@ -39,3 +39,7 @@ but deliberately not fixed, and the questions left open for clinic staff.
 - scheduled waiting-room messages and bilingual French/Haitian Creole display copy;
 - printer/label station profiles and barcode workflows;
 - optional local network UPS/power-loss alerting and automatic safe-shutdown integration.
+
+## Patient workflows and security review, September 2026
+
+See [the new audit report](SECURITY_REVIEW_2026-09-08.md) for reproducible patient-edit, appointment search, patient-link, financial integrity, authentication, network and backup findings, with severity, fixes and verification. Earlier audit entries describe previous work and are not newly re-certified by this review.

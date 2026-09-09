@@ -101,7 +101,7 @@ func (s *Server) handlePrescriptionSignatureImage(w http.ResponseWriter, r *http
 func serveSignatureFile(w http.ResponseWriter, r *http.Request, dataDir, storage, mediaType string) {
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "private, no-store")
-	http.ServeFile(w, r, filepath.Join(signatureDir(dataDir), filepath.Base(storage)))
+	serveStoredFile(w, r, signatureDir(dataDir), storage)
 }
 
 // handleSignatureSave accepts both an uploaded image file and the PNG produced

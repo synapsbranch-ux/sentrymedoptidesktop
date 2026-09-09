@@ -55,7 +55,7 @@ export function activeFilterCount(filters: PatientFilters) {
 
 export function patientAge(dateOfBirth: string) {
   if (!dateOfBirth) return null;
-  const born = new Date(dateOfBirth);
+  const born = new Date(`${dateOfBirth}T00:00:00`);
   if (Number.isNaN(born.getTime())) return null;
   const now = new Date();
   let age = now.getFullYear() - born.getFullYear();
@@ -133,7 +133,7 @@ export function PatientFilterBar({ filters, onChange, civilStatusOptions }: {
  * A patient picker that queries the server as the user types. Replaces the
  * `<select>` that fetched the first 100 patients and could not find anybody else.
  */
-export function PatientPicker({ value, onChange, required, placeholder = "Search by name, file number, phone or date of birth…" }: {
+export function PatientPicker({ value, onChange, required, placeholder = "Search by name, patient ID, file number, phone or email…" }: {
   value: string;
   onChange(patientId: string, patient?: PatientSearchResult): void;
   required?: boolean;
@@ -143,7 +143,12 @@ export function PatientPicker({ value, onChange, required, placeholder = "Search
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [selected, setSelected] = React.useState<PatientSearchResult | null>(null);
+  const [selectedError, setSelectedError] = React.useState(false);
+  const [selectionAttempt, retrySelection] = React.useReducer((n: number) => n + 1, 0);
   const debounced = useDebouncedValue(query, 300);
+  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const listId = React.useId();
+  const inputRef = React.useRef<HTMLInputElement>(null);
   const results = useLoad(
     () => (debounced.trim().length >= 2
       ? api.get<PatientSearchPage>(patientSearchQuery(debounced, emptyPatientFilters, 1, 10))
@@ -151,9 +156,31 @@ export function PatientPicker({ value, onChange, required, placeholder = "Search
     [debounced],
   );
 
-  React.useEffect(() => { if (!value) setSelected(null); }, [value]);
+  React.useEffect(() => {
+    let active = true;
+    if (!value) { setSelected(null); return; }
+    if (selected?.id === value) return;
+    setSelected(null);
+    setSelectedError(false);
+    api.get<PatientSearchResult>(`/patients/${encodeURIComponent(value)}`)
+      .then((patient) => { if (active) setSelected(patient); })
+      .catch(() => { if (active) setSelectedError(true); });
+    return () => { active = false; };
+  }, [value, selected?.id, selectionAttempt]);
+  React.useEffect(() => {
+    inputRef.current?.setCustomValidity(required && !value ? "Select an existing patient from the search results." : "");
+  }, [required, value, query]);
+  const currentResults = !results.loading && !results.error && query === debounced ? results.data?.items ?? [] : [];
+  const choose = (patient: PatientSearchResult) => { setSelected(patient); onChange(patient.id, patient); setOpen(false); setActiveIndex(-1); };
 
-  if (value && selected) {
+
+  if (value && selected?.id !== value) {
+    return <div className="rounded-md border p-3 text-sm" role="status">
+      {selectedError ? <>{t("Unable to load the selected patient.")} <Button type="button" variant="ghost" onClick={retrySelection}>{t("Retry")}</Button></> : t("Loading patient…")}
+      <Button type="button" variant="ghost" onClick={() => { onChange(""); setQuery(""); }}>{t("Change patient")}</Button>
+    </div>;
+  }
+  if (value && selected?.id === value) {
     return (
       <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--input)] bg-[var(--card)] p-2">
         <div className="min-w-0 flex-1">
@@ -169,38 +196,54 @@ export function PatientPicker({ value, onChange, required, placeholder = "Search
     <div className="relative">
       <Search aria-hidden className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-[var(--muted-foreground)]" />
       <Input
+        ref={inputRef}
         className="pl-10"
         role="combobox"
-        aria-expanded={open}
+        aria-expanded={open && debounced.trim().length >= 2}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeIndex >= 0 && currentResults[activeIndex] ? `${listId}-${activeIndex}` : undefined}
         aria-label={t("Patient")}
         autoComplete="off"
         required={required && !value}
         placeholder={placeholder}
         value={query}
-        onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
+        onChange={(event) => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); if (value) onChange(""); }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { setOpen(false); return; }
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault(); setOpen(true);
+            setActiveIndex((index) => Math.max(0, Math.min(currentResults.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))));
+          }
+          if (event.key === "Enter" && open && activeIndex >= 0 && currentResults[activeIndex]) {
+            event.preventDefault(); choose(currentResults[activeIndex]);
+          }
+        }}
         onFocus={() => setOpen(true)}
         onBlur={() => window.setTimeout(() => setOpen(false), 150)}
       />
       {open && debounced.trim().length >= 2 && (
-        <div role="listbox" className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-[var(--card)] shadow-lg">
-          {results.loading && <p className="px-3 py-2 text-sm text-[var(--muted-foreground)]">{t("Searching…")}</p>}
-          {!results.loading && results.data?.items.length === 0 && <p className="px-3 py-2 text-sm text-[var(--muted-foreground)]">{t("No matching patient.")}</p>}
-          {results.data?.items.map((patient) => (
+        <div id={listId} role="listbox" aria-label={t("Patient results")} className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-md border bg-[var(--card)] shadow-lg">
+          {(results.loading || query !== debounced) && <p className="px-3 py-2 text-sm text-[var(--muted-foreground)]">{t("Searching…")}</p>}
+          {!results.loading && !results.error && query === debounced && results.data?.items.length === 0 && <p className="px-3 py-2 text-sm text-[var(--muted-foreground)]">{t("No matching patient.")}</p>}
+          {results.error && <p role="alert" className="px-3 py-2 text-sm">{t("Unable to search patients. Please try again.")} <Button type="button" variant="ghost" onClick={results.reload}>{t("Retry")}</Button></p>}
+          {currentResults.map((patient, index) => (
             <button
+              id={`${listId}-${index}`}
               key={patient.id}
               type="button"
               role="option"
-              aria-selected={patient.id === value}
+              aria-selected={index === activeIndex}
               className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--muted)]"
               // mousedown only stops the input's blur from closing the list; the
               // selection happens on click so that keyboard and assistive-technology
               // activation, which never produces a mousedown, still works.
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => { setSelected(patient); onChange(patient.id, patient); setOpen(false); }}
+              onClick={() => choose(patient)}
             >
               <span className="font-semibold">{patient.firstName} {patient.lastName}</span>
               <span className="ml-2 font-mono text-xs text-[var(--muted-foreground)]">{patient.medicalRecordNumber}</span>
-              <div className="font-mono text-xs text-[var(--muted-foreground)]">{patient.dateOfBirth || "—"} · {patient.phone || "—"}</div>
+              <div className="font-mono text-xs text-[var(--muted-foreground)]">{patient.dateOfBirth || "—"} · {patient.phone || "—"} · {patient.email || "—"}</div>
             </button>
           ))}
           {results.data?.hasMore && <p className="px-3 py-2 text-xs text-[var(--muted-foreground)]">{t("Keep typing to narrow these results.")}</p>}

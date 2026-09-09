@@ -79,10 +79,19 @@ func (s *Server) handleLabOrderCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if err := validatePatientLinks(r.Context(), tx, input.PatientID,
+			patientLink{"SELECT patient_id FROM prescriptions WHERE id=? AND archived_at IS NULL", input.PrescriptionID},
+			patientLink{"SELECT COALESCE(patient_id,'') FROM invoices WHERE id=? AND archived_at IS NULL", input.InvoiceID}); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(r.Context(), `INSERT INTO lab_orders(id,order_number,patient_id,prescription_id,invoice_id,supplier_id,frame_item_id,lens_item_id,lens_type,material,coatings_json,tint,treatments_json,measurements_json,notes,expected_at,cost_minor,sale_price_minor,status,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.PrescriptionID), nilIfEmpty(input.InvoiceID), nilIfEmpty(input.SupplierID), nilIfEmpty(input.FrameItemID), nilIfEmpty(input.LensItemID), nilIfEmpty(input.LensType), nilIfEmpty(input.Material), marshalJSON(input.Coatings), nilIfEmpty(input.Tint), marshalJSON(input.Treatments), marshalJSON(input.Measurements), nilIfEmpty(input.Notes), nilIfEmpty(input.ExpectedAt), input.CostMinor, input.SalePriceMinor, now, now, user.ID, user.ID)
 		return err
 	})
 	if err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, 422, apiErr)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "LAB_ORDER_CREATE_FAILED", "Could not create optical lab order.")
 		return
 	}
@@ -116,11 +125,13 @@ func (s *Server) handleLabOrderStatus(w http.ResponseWriter, r *http.Request) {
 		if err := tx.QueryRowContext(r.Context(), "SELECT status FROM lab_orders WHERE id=?", id).Scan(&fromStatus); err != nil {
 			return err
 		}
-		if input.Status == "ready" {
+		if input.Status == "ready" || input.Status == "delivered" {
 			var qc int
-			_ = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM lab_quality_control WHERE lab_order_id=?", id).Scan(&qc)
+			if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM lab_quality_control WHERE lab_order_id=?", id).Scan(&qc); err != nil {
+				return err
+			}
 			if qc == 0 {
-				return &APIError{Code: "QUALITY_CONTROL_REQUIRED", Message: "Complete quality control before marking the order ready."}
+				return &APIError{Code: "QUALITY_CONTROL_REQUIRED", Message: "Complete quality control before marking the order ready or delivered."}
 			}
 		}
 		deliveredAt, deliveredBy, receivedBy := any(nil), any(nil), any(nil)

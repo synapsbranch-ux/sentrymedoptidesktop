@@ -117,18 +117,33 @@ func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleClaimCreate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		PatientID, PayerID, InvoiceID, Authorization, MemberNumber, PolicyNumber string
-		Currency, ExchangeRate string
-		ClaimAmountMinor, PatientPortionMinor, PayerPortionMinor int64
+		Currency, ExchangeRate                                                   string
+		ClaimAmountMinor, PatientPortionMinor, PayerPortionMinor                 int64
 	}
 	if decodeJSON(r, &in) != nil || in.PatientID == "" || in.PayerID == "" || in.ClaimAmountMinor <= 0 || in.PatientPortionMinor < 0 || in.PayerPortionMinor < 0 || in.PatientPortionMinor+in.PayerPortionMinor != in.ClaimAmountMinor {
 		writeError(w, 422, "INVALID_CLAIM", "Patient and insurer are required, and patient plus insurer portions must equal the claim total.")
 		return
 	}
+	if err := validatePatientLinks(r.Context(), s.db, in.PatientID, patientLink{"SELECT COALESCE(patient_id,'') FROM invoices WHERE id=? AND archived_at IS NULL", in.InvoiceID}); err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, 422, apiErr)
+		} else {
+			writeError(w, 500, "CLAIM_PATIENT_CHECK_FAILED", "Could not validate the claim patient.")
+		}
+		return
+	}
 	u, _ := userFromContext(r.Context())
-	if in.Currency == "" { in.Currency = "HTG" }
+	if in.Currency == "" {
+		in.Currency = "HTG"
+	}
 	in.Currency = strings.ToUpper(strings.TrimSpace(in.Currency))
-	if in.ExchangeRate == "" { in.ExchangeRate = "1" }
-	if len(in.Currency) != 3 || !validExchangeRate(in.ExchangeRate) { writeError(w, 422, "INVALID_CURRENCY", "Currency and a positive exchange rate are required."); return }
+	if in.ExchangeRate == "" {
+		in.ExchangeRate = "1"
+	}
+	if len(in.Currency) != 3 || !validExchangeRate(in.ExchangeRate) {
+		writeError(w, 422, "INVALID_CURRENCY", "Currency and a positive exchange rate are required.")
+		return
+	}
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(r.Context(), `INSERT INTO insurance_claims(id,patient_id,payer_id,invoice_id,authorization,member_number,policy_number,currency,exchange_rate,claim_amount_minor,patient_portion_minor,payer_portion_minor,status,version,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'draft',1,?,?,?,?)`, id, in.PatientID, in.PayerID, nilIfEmpty(in.InvoiceID), nilIfEmpty(in.Authorization), nilIfEmpty(in.MemberNumber), nilIfEmpty(in.PolicyNumber), in.Currency, in.ExchangeRate, in.ClaimAmountMinor, in.PatientPortionMinor, in.PayerPortionMinor, now, now, u.ID, u.ID)
@@ -152,8 +167,14 @@ func (s *Server) handleClaimStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	u, _ := userFromContext(r.Context())
 	var current string
-	if err:=s.db.QueryRowContext(r.Context(),"SELECT status FROM insurance_claims WHERE id=?",chi.URLParam(r,"id")).Scan(&current);err!=nil{writeError(w,404,"CLAIM_NOT_FOUND","Insurance claim was not found.");return}
-	if (current=="paid"||current=="rejected"||current=="cancelled") && in.Status!=current { writeError(w,422,"CLAIM_CLOSED","A closed claim cannot be reopened; create a new claim if needed.");return }
+	if err := s.db.QueryRowContext(r.Context(), "SELECT status FROM insurance_claims WHERE id=?", chi.URLParam(r, "id")).Scan(&current); err != nil {
+		writeError(w, 404, "CLAIM_NOT_FOUND", "Insurance claim was not found.")
+		return
+	}
+	if (current == "paid" || current == "rejected" || current == "cancelled") && in.Status != current {
+		writeError(w, 422, "CLAIM_CLOSED", "A closed claim cannot be reopened; create a new claim if needed.")
+		return
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	var submitted any
 	if in.Status == "submitted" {
@@ -188,12 +209,15 @@ func (s *Server) handleClaimPayment(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	claimID := chi.URLParam(r, "id")
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
-		var portion, paid int64; var claimStatus string
+		var portion, paid int64
+		var claimStatus string
 		if err := tx.QueryRowContext(r.Context(), `SELECT payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=?),0),status FROM insurance_claims WHERE id=?`, claimID, claimID).Scan(&portion, &paid, &claimStatus); err != nil {
 			return err
 		}
-		if claimStatus!="approved" && claimStatus!="partially_paid" { return &APIError{Code:"CLAIM_NOT_APPROVED",Message:"Approve the claim before recording an insurer payment."} }
-		if paid+in.AmountMinor > portion {
+		if claimStatus != "approved" && claimStatus != "partially_paid" {
+			return &APIError{Code: "CLAIM_NOT_APPROVED", Message: "Approve the claim before recording an insurer payment."}
+		}
+		if paid > portion || in.AmountMinor > portion-paid {
 			return &APIError{Code: "PAYMENT_EXCEEDS_CLAIM", Message: "Payment exceeds the insurer outstanding balance."}
 		}
 		if _, err := tx.ExecContext(r.Context(), `INSERT INTO insurance_claim_payments(id,claim_id,amount_minor,payment_date,reference,notes,created_at,created_by) VALUES(?,?,?,?,?,?,?,?)`, id, claimID, in.AmountMinor, in.PaymentDate, nilIfEmpty(in.Reference), nilIfEmpty(in.Notes), now, u.ID); err != nil {

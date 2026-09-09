@@ -65,6 +65,10 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
+	if user.Role != "doctor" && (input.Assessment != "" || input.TreatmentPlan != "" || input.FollowUp != "") {
+		writeError(w, http.StatusForbidden, "CLINICAL_AUTHORITY_REQUIRED", "Only a doctor may record an assessment, treatment plan or follow-up.")
+		return
+	}
 	id, pretestID, now := uuid.NewString(), uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	doctorID := any(nil)
 	if user.Role == "doctor" {
@@ -77,6 +81,10 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		if err := validatePatientLinks(r.Context(), tx, input.PatientID,
+			patientLink{"SELECT patient_id FROM appointments WHERE id=? AND archived_at IS NULL AND status NOT IN ('cancelled','completed','no_show')", input.AppointmentID}); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(r.Context(), `INSERT INTO encounters(id,encounter_number,patient_id,appointment_id,doctor_id,visit_reason,chief_complaint,hpi,assessment,treatment_plan,follow_up,status,created_at,updated_at,created_by,updated_by)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?)`, id, number, input.PatientID, nilIfEmpty(input.AppointmentID), doctorID, nilIfEmpty(input.VisitReason), nilIfEmpty(input.ChiefComplaint), nilIfEmpty(input.HPI), nilIfEmpty(input.Assessment), nilIfEmpty(input.TreatmentPlan), nilIfEmpty(input.FollowUp), now, now, user.ID, user.ID)
 		if err != nil {
@@ -86,12 +94,18 @@ func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if input.AppointmentID != "" {
-			_, _ = tx.ExecContext(r.Context(), "UPDATE appointments SET status='in_consultation',version=version+1,updated_at=?,updated_by=? WHERE id=?", now, user.ID, input.AppointmentID)
+			if _, err := tx.ExecContext(r.Context(), "UPDATE appointments SET status='in_consultation',version=version+1,updated_at=?,updated_by=? WHERE id=?", now, user.ID, input.AppointmentID); err != nil {
+				return err
+			}
 		}
-		_, _ = tx.ExecContext(r.Context(), "UPDATE queue_entries SET encounter_id=?,stage='in_consultation',version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND completed_at IS NULL", id, now, user.ID, input.PatientID)
-		return nil
+		_, err = tx.ExecContext(r.Context(), "UPDATE queue_entries SET encounter_id=?,stage='in_consultation',version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND completed_at IS NULL", id, now, user.ID, input.PatientID)
+		return err
 	})
 	if err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, http.StatusUnprocessableEntity, apiErr)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "ENCOUNTER_CREATE_FAILED", "Could not start the consultation.")
 		return
 	}
@@ -171,12 +185,12 @@ func (s *Server) handleEncounterUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
-	if user.Role != "doctor" && (input.Assessment != "" || input.TreatmentPlan != "") {
+	if user.Role != "doctor" && (input.Assessment != "" || input.TreatmentPlan != "" || input.FollowUp != "") {
 		writeError(w, http.StatusForbidden, "CLINICAL_AUTHORITY_REQUIRED", "Only a doctor may record the final assessment or treatment plan.")
 		return
 	}
 	id := chi.URLParam(r, "id")
-	result, err := s.db.ExecContext(r.Context(), `UPDATE encounters SET visit_reason=?,chief_complaint=?,hpi=?,assessment=?,treatment_plan=?,follow_up=?,doctor_id=COALESCE(doctor_id,?),version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND status='draft' AND archived_at IS NULL`, nilIfEmpty(input.VisitReason), nilIfEmpty(input.ChiefComplaint), nilIfEmpty(input.HPI), nilIfEmpty(input.Assessment), nilIfEmpty(input.TreatmentPlan), nilIfEmpty(input.FollowUp), doctorIDFor(user), time.Now().UTC().Format(time.RFC3339Nano), user.ID, id, input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE encounters SET visit_reason=?,chief_complaint=?,hpi=?,assessment=CASE WHEN ?='doctor' THEN ? ELSE assessment END,treatment_plan=CASE WHEN ?='doctor' THEN ? ELSE treatment_plan END,follow_up=CASE WHEN ?='doctor' THEN ? ELSE follow_up END,doctor_id=COALESCE(doctor_id,?),version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND status='draft' AND archived_at IS NULL`, nilIfEmpty(input.VisitReason), nilIfEmpty(input.ChiefComplaint), nilIfEmpty(input.HPI), user.Role, nilIfEmpty(input.Assessment), user.Role, nilIfEmpty(input.TreatmentPlan), user.Role, nilIfEmpty(input.FollowUp), doctorIDFor(user), time.Now().UTC().Format(time.RFC3339Nano), user.ID, id, input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ENCOUNTER_UPDATE_FAILED", "Could not update the consultation.")
 		return
@@ -239,6 +253,10 @@ func (s *Server) handlePretestSave(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.db.ExecContext(r.Context(), `UPDATE pretests SET chief_complaint=?,vitals_json=?,visual_acuity_json=?,autorefraction_json=?,keratometry_json=?,iop_json=?,pupils=?,eom=?,cover_test=?,confrontation_fields=?,color_vision=?,stereopsis=?,pachymetry_json=?,lensometry_json=?,completed_at=COALESCE(?,completed_at),version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND version=?`, nilIfEmpty(input.ChiefComplaint), marshalJSON(input.Vitals), marshalJSON(input.VisualAcuity), marshalJSON(input.Autorefraction), marshalJSON(input.Keratometry), marshalJSON(input.IOP), nilIfEmpty(input.Pupils), nilIfEmpty(input.EOM), nilIfEmpty(input.CoverTest), nilIfEmpty(input.ConfrontationFields), nilIfEmpty(input.ColorVision), nilIfEmpty(input.Stereopsis), marshalJSON(input.Pachymetry), marshalJSON(input.Lensometry), completed, time.Now().UTC().Format(time.RFC3339Nano), user.ID, encounterID, input.Version)
 	if err != nil {
+		if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+			writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "PRETEST_UPDATE_FAILED", "Could not save pre-test data.")
 		return
 	}
@@ -294,12 +312,20 @@ func (s *Server) handleEncounterSectionSave(w http.ResponseWriter, r *http.Reque
 				writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "This clinical section was created by another user. Reload before saving.")
 				return
 			}
+			if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+				writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "SECTION_UPDATE_FAILED", "Could not save the clinical section.")
 			return
 		}
 	} else {
 		result, err := s.db.ExecContext(r.Context(), `UPDATE encounter_sections SET data_json=?,version=version+1,updated_at=?,updated_by=? WHERE encounter_id=? AND section_type=? AND version=?`, marshalJSON(input.Data), now, user.ID, encounterID, section, input.Version)
 		if err != nil {
+			if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+				writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "SECTION_UPDATE_FAILED", "Could not save the clinical section.")
 			return
 		}
@@ -342,6 +368,10 @@ func (s *Server) handleDiagnosisCreate(w http.ResponseWriter, r *http.Request) {
 	id := uuid.NewString()
 	_, err := s.db.ExecContext(r.Context(), `INSERT INTO diagnoses(id,encounter_id,diagnosis,code,laterality,notes,is_primary,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?)`, id, encounterID, strings.TrimSpace(input.Diagnosis), nilIfEmpty(input.Code), nilIfEmpty(input.Laterality), nilIfEmpty(input.Notes), boolInt(input.Primary), time.Now().UTC().Format(time.RFC3339Nano), user.ID)
 	if err != nil {
+		if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+			writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "DIAGNOSIS_CREATE_FAILED", "Could not add the diagnosis.")
 		return
 	}
@@ -602,9 +632,31 @@ func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "DOCUMENT_TOO_LARGE", "Document must be 25 MB or smaller.")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	patientID, encounterID, category := r.FormValue("patientId"), r.FormValue("encounterId"), strings.TrimSpace(r.FormValue("category"))
 	if category == "" || (patientID == "" && encounterID == "") {
 		writeError(w, http.StatusUnprocessableEntity, "INVALID_DOCUMENT", "A category and patient or consultation are required.")
+		return
+	}
+	if encounterID != "" {
+		var owner string
+		err := s.db.QueryRowContext(r.Context(), "SELECT patient_id FROM encounters WHERE id=? AND archived_at IS NULL", encounterID).Scan(&owner)
+		if err == sql.ErrNoRows || (err == nil && patientID != "" && owner != patientID) {
+			writeError(w, 422, "PATIENT_LINK_MISMATCH", "Choose a consultation belonging to this patient.")
+			return
+		}
+		if err != nil {
+			writeError(w, 500, "DOCUMENT_PATIENT_CHECK_FAILED", "Could not validate the document patient.")
+			return
+		}
+		patientID = owner
+	}
+	if err := validatePatientLinks(r.Context(), s.db, patientID); err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, 422, apiErr)
+		} else {
+			writeError(w, 500, "DOCUMENT_PATIENT_CHECK_FAILED", "Could not validate the document patient.")
+		}
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -707,7 +759,7 @@ func (s *Server) serveDocument(w http.ResponseWriter, r *http.Request, dispositi
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(name)}))
-	http.ServeFile(w, r, filepath.Join(s.config.DataDir, "documents", filepath.Base(storage)))
+	serveStoredFile(w, r, filepath.Join(s.config.DataDir, "documents"), storage)
 }
 
 func (s *Server) handleDocumentArchive(w http.ResponseWriter, r *http.Request) {

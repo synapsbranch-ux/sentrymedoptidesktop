@@ -25,6 +25,7 @@ func (s *Server) registerClinicalRoutes(r chi.Router) {
 	r.Post("/patients", s.handlePatientsCreate)
 	r.Get("/patients/{id}", s.handlePatientGet)
 	r.Put("/patients/{id}", s.handlePatientUpdate)
+	r.Patch("/patients/{id}", s.handlePatientUpdate)
 	r.Delete("/patients/{id}", s.handlePatientArchive)
 	r.Get("/patients/{id}/history", s.handlePatientHistoryGet)
 	r.Put("/patients/{id}/history", s.handlePatientHistoryUpdate)
@@ -145,18 +146,7 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
-	input.FirstName, input.LastName = strings.TrimSpace(input.FirstName), strings.TrimSpace(input.LastName)
-	if err := requireFields(map[string]string{"First name": input.FirstName, "Last name": input.LastName}); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
-		return
-	}
-	if input.DateOfBirth != "" {
-		if _, err := time.Parse("2006-01-02", input.DateOfBirth); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "INVALID_DATE_OF_BIRTH", "Date of birth must use YYYY-MM-DD.")
-			return
-		}
-	}
-	if message := normaliseDemographics(&input); message != "" {
+	if message := validatePatient(&input); message != "" {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
 		return
 	}
@@ -177,6 +167,14 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		var duplicateID, duplicateNumber string
+		duplicateErr := tx.QueryRowContext(r.Context(), `SELECT id,medical_record_number FROM patients WHERE archived_at IS NULL AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
+		if duplicateErr == nil {
+			return &APIError{Code: "POSSIBLE_DUPLICATE_PATIENT", Message: "A possible duplicate patient already exists.", Details: map[string]any{"patientId": duplicateID, "medicalRecordNumber": duplicateNumber}}
+		}
+		if duplicateErr != sql.ErrNoRows {
+			return duplicateErr
+		}
 		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
 		if err != nil {
@@ -186,6 +184,10 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, http.StatusConflict, apiErr)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "PATIENT_CREATE_FAILED", "Could not create the patient.")
 		return
 	}
@@ -215,17 +217,26 @@ func (s *Server) handlePatientGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePatientUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	before, err := scanPatient(s.db.QueryRowContext(r.Context(), "SELECT "+patientColumns+" FROM patients WHERE id=? AND archived_at IS NULL", id))
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "PATIENT_NOT_FOUND", "Patient was not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PATIENT_LOAD_FAILED", "Could not load the patient.")
+		return
+	}
+	// Copy stored editable values, then overlay only the submitted fields.
 	var input patientPayload
-	if err := decodeJSON(r, &input); err != nil || input.Version < 1 {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Patient fields and the current version are required.")
+	stored, _ := json.Marshal(before)
+	_ = json.Unmarshal(stored, &input)
+	input.Version = 0
+	if err := decodePatch(r, &input); err != nil || input.Version < 1 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Editable patient fields and the current version are required.")
 		return
 	}
-	input.FirstName, input.LastName = strings.TrimSpace(input.FirstName), strings.TrimSpace(input.LastName)
-	if err := requireFields(map[string]string{"First name": input.FirstName, "Last name": input.LastName}); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
-		return
-	}
-	if message := normaliseDemographics(&input); message != "" {
+	if message := validatePatient(&input); message != "" {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
 		return
 	}
@@ -241,10 +252,13 @@ func (s *Server) handlePatientUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "This patient record was modified by another user. Review the latest changes before saving.")
 		return
 	}
-	id := chi.URLParam(r, "id")
 	s.audit(r.Context(), &user, "update", "patient", id, "Updated patient demographics", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "patient.updated", EntityType: "patient", EntityID: id})
-	item, _ := scanPatient(s.db.QueryRowContext(r.Context(), "SELECT "+patientColumns+" FROM patients WHERE id=?", id))
+	item, err := scanPatient(s.db.QueryRowContext(r.Context(), "SELECT "+patientColumns+" FROM patients WHERE id=?", id))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PATIENT_LOAD_FAILED", "Patient was saved but could not be reloaded. Refresh the record before editing again.")
+		return
+	}
 	writeJSON(w, http.StatusOK, item)
 }
 
@@ -321,7 +335,7 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusBadRequest, "INVALID_DATE_RANGE", "Appointment range end must be an RFC3339 timestamp.")
 			return
 		}
-		where += " AND a.starts_at>=? AND a.starts_at<?"
+		where += " AND julianday(a.starts_at)>=julianday(?) AND julianday(a.starts_at)<julianday(?)"
 		args = append(args, from, to)
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(a.practitioner_id,''),COALESCE(u.display_name,''),a.starts_at,a.duration_minutes,a.type,COALESCE(a.reason,''),COALESCE(a.notes,''),a.status,a.version
@@ -374,18 +388,22 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
-	if input.Duration <= 0 {
+	if input.Duration == 0 {
 		input.Duration = 30
 	}
 	if err := requireFields(map[string]string{"Patient": input.PatientID, "Start time": input.StartsAt, "Appointment type": input.Type}); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 		return
 	}
-	if _, err := time.Parse(time.RFC3339, input.StartsAt); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "INVALID_START_TIME", "Start time must be an RFC3339 timestamp.")
+	if validation := s.validateAppointment(r, &input); validation != nil {
+		writeError(w, http.StatusUnprocessableEntity, validation.Code, validation.Message)
 		return
 	}
 	if conflict, err := s.appointmentConflict(r, "", input.PractitionerID, input.StartsAt, input.Duration); err != nil {
+		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_CREATE_FAILED", "Could not check for scheduling conflicts.")
 		return
 	} else if conflict {
@@ -397,6 +415,10 @@ func (s *Server) handleAppointmentsCreate(w http.ResponseWriter, r *http.Request
 	_, err := s.db.ExecContext(r.Context(), `INSERT INTO appointments(id,patient_id,practitioner_id,starts_at,duration_minutes,type,reason,notes,status,created_at,updated_at,created_by,updated_by)
 		VALUES(?,?,?,?,?,?,?,?, 'scheduled',?,?,?,?)`, id, input.PatientID, nilIfEmpty(input.PractitionerID), input.StartsAt, input.Duration, input.Type, nilIfEmpty(input.Reason), nilIfEmpty(input.Notes), now, now, user.ID, user.ID)
 	if err != nil {
+		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_CREATE_FAILED", "Could not create the appointment.")
 		return
 	}
@@ -419,12 +441,16 @@ func (s *Server) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", err.Error())
 		return
 	}
-	if _, err := time.Parse(time.RFC3339, input.StartsAt); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "INVALID_START_TIME", "Start time must be an RFC3339 timestamp.")
+	if validation := s.validateAppointment(r, &input); validation != nil {
+		writeError(w, http.StatusUnprocessableEntity, validation.Code, validation.Message)
 		return
 	}
 	id := chi.URLParam(r, "id")
 	if conflict, err := s.appointmentConflict(r, id, input.PractitionerID, input.StartsAt, input.Duration); err != nil {
+		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_UPDATE_FAILED", "Could not check for scheduling conflicts.")
 		return
 	} else if conflict {
@@ -435,6 +461,10 @@ func (s *Server) handleAppointmentUpdate(w http.ResponseWriter, r *http.Request)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(r.Context(), `UPDATE appointments SET patient_id=?,practitioner_id=?,starts_at=?,duration_minutes=?,type=?,reason=?,notes=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL AND status NOT IN ('completed','cancelled','no_show')`, input.PatientID, nilIfEmpty(input.PractitionerID), input.StartsAt, input.Duration, input.Type, nilIfEmpty(input.Reason), nilIfEmpty(input.Notes), now, user.ID, id, input.Version)
 	if err != nil {
+		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_UPDATE_FAILED", "Could not reschedule the appointment.")
 		return
 	}
@@ -475,6 +505,10 @@ func (s *Server) handleAppointmentStatus(w http.ResponseWriter, r *http.Request)
 	id := chi.URLParam(r, "id")
 	result, err := s.db.ExecContext(r.Context(), "UPDATE appointments SET status=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND version=? AND archived_at IS NULL", input.Status, time.Now().UTC().Format(time.RFC3339Nano), user.ID, id, input.Version)
 	if err != nil {
+		if err != nil && strings.Contains(err.Error(), "APPOINTMENT_CONFLICT") {
+			writeError(w, http.StatusConflict, "APPOINTMENT_CONFLICT", "This time slot is already booked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_UPDATE_FAILED", "Could not update the appointment.")
 		return
 	}

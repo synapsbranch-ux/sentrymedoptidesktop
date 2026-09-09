@@ -74,7 +74,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	backupDirectory, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), input.BackupDirectory)
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", "The backup folder is unavailable. Check its path and permissions on the server.")
 		return
 	}
 	userID := uuid.NewString()

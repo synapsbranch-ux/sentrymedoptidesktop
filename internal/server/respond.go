@@ -1,9 +1,8 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 )
@@ -27,13 +26,22 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 func decodeJSON(r *http.Request, target any) error {
-	decoder := json.NewDecoder(io.LimitReader(r.Body, (2<<20)+1))
+	const maxJSONBody = 2 << 20
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody+1))
+	if err != nil || len(body) > maxJSONBody {
+		return &APIError{Code: "INVALID_JSON", Message: "The JSON request could not be read or exceeds 2 MiB."}
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return &APIError{Code: "EMPTY_BODY", Message: "A JSON request body is required."}
+	}
+	if body[0] != '{' {
+		return &APIError{Code: "INVALID_JSON", Message: "The request body must be a JSON object."}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		if errors.Is(err, io.EOF) {
-			return &APIError{Code: "EMPTY_BODY", Message: "A JSON request body is required."}
-		}
-		return &APIError{Code: "INVALID_JSON", Message: fmt.Sprintf("Invalid request body: %v", err)}
+		return &APIError{Code: "INVALID_JSON", Message: "Invalid request fields or data types. Please check the form."}
 	}
 	if decoder.Decode(&struct{}{}) != io.EOF {
 		return &APIError{Code: "INVALID_JSON", Message: "The request body must contain one JSON object."}

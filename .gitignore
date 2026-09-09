@@ -27,3 +27,13 @@ test-results/
 .env
 .DS_Store
 *.log
+
+# Installation secrets and private TLS material
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.restore
+*.before-restore

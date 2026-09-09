@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -104,7 +105,9 @@ func main() {
 	schedulerContext, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
 	server.StartBackground(schedulerContext)
-	httpServer := &http.Server{Addr: config.Address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
+	httpServer := &http.Server{Addr: config.Address, Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second,
+		TLSConfig:   &tls.Config{MinVersion: tls.VersionTLS12}, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20}
 	go func() {
 		var serveErr error
 		if config.TLSCert != "" {

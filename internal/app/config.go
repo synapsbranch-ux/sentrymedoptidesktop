@@ -3,8 +3,10 @@ package app
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
@@ -72,7 +74,11 @@ func LoadConfig(dev bool) (Config, error) {
 	}
 	address := os.Getenv("SENTRYMED_ADDRESS")
 	if address == "" {
-		address = ":8787"
+		if dev {
+			address = "127.0.0.1:8787"
+		} else {
+			address = ":8787"
+		}
 	}
 	tlsCert, tlsKey := os.Getenv("SENTRYMED_TLS_CERT"), os.Getenv("SENTRYMED_TLS_KEY")
 	if (tlsCert == "") != (tlsKey == "") {
@@ -86,5 +92,19 @@ func LoadConfig(dev bool) (Config, error) {
 			return Config{}, fmt.Errorf("prepare local HTTPS: %w", err)
 		}
 	}
-	return Config{DataDir: dataDir, Address: address, TLSCert: tlsCert, TLSKey: tlsKey, TLSCA: tlsCA, PublicURL: os.Getenv("SENTRYMED_PUBLIC_URL"), Dev: dev}, nil
+	if tlsCert == "" && !dev {
+		host, _, err := net.SplitHostPort(address)
+		ip := net.ParseIP(host)
+		if err != nil || ip == nil || !ip.IsLoopback() {
+			return Config{}, fmt.Errorf("unencrypted production HTTP may only bind to loopback; configure TLS for LAN access")
+		}
+	}
+	publicURL := strings.TrimRight(os.Getenv("SENTRYMED_PUBLIC_URL"), "/")
+	if publicURL != "" {
+		parsed, err := url.Parse(publicURL)
+		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" || (parsed.Scheme != "https" && !(dev && parsed.Scheme == "http")) {
+			return Config{}, fmt.Errorf("SENTRYMED_PUBLIC_URL must be an HTTPS origin without credentials, path, query or fragment")
+		}
+	}
+	return Config{DataDir: dataDir, Address: address, TLSCert: tlsCert, TLSKey: tlsKey, TLSCA: tlsCA, PublicURL: publicURL, Dev: dev}, nil
 }

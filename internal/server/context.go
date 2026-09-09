@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strings"
 )
 
 type contextKey string
@@ -54,5 +55,18 @@ func setupRequestAllowed(r *http.Request) bool {
 		return true
 	}
 	ip := net.ParseIP(requestIP(r))
-	return ip != nil && ip.IsLoopback()
+	if ip == nil || !ip.IsLoopback() {
+		return false
+	}
+	// A loopback peer alone is insufficient: a local proxy or DNS rebinding
+	// page can otherwise present an arbitrary Host as first-run setup.
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	hostIP := net.ParseIP(strings.Trim(host, "[]"))
+	return hostIP != nil && hostIP.IsLoopback()
 }

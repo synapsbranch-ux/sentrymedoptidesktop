@@ -119,7 +119,7 @@ func (f patientFilters) conditions() (string, []any) {
 		args = append(args, f.lastVisitFrom)
 	}
 	if f.lastVisitUntil != "" {
-		clauses = append(clauses, lastVisitExpression+" <= ?")
+		clauses = append(clauses, "date("+lastVisitExpression+") <= date(?)")
 		args = append(args, f.lastVisitUntil)
 	}
 	if len(clauses) == 0 {
@@ -144,8 +144,8 @@ func (f patientFilters) textCondition() (string, []any) {
 	if match == "" {
 		return "", nil
 	}
-	clauses := []string{"p.id IN (SELECT patient_id FROM patients_search WHERE patients_search MATCH ?)"}
-	args := []any{match}
+	clauses := []string{"p.id = ?", "p.id IN (SELECT patient_id FROM patients_search WHERE patients_search MATCH ?)"}
+	args := []any{f.query, match}
 	for _, field := range strings.Fields(f.query) {
 		if !digitTerm.MatchString(field) {
 			continue
@@ -181,7 +181,7 @@ func (s *Server) handlePatientsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	listArgs := append(append([]any{}, args...), limit, (page-1)*limit)
-	query := fmt.Sprintf("SELECT %s, COALESCE(%s,'') FROM patients p WHERE %s ORDER BY p.updated_at DESC LIMIT ? OFFSET ?",
+	query := fmt.Sprintf("SELECT %s, COALESCE(%s,'') FROM patients p WHERE %s ORDER BY p.updated_at DESC, p.id LIMIT ? OFFSET ?",
 		prefixedPatientColumns, lastVisitExpression, where)
 	rows, err := s.db.QueryContext(r.Context(), query, listArgs...)
 	if err != nil {

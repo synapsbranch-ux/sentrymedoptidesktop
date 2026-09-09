@@ -764,7 +764,7 @@ func TestRefundCreatesCreditNoteAndRestocksAtomically(t *testing.T) {
 	paymentID := res["paymentId"].(string)
 	detail := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/invoices/"+invoiceID, nil, a.doctor))
 	lineID := detail["items"].([]any)[0].(map[string]any)["id"].(string)
-	refund := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 5000, "reason": "Frame returned", "restockItemIds": []string{lineID}}, a.doctor)
+	refund := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 2500, "reason": "Frame returned", "restockItemIds": []string{lineID}}, a.doctor)
 	if refund.Code != http.StatusCreated || !bytes.Contains(refund.Body.Bytes(), []byte("CRN-")) {
 		t.Fatalf("refund: %d %s", refund.Code, refund.Body.String())
 	}
@@ -775,6 +775,23 @@ func TestRefundCreatesCreditNoteAndRestocksAtomically(t *testing.T) {
 	if quantity != 2 || credits != 1 || returns != 1 {
 		t.Fatalf("quantity=%d credits=%d returns=%d", quantity, credits, returns)
 	}
+	// A remaining monetary balance must not allow the same goods to be returned twice.
+	for _, legacy := range []bool{false, true} {
+		if legacy {
+			if _, err := a.server.db.Exec("DELETE FROM invoice_return_items"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		repeated := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 500, "reason": "second request", "restockItemIds": []string{lineID}}, a.doctor)
+		if repeated.Code != 422 {
+			t.Fatalf("duplicate/legacy restock allowed: %d %s", repeated.Code, repeated.Body.String())
+		}
+	}
+	remaining := a.request(http.MethodPost, "/api/v1/payments/"+paymentID+"/refunds", map[string]any{"amountMinor": 2500, "reason": "Remaining balance", "restockItemIds": []string{}}, a.doctor)
+	if remaining.Code != 201 {
+		t.Fatal(remaining.Body.String())
+	}
+
 }
 
 func TestFinanceAndDashboardAccountForRefunds(t *testing.T) {
@@ -1068,6 +1085,7 @@ func TestConsultationRecordingUnavailableWithoutTranscriptionConfigured(t *testi
 }
 
 func TestConsultationRecordingTranscriptionPipelineAndAudioPlayback(t *testing.T) {
+	t.Setenv("SENTRYMED_TRANSCRIPTION_COMMAND_JSON", `["echo","mocked-transcript"]`)
 	a := newTestApp(t)
 	patient := a.createPatient(a.nurse, "Transcribed", "Patient")
 	created := a.request(http.MethodPost, "/api/v1/encounters", map[string]any{"patientId": patient.ID, "appointmentId": "", "visitReason": "Exam", "chiefComplaint": "Cough", "hpi": "", "assessment": "", "treatmentPlan": "", "followUp": ""}, a.doctor)
@@ -1075,7 +1093,7 @@ func TestConsultationRecordingTranscriptionPipelineAndAudioPlayback(t *testing.T
 
 	settings := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/settings", nil, a.doctor))
 	version := int(settings["versions"].(map[string]any)["clinical"].(float64))
-	configure := a.request(http.MethodPut, "/api/v1/settings/clinical", map[string]any{"value": map[string]any{"appointmentDuration": 30, "enabledSections": []string{}, "transcriptionEnabled": true, "transcriptionCommand": "echo mocked-transcript"}, "version": version}, a.doctor)
+	configure := a.request(http.MethodPut, "/api/v1/settings/clinical", map[string]any{"value": map[string]any{"appointmentDuration": 30, "enabledSections": []string{}, "transcriptionEnabled": true}, "version": version}, a.doctor)
 	if configure.Code != http.StatusOK {
 		t.Fatalf("configure transcription: %d %s", configure.Code, configure.Body.String())
 	}
@@ -1296,6 +1314,10 @@ func TestRestoreReplacesDatabaseAndPreservesSafetySnapshot(t *testing.T) {
 	if restore.Code != http.StatusOK {
 		t.Fatalf("restore: %d %s", restore.Code, restore.Body.String())
 	}
+	if stale := a.request(http.MethodGet, "/api/v1/auth/me", nil, a.doctor); stale.Code != http.StatusUnauthorized {
+		t.Fatal("restore resurrected a session")
+	}
+	a.doctor = a.login("doctor.dev", "Doctor-Development-Only-2026")
 	reloaded := a.request(http.MethodGet, "/api/v1/patients/"+patient.ID, nil, a.doctor)
 	if reloaded.Code != http.StatusOK || bytes.Contains(reloaded.Body.Bytes(), []byte("change after snapshot")) {
 		t.Fatalf("restored patient did not match snapshot: %d %s", reloaded.Code, reloaded.Body.String())

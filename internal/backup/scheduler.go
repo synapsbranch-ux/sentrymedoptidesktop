@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,6 +28,9 @@ func (s Service) RunScheduler(ctx context.Context, logger *slog.Logger, guard sy
 		}
 		if err := s.runScheduledCheck(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("automatic backup check failed", "error", err)
+			_, _ = s.DB.ExecContext(ctx, "INSERT INTO backup_status(id,checked_at,error) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET checked_at=excluded.checked_at,error=excluded.error", time.Now().UTC().Format(time.RFC3339Nano), "Automatic backup failed. Check the destination, disk space and server logs.")
+		} else if ctx.Err() == nil {
+			_, _ = s.DB.ExecContext(ctx, "INSERT INTO backup_status(id,checked_at,error) VALUES(1,?,'') ON CONFLICT(id) DO UPDATE SET checked_at=excluded.checked_at,error=''", time.Now().UTC().Format(time.RFC3339Nano))
 		}
 	}
 	check()
@@ -79,7 +83,7 @@ func (s Service) runScheduledCheck(ctx context.Context) error {
 }
 
 func (s Service) pruneAutomatic(ctx context.Context, before time.Time) error {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id, path FROM backup_records WHERE kind='automatic' AND created_at < ?", before.Format(time.RFC3339Nano))
+	rows, err := s.DB.QueryContext(ctx, "SELECT id, path FROM backup_records WHERE kind='automatic' AND created_at < ? AND id NOT IN (SELECT id FROM backup_records WHERE kind='automatic' AND verified=1 ORDER BY created_at DESC LIMIT 3)", before.Format(time.RFC3339Nano))
 	if err != nil {
 		return err
 	}
@@ -92,6 +96,10 @@ func (s Service) pruneAutomatic(ctx context.Context, before time.Time) error {
 			return err
 		}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -113,7 +121,15 @@ func (s Service) pruneAutomatic(ctx context.Context, before time.Time) error {
 		if err != nil || relative == "." || relative == ".." || len(relative) >= 3 && relative[:3] == ".."+string(os.PathSeparator) {
 			continue
 		}
+		// Only files created by this engine directly under the destination may
+		// be pruned. Never traverse a symlinked subdirectory from stale metadata.
+		if filepath.Dir(path) != root || !strings.HasPrefix(filepath.Base(path), "sentrymed-automatic-") {
+			continue
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.RemoveAll(path + ".files"); err != nil {
 			return err
 		}
 		if _, err := s.DB.ExecContext(ctx, "DELETE FROM backup_records WHERE id=? AND kind='automatic'", item.id); err != nil {

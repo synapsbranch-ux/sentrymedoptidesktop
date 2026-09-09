@@ -10,6 +10,7 @@ func TestSetupRequestAccessBoundary(t *testing.T) {
 	t.Run("loopback HTTP request is allowed", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", nil)
 		request.RemoteAddr = "127.0.0.1:1234"
+		request.Host = "127.0.0.1:8787"
 		if !setupRequestAllowed(request) {
 			t.Fatal("loopback setup request was rejected")
 		}
@@ -38,4 +39,12 @@ func TestSetupRequestAccessBoundary(t *testing.T) {
 			t.Fatalf("desktop marker handler status = %d", response.Code)
 		}
 	})
+}
+
+func TestSetupRejectsReboundOrProxiedHost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "http://attacker.example/api/v1/setup/complete", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
+	if setupRequestAllowed(r) {
+		t.Fatal("remote Host claimed local setup")
+	}
 }

@@ -78,7 +78,7 @@ Operational code has no required Internet dependency. The browser needs only a r
 - Critical actions are written to the audit log.
 - Restore acquires the server maintenance write lock; normal requests and the backup scheduler cannot race the database swap.
 
-The default HTTP listener is appropriate only for a controlled clinic LAN. TLS termination, host firewall rules, workstation hardening, OS encryption, access review and tested off-device backups are deployment responsibilities.
+Production LAN listeners require TLS (generated locally by default); plaintext production binds are restricted to loopback. Browser-origin guards, role checks and private caching apply to the API. Host firewall rules, workstation hardening, OS encryption, access review and tested offline/immutable backups remain deployment responsibilities. See DEPLOYMENT.md for the explicitly configured local TLS proxy boundary.
 
 ## Desktop lifecycle
 

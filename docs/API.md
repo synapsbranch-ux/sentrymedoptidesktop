@@ -31,7 +31,7 @@ Authentication is an opaque `HttpOnly`, `SameSite=Strict` session cookie. `Secur
 | Methods | Path | Access |
 |---|---|---|
 | GET, POST | `/patients` | Doctor, nurse |
-| GET, PUT, DELETE | `/patients/{id}` | Doctor, nurse; delete archives |
+| GET, PUT, PATCH, DELETE | `/patients/{id}` | Doctor, nurse; delete archives |
 | GET, PUT | `/patients/{id}/history` | Doctor, nurse; versioned |
 | GET | `/patients/{id}/timeline` | Doctor, nurse |
 | GET, POST | `/appointments` | Doctor, nurse |
@@ -41,7 +41,11 @@ Authentication is an opaque `HttpOnly`, `SameSite=Strict` session cookie. `Secur
 | POST | `/queue/check-in` | Doctor, nurse; appointment optional |
 | PATCH | `/queue/{id}` | Doctor, nurse; versioned |
 
-Patient listing accepts `q`, `page`, and `limit`. Appointments accept `date=YYYY-MM-DD` or `from`/`to` range filters.
+Patient listing accepts `q`, `page`, and `limit` (maximum 100; pickers request 10). Search covers prefix names, MRN, exact patient ID, email, normalized phone and supported birth-date queries, and excludes archived patients by default. Appointments accept `date=YYYY-MM-DD` or `from`/`to` range filters.
+
+Patient `PUT` and `PATCH` both merge only supplied editable fields. Omitted fields are preserved, explicit `null` clears optional fields, and `version` is mandatory on every update. Read-only fields such as `id`, `medicalRecordNumber`, `createdAt`, `updatedAt` and `updatedBy` must not be sent. Example: `{"sex":"female","version":4}`. Invalid values return 422, malformed/unknown fields 400, missing records 404, and stale versions 409. History updates also preserve omitted fields and use their own required version.
+
+Appointment writes require an active patient, an active doctor if assigned, a supported type, 10–240 minutes and an RFC3339 timestamp. New appointments default to 30 minutes when duration is omitted/zero. Times are normalized to UTC; atomic database guards reject overlapping bookings with 409, including concurrent requests and reactivation.
 
 ## Encounters, prescriptions and documents
 
@@ -145,3 +149,11 @@ Writable setting keys are explicitly allow-listed. `appearance` accepts supporte
 - `423`: finalized encounter is locked
 - `429`: authentication throttled
 - `500/503`: internal persistence or availability failure
+
+## Safe retries and network boundaries
+
+Invoice creation, POS checkout, invoice payments and refunds accept `Idempotency-Key` (up to 128 characters). Reuse the same unpredictable key and body when retrying an uncertain result. The reservation, mutation and saved response commit in one transaction; replay returns the original result. A reused key with different data is rejected with 422. The maintained UI supplies keys and reuses them after network/server failure. Keys are held in memory: after a reload or sign-in, check the ledger before re-entering an uncertain financial action. Older clients omitting keys do not receive this protection.
+
+API responses use `Cache-Control: private, no-store`. Browser writes require same-origin Origin/Fetch Metadata checks, and both SSE endpoints validate Origin. The authenticated stream rechecks session/account validity on each event and heartbeat. Public events carry only generic display invalidations. Wails' exemption is an in-process context marker, never a client header.
+
+The settings API cannot configure a transcription executable. See [deployment](DEPLOYMENT.md) for the server environment setting. Backup responses include `assetsChecksumSha256`; backup listing also exposes the last automatic check/error in `status`. Restore invalidates all sessions and requires a fresh login.

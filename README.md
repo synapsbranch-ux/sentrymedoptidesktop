@@ -431,7 +431,7 @@ Migrations are embedded from `internal/database/migrations` and applied in numer
 
 ## Backups and restore
 
-Backups use SQLite `VACUUM INTO`, then run `PRAGMA integrity_check` and store a SHA-256 checksum. Automatic policy defaults to every four hours with 30-day automatic-backup retention. Restore is doctor-only, blocks API writes, creates a pre-restore safety snapshot, validates the source, swaps the database portably, reopens it, and runs an integrity check; failed validation recovers the previous database.
+Backups use SQLite `VACUUM INTO`, validate integrity/foreign keys, and store SHA-256 checksums. Each new snapshot also has a matching `.db.files` directory containing documents, recordings, branding, signatures and a checksummed manifest. Keep both together. Automatic policy defaults to every four hours with 30-day retention, while retaining at least three verified automatic generations. Restore is doctor-only, excludes concurrent requests/background database work, stages and validates database/files, creates a pre-restore recovery snapshot, and invalidates all sessions after replacement. Legacy snapshots remain database-only. See [deployment and restore procedure](docs/DEPLOYMENT.md).
 
 Keep a tested copy on a separate encrypted disk or controlled network location. A backup stored only on the clinic computer is not disaster recovery.
 
@@ -461,3 +461,7 @@ make build     # standalone server
 make installer-windows # NSIS installer on Windows
 make seed      # explicit development data
 ```
+
+## Patient workflow and LAN security review
+
+The [September 2026 audit report](docs/SECURITY_REVIEW_2026-09-08.md) describes the patient-edit fix, appointment patient search, additional integrity/security fixes, migration 017, verification evidence and remaining release/deployment work. These changes reduce specific risks; they are not a certification that every vulnerability has been eliminated.

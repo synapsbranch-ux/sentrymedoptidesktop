@@ -24,21 +24,41 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Identity = strings.TrimSpace(input.Identity)
+	if len(input.Identity) > 254 || len(input.Password) > 256 || input.Identity == "" || input.Password == "" {
+		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "The username/email or password is incorrect.")
+		return
+	}
+	select {
+	case s.loginSlots <- struct{}{}:
+		defer func() { <-s.loginSlots }()
+	default:
+		writeError(w, http.StatusTooManyRequests, "LOGIN_BUSY", "Sign-in is busy. Try again shortly.")
+		return
+	}
 	ip := requestIP(r)
 	cutoff := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339Nano)
 	var failures int
-	_ = s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM login_attempts
-		WHERE ip_address = ? AND successful = 0 AND attempted_at > ?`, ip, cutoff).Scan(&failures)
+	err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM login_attempts
+		WHERE (ip_address = ? OR identity = ? COLLATE NOCASE) AND successful = 0 AND attempted_at > ?`, ip, input.Identity, cutoff).Scan(&failures)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "LOGIN_UNAVAILABLE", "Sign-in is temporarily unavailable.")
+		return
+	}
 	if failures >= 8 {
 		writeError(w, http.StatusTooManyRequests, "LOGIN_RATE_LIMITED", "Too many failed sign-in attempts. Try again later.")
 		return
 	}
 	var user AuthUser
 	var passwordHash string
-	err := s.db.QueryRowContext(r.Context(), `SELECT id, username, COALESCE(email,''), display_name, role, password_hash
+	err = s.db.QueryRowContext(r.Context(), `SELECT id, username, COALESCE(email,''), display_name, role, password_hash
 		FROM users WHERE active = 1 AND archived_at IS NULL AND (username = ? COLLATE NOCASE OR email = ? COLLATE NOCASE)`, input.Identity, input.Identity).
 		Scan(&user.ID, &user.Username, &user.Email, &user.DisplayName, &user.Role, &passwordHash)
-	success := err == nil && verifyPassword(input.Password, passwordHash)
+	// Equalize the expensive hash check for unknown and inactive identities.
+	if err != nil {
+		passwordHash = dummyPasswordHash
+	}
+	verified := verifyPassword(input.Password, passwordHash)
+	success := err == nil && verified
 	now := time.Now().UTC()
 	_, _ = s.db.ExecContext(r.Context(), "INSERT INTO login_attempts(identity, ip_address, successful, attempted_at) VALUES(?, ?, ?, ?)", input.Identity, ip, boolInt(success), now.Format(time.RFC3339Nano))
 	if !success {
@@ -62,7 +82,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = s.db.ExecContext(r.Context(), "UPDATE users SET last_login_at = ? WHERE id = ?", now.Format(time.RFC3339Nano), user.ID)
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int((12 * time.Hour).Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: s.secureRequest(r), SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int((12 * time.Hour).Seconds())})
 	s.audit(r.Context(), &user, "login", "session", "", "User signed in", "", "", r)
 	response := map[string]any{"user": user, "expiresAt": expires}
 	if isDesktopRequest(r) {
@@ -75,6 +95,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		streamLocked := r.URL.Path == "/api/v1/events"
+		if streamLocked {
+			s.maintenance.RLock()
+		}
+		defer func() {
+			if streamLocked {
+				s.maintenance.RUnlock()
+			}
+		}()
 		token := sessionTokenFromRequest(r)
 		if token == "" {
 			writeError(w, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Sign in to continue.")
@@ -96,6 +125,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		if time.Since(seenAt) >= 5*time.Minute {
 			_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(token))
 		}
+		if streamLocked {
+			s.maintenance.RUnlock()
+			streamLocked = false
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
 	})
 }
@@ -114,7 +147,10 @@ func (s *Server) requireDoctor(next http.Handler) http.Handler {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	if token := sessionTokenFromRequest(r); token != "" {
-		_, _ = s.db.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(token))
+		if _, err := s.db.ExecContext(r.Context(), "UPDATE sessions SET invalidated_at = ? WHERE token_hash = ?", time.Now().UTC().Format(time.RFC3339Nano), tokenHash(token)); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "LOGOUT_FAILED", "Could not sign out. Please try again.")
+			return
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	s.audit(r.Context(), &user, "logout", "session", "", "User signed out", "", "", r)
@@ -144,4 +180,18 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+// Long-lived streams lose access after logout, expiry, deactivation or restore.
+func (s *Server) eventSessionValid(r *http.Request) bool {
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
+	if r.URL.Path == "/api/v1/public/events" {
+		settings, _, err := s.publicDisplayConfiguration(r.Context())
+		return err == nil && settings.Enabled
+	}
+	var expires string
+	err := s.db.QueryRowContext(r.Context(), `SELECT s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.invalidated_at IS NULL AND u.active=1 AND u.archived_at IS NULL`, tokenHash(sessionTokenFromRequest(r))).Scan(&expires)
+	at, parseErr := time.Parse(time.RFC3339Nano, expires)
+	return err == nil && parseErr == nil && time.Now().Before(at)
 }

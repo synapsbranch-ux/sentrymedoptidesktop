@@ -63,6 +63,10 @@ func (s *Server) handleExpenseCreate(w http.ResponseWriter, r *http.Request) {
 	if input.ExpenseDate == "" {
 		input.ExpenseDate = time.Now().UTC().Format("2006-01-02")
 	}
+	if _, err := time.Parse("2006-01-02", input.ExpenseDate); err != nil {
+		writeError(w, 422, "INVALID_EXPENSE_DATE", "Choose a valid expense date.")
+		return
+	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(r.Context(), `INSERT INTO expenses(id,category,description,amount_minor,currency,exchange_rate,expense_date,payment_method_id,vendor,document_id,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, strings.TrimSpace(input.Category), strings.TrimSpace(input.Description), input.AmountMinor, strings.ToUpper(input.Currency), input.ExchangeRate, input.ExpenseDate, nilIfEmpty(input.PaymentMethodID), nilIfEmpty(input.Vendor), nilIfEmpty(input.DocumentID), now, user.ID)
@@ -77,17 +81,38 @@ func (s *Server) handleExpenseCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFinanceSummary(w http.ResponseWriter, r *http.Request) {
 	from, to := reportRange(r)
 	var baseCurrency string
-	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(json_extract(value_json,'$.currency'),'HTG') FROM settings WHERE key='clinic'`).Scan(&baseCurrency)
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COALESCE(json_extract(value_json,'$.currency'),'HTG') FROM settings WHERE key='clinic'`).Scan(&baseCurrency); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
 	if baseCurrency == "" {
 		baseCurrency = "HTG"
 	}
 	var grossSales, payments, refunds, expenses, outstanding, cost int64
-	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(total_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status NOT IN ('cancelled')", from, to).Scan(&grossSales)
-	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)>=? AND substr(received_at,1,10)<=?", from, to).Scan(&payments)
-	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)>=? AND substr(r.refunded_at,1,10)<=?", from, to).Scan(&refunds)
-	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM expenses WHERE expense_date>=? AND expense_date<=?", from, to).Scan(&expenses)
-	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0)+COALESCE(ref.refunded,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding)
-	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND(ii.cost_minor*ii.quantity*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE substr(i.created_at,1,10)>=? AND substr(i.created_at,1,10)<=? AND i.status<>'cancelled'`, from, to).Scan(&cost)
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(total_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? AND status NOT IN ('cancelled')", from, to).Scan(&grossSales); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM payments WHERE substr(received_at,1,10)>=? AND substr(received_at,1,10)<=?", from, to).Scan(&payments); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(r.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)>=? AND substr(r.refunded_at,1,10)<=?", from, to).Scan(&refunds); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(CAST(ROUND(amount_minor*CAST(exchange_rate AS REAL)) AS INTEGER)),0) FROM expenses WHERE expense_date>=? AND expense_date<=?", from, to).Scan(&expenses); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND((i.total_minor-COALESCE(p.paid,0)+COALESCE(ref.refunded,0))*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoices i LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) p ON p.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id WHERE i.status IN ('issued','partially_paid','overdue')`).Scan(&outstanding); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(CAST(ROUND(ii.cost_minor*ii.quantity*CAST(i.exchange_rate AS REAL)) AS INTEGER)),0) FROM invoice_items ii JOIN invoices i ON i.id=ii.invoice_id WHERE substr(i.created_at,1,10)>=? AND substr(i.created_at,1,10)<=? AND i.status<>'cancelled'`, from, to).Scan(&cost); err != nil {
+		writeError(w, http.StatusInternalServerError, "FINANCE_FAILED", "Could not calculate financial totals.")
+		return
+	}
 	byMethod := []map[string]any{}
 	rows, rowsErr := s.db.QueryContext(r.Context(), `SELECT pm.name,COALESCE(SUM(CAST(ROUND(p.amount_minor*CAST(p.exchange_rate AS REAL)) AS INTEGER)),0) FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND substr(p.received_at,1,10)>=? AND substr(p.received_at,1,10)<=? GROUP BY pm.id,pm.name ORDER BY 2 DESC`, from, to)
 	if rowsErr != nil {
@@ -161,6 +186,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		Next() bool
 		Scan(...any) error
 		Close() error
+		Err() error
 	}
 	var err error
 	if report == "inventory" {
@@ -180,6 +206,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rowsOut = append(rowsOut, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, 500, "REPORT_FAILED", "Could not generate report.")
+		return
 	}
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")

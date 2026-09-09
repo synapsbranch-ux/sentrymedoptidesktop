@@ -55,3 +55,20 @@ describe("api.put body encoding", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 });
+
+
+describe("financial request retries", () => {
+  it("reuses a key after an uncertain failure, then starts a new action after success", async () => {
+    const fetchMock = stubFetch(201, { id: "receipt" });
+    fetchMock.mockRejectedValueOnce(new TypeError("Disconnected"));
+    const path = "/invoices/retry-regression/payments";
+    const body = { amountMinor: 100, paymentMethodId: "cash" };
+    await expect(api.post(path, body)).rejects.toThrow("Cannot reach");
+    await api.post(path, body);
+    await api.post(path, body);
+    const keys = fetchMock.mock.calls.map(([, init]) => new Headers(init?.headers).get("Idempotency-Key"));
+    expect(keys[0]).toBeTruthy();
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[2]).not.toBe(keys[1]);
+  });
+});

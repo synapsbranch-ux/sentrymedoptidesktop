@@ -31,11 +31,13 @@ type Server struct {
 	web         fs.FS
 	// Who has opened which patient record recently, so a record left open on
 	// screen is not logged once per live refresh.
-	patientAccess *patientAccessLog
+	patientAccess      *patientAccessLog
+	loginSlots         chan struct{}
+	transcriptionSlots chan struct{}
 }
 
 func New(db *database.DB, config app.Config, logger *slog.Logger, webAssets ...fs.FS) *Server {
-	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog()}
+	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog(), loginSlots: make(chan struct{}, 2), transcriptionSlots: make(chan struct{}, 1)}
 	if len(webAssets) > 0 {
 		server.web = webAssets[0]
 	}
@@ -47,13 +49,13 @@ func (s *Server) Handler() http.Handler { return s.router }
 func (s *Server) ConnectedClients() int { return s.broker.Connected() }
 
 func (s *Server) StartBackground(ctx context.Context) {
-	go (backup.Service{DB: s.db, DataDir: s.config.DataDir}).RunScheduler(ctx, s.logger, s.maintenance.RLocker())
+	go (backup.Service{DB: s.db, DataDir: s.config.DataDir}).RunScheduler(ctx, s.logger, &s.maintenance)
 }
 
 func (s *Server) routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, s.timeoutRequests)
-	r.Use(s.securityHeaders)
+	r.Use(s.securityHeaders, s.protectBrowserRequests, s.guardDatabase)
 	r.Get("/health", s.handleHealth)
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/setup/status", s.handleSetupStatus)
@@ -72,7 +74,7 @@ func (s *Server) routes() chi.Router {
 			protected.Get("/events/revision", s.handleEventRevision)
 			protected.With(s.requireDoctor).Post("/backups/restore", s.handleBackupRestore)
 			protected.Group(func(live chi.Router) {
-				live.Use(s.withMaintenanceRead)
+				// Request lifetime is guarded before authentication.
 				s.registerClinicalRoutes(live)
 				s.registerOperationsRoutes(live)
 				s.registerSystemRoutes(live)
@@ -86,6 +88,10 @@ func (s *Server) routes() chi.Router {
 func (s *Server) timeoutRequests(next http.Handler) http.Handler {
 	timed := middleware.Timeout(30 * time.Second)(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && (r.URL.Path == "/api/v1/backups" || r.URL.Path == "/api/v1/backups/restore") {
+			middleware.Timeout(10*time.Minute)(next).ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == "/api/v1/events" || r.URL.Path == "/api/v1/public/events" {
 			next.ServeHTTP(w, r)
 			return
@@ -99,11 +105,17 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
+		if s.secureRequest(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
 		// blob: is needed by the in-app document viewer, which fetches a stored
 		// file through the authenticated API and renders it from an object URL;
 		// a direct URL cannot carry the desktop shell's session header.
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

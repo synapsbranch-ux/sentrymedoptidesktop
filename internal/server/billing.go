@@ -153,22 +153,48 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments, "creditNotes": credits})
 }
 
+// Keep every amount exact in both SQLite integers and JavaScript numbers.
+const maxExactMinor int64 = 1<<53 - 1
+
 func validateInvoice(input invoicePayload) *APIError {
-	if len(input.Items) == 0 {
-		return &APIError{Code: "INVOICE_ITEMS_REQUIRED", Message: "Add at least one invoice item."}
+	invalid := func() *APIError {
+		return &APIError{Code: "INVALID_INVOICE_TOTAL", Message: "Amounts must be non-negative, discounts cannot exceed their subtotal, and totals must fit the supported exact amount range."}
 	}
-	if input.DiscountMinor < 0 || input.TaxMinor < 0 {
-		return &APIError{Code: "INVALID_INVOICE_TOTAL", Message: "Discount and tax cannot be negative."}
+	if len(input.Items) == 0 || len(input.Items) > 1000 {
+		return &APIError{Code: "INVOICE_ITEMS_REQUIRED", Message: "Add between 1 and 1000 invoice items."}
 	}
+	if input.DiscountMinor < 0 || input.DiscountMinor > maxExactMinor || input.TaxMinor < 0 || input.TaxMinor > maxExactMinor {
+		return invalid()
+	}
+	var subtotal, total int64
 	for _, item := range input.Items {
-		if strings.TrimSpace(item.Description) == "" || item.Quantity <= 0 || item.UnitPriceMinor < 0 || item.DiscountMinor < 0 || item.TaxMinor < 0 {
+		if strings.TrimSpace(item.Description) == "" || item.Quantity <= 0 || int64(item.Quantity) > maxExactMinor || item.UnitPriceMinor < 0 || item.DiscountMinor < 0 || item.TaxMinor < 0 {
 			return &APIError{Code: "INVALID_INVOICE_ITEM", Message: "Every invoice item needs a description, positive quantity, and valid amounts."}
 		}
+		if item.UnitPriceMinor > maxExactMinor/int64(item.Quantity) {
+			return invalid()
+		}
+		gross := int64(item.Quantity) * item.UnitPriceMinor
+		if item.DiscountMinor > gross || item.TaxMinor > maxExactMinor-(gross-item.DiscountMinor) {
+			return invalid()
+		}
+		line := gross - item.DiscountMinor + item.TaxMinor
+		if gross > maxExactMinor-subtotal || line > maxExactMinor-total {
+			return invalid()
+		}
+		subtotal += gross
+		total += line
+	}
+	if input.DiscountMinor > total || input.TaxMinor > maxExactMinor-(total-input.DiscountMinor) {
+		return invalid()
 	}
 	return nil
 }
 
 func (s *Server) createInvoiceTx(ctx *http.Request, tx *sql.Tx, input invoicePayload, user AuthUser, deductStock bool) (id, number string, total int64, err error) {
+	if validation := validateInvoice(input); validation != nil {
+		return "", "", 0, validation
+	}
 	if input.Currency == "" {
 		input.Currency = "HTG"
 	}
@@ -255,12 +281,18 @@ func (s *Server) handleInvoiceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
+	status := input.Status
+	if status == "" {
+		status = "issued"
+	}
 	var id, number string
 	var total int64
-	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+	replay, err := s.idempotentTx(r, input, func(tx *sql.Tx) error {
 		var err error
 		id, number, total, err = s.createInvoiceTx(r, tx, input, user, false)
 		return err
+	}, func() any {
+		return map[string]any{"id": id, "invoiceNumber": number, "totalMinor": total, "status": status, "version": 1}
 	})
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
@@ -270,9 +302,13 @@ func (s *Server) handleInvoiceCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INVOICE_CREATE_FAILED", "Could not create the invoice.")
 		return
 	}
+	if replay != nil {
+		writeJSON(w, http.StatusCreated, replay)
+		return
+	}
 	s.audit(r.Context(), &user, "create", "invoice", id, "Created invoice "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "invoice.created", EntityType: "invoice", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "invoiceNumber": number, "totalMinor": total, "status": "issued", "version": 1})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "invoiceNumber": number, "totalMinor": total, "status": status, "version": 1})
 }
 
 func (s *Server) recordPaymentTx(r *http.Request, tx *sql.Tx, invoiceID string, input paymentPayload, user AuthUser) (id, receipt string, balance int64, err error) {
@@ -288,8 +324,12 @@ func (s *Server) recordPaymentTx(r *http.Request, tx *sql.Tx, invoiceID string, 
 		return "", "", 0, &APIError{Code: "INVOICE_NOT_PAYABLE", Message: "This invoice cannot receive payments."}
 	}
 	var paid, refunded int64
-	_ = tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(amount_minor),0) FROM payments WHERE invoice_id=?", invoiceID).Scan(&paid)
-	_ = tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(r.amount_minor),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE p.invoice_id=?", invoiceID).Scan(&refunded)
+	if err := tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(amount_minor),0) FROM payments WHERE invoice_id=?", invoiceID).Scan(&paid); err != nil {
+		return "", "", 0, err
+	}
+	if err := tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(r.amount_minor),0) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE p.invoice_id=?", invoiceID).Scan(&refunded); err != nil {
+		return "", "", 0, err
+	}
 	balance = total - (paid - refunded)
 	if input.AmountMinor > balance {
 		return "", "", balance, &APIError{Code: "PAYMENT_EXCEEDS_BALANCE", Message: "Payment exceeds the outstanding invoice balance."}
@@ -335,11 +375,11 @@ func (s *Server) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 	invoiceID := chi.URLParam(r, "id")
 	var id, receipt string
 	var balance int64
-	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+	replay, err := s.idempotentTx(r, input, func(tx *sql.Tx) error {
 		var err error
 		id, receipt, balance, err = s.recordPaymentTx(r, tx, invoiceID, input, user)
 		return err
-	})
+	}, func() any { return map[string]any{"id": id, "receiptNumber": receipt, "balanceMinor": balance} })
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
 			writeJSON(w, http.StatusUnprocessableEntity, apiErr)
@@ -350,6 +390,10 @@ func (s *Server) handlePaymentCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "PAYMENT_CREATE_FAILED", "Could not record payment.")
+		return
+	}
+	if replay != nil {
+		writeJSON(w, http.StatusCreated, replay)
 		return
 	}
 	s.audit(r.Context(), &user, "payment", "invoice", invoiceID, "Recorded payment "+receipt, "", "", r)
@@ -376,7 +420,7 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	var invoiceID, invoiceNumber, paymentID, receipt string
 	var total, balance int64
-	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+	replay, err := s.idempotentTx(r, input, func(tx *sql.Tx) error {
 		var err error
 		invoiceID, invoiceNumber, total, err = s.createInvoiceTx(r, tx, input.Invoice, user, true)
 		if err != nil {
@@ -387,6 +431,8 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 			paymentID, receipt, balance, err = s.recordPaymentTx(r, tx, invoiceID, *input.Payment, user)
 		}
 		return err
+	}, func() any {
+		return map[string]any{"invoiceId": invoiceID, "invoiceNumber": invoiceNumber, "totalMinor": total, "balanceMinor": balance, "paymentId": paymentID, "receiptNumber": receipt}
 	})
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
@@ -394,6 +440,10 @@ func (s *Server) handlePOSCheckout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "POS_CHECKOUT_FAILED", "Checkout was rolled back. No stock or financial records were changed.")
+		return
+	}
+	if replay != nil {
+		writeJSON(w, http.StatusCreated, replay)
 		return
 	}
 	s.audit(r.Context(), &user, "checkout", "invoice", invoiceID, "Completed POS checkout "+invoiceNumber, "", "", r)
@@ -415,12 +465,14 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 	user, _ := userFromContext(r.Context())
 	paymentID, refundID, now := chi.URLParam(r, "id"), uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
 	var invoiceID, creditNumber string
-	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+	replay, err := s.idempotentTx(r, input, func(tx *sql.Tx) error {
 		var paid, refunded int64
 		if err := tx.QueryRowContext(r.Context(), "SELECT invoice_id,amount_minor FROM payments WHERE id=?", paymentID).Scan(&invoiceID, &paid); err != nil {
 			return err
 		}
-		_ = tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(amount_minor),0) FROM refunds WHERE payment_id=?", paymentID).Scan(&refunded)
+		if err := tx.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(amount_minor),0) FROM refunds WHERE payment_id=?", paymentID).Scan(&refunded); err != nil {
+			return err
+		}
 		if input.AmountMinor > paid-refunded {
 			return &APIError{Code: "REFUND_EXCEEDS_PAYMENT", Message: "Refund exceeds the refundable payment amount."}
 		}
@@ -435,7 +487,27 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 		if _, err = tx.ExecContext(r.Context(), `INSERT INTO credit_notes(id,credit_number,invoice_id,refund_id,amount_minor,reason,restocked,created_at,created_by) VALUES(?,?,?,?,?,?,?,?,?)`, uuid.NewString(), creditNumber, invoiceID, refundID, input.AmountMinor, strings.TrimSpace(input.Reason), len(input.RestockItemIDs) > 0, now, user.ID); err != nil {
 			return err
 		}
+		if len(input.RestockItemIDs) > 0 {
+			var legacyReturns int
+			if err := tx.QueryRowContext(r.Context(), `SELECT count(*) FROM credit_notes c WHERE c.invoice_id=? AND c.restocked=1 AND c.refund_id<>? AND NOT EXISTS(SELECT 1 FROM invoice_return_items x WHERE x.refund_id=c.refund_id)`, invoiceID, refundID).Scan(&legacyReturns); err != nil {
+				return err
+			}
+			if legacyReturns > 0 {
+				return &APIError{Code: "LEGACY_RETURN_REVIEW_REQUIRED", Message: "This invoice has an older return without item tracking. Review stock before restocking again; a refund without restocking remains available."}
+			}
+		}
 		for _, lineID := range input.RestockItemIDs {
+			var alreadyReturned int
+			if err := tx.QueryRowContext(r.Context(), "SELECT count(*) FROM invoice_return_items WHERE invoice_item_id=?", lineID).Scan(&alreadyReturned); err != nil {
+				return err
+			}
+			if alreadyReturned > 0 {
+				return &APIError{Code: "ITEM_ALREADY_RETURNED", Message: "This invoice item has already been returned."}
+			}
+			if _, err := tx.ExecContext(r.Context(), "INSERT INTO invoice_return_items(invoice_item_id,refund_id) VALUES(?,?)", lineID, refundID); err != nil {
+				return &APIError{Code: "INVALID_RETURN_ITEM", Message: "Select an invoice item that has not already been returned."}
+			}
+
 			var inventoryID string
 			var quantity, previous int
 			if err = tx.QueryRowContext(r.Context(), `SELECT inventory_item_id,quantity FROM invoice_items WHERE id=? AND invoice_id=? AND inventory_item_id IS NOT NULL`, lineID, invoiceID).Scan(&inventoryID, &quantity); err != nil {
@@ -452,14 +524,20 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var total, netPaid int64
-		_ = tx.QueryRowContext(r.Context(), "SELECT total_minor FROM invoices WHERE id=?", invoiceID).Scan(&total)
-		_ = tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(p.amount_minor),0)-COALESCE((SELECT SUM(r.amount_minor) FROM refunds r JOIN payments p2 ON p2.id=r.payment_id WHERE p2.invoice_id=?),0) FROM payments p WHERE p.invoice_id=?`, invoiceID, invoiceID).Scan(&netPaid)
+		if err := tx.QueryRowContext(r.Context(), "SELECT total_minor FROM invoices WHERE id=?", invoiceID).Scan(&total); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(p.amount_minor),0)-COALESCE((SELECT SUM(r.amount_minor) FROM refunds r JOIN payments p2 ON p2.id=r.payment_id WHERE p2.invoice_id=?),0) FROM payments p WHERE p.invoice_id=?`, invoiceID, invoiceID).Scan(&netPaid); err != nil {
+			return err
+		}
 		status := "partially_paid"
 		if netPaid == 0 {
 			status = "refunded"
 		}
 		_, err = tx.ExecContext(r.Context(), "UPDATE invoices SET status=?,version=version+1,updated_at=?,updated_by=? WHERE id=?", status, now, user.ID, invoiceID)
 		return err
+	}, func() any {
+		return map[string]any{"id": refundID, "invoiceId": invoiceID, "creditNumber": creditNumber}
 	})
 	if err != nil {
 		if apiErr, ok := err.(*APIError); ok {
@@ -467,6 +545,10 @@ func (s *Server) handleRefundCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "REFUND_FAILED", "Could not record refund.")
+		return
+	}
+	if replay != nil {
+		writeJSON(w, http.StatusCreated, replay)
 		return
 	}
 	s.audit(r.Context(), &user, "refund", "payment", paymentID, "Recorded payment refund", "", "", r)
@@ -565,8 +647,12 @@ func (s *Server) handleCashRegisterClose(w http.ResponseWriter, r *http.Request)
 			return err
 		}
 		var cashPayments, cashRefunds int64
-		_ = tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(p.amount_minor),0) FROM payments p JOIN payment_methods pm ON pm.id=p.payment_method_id WHERE p.register_session_id=? AND lower(pm.name)='cash'`, id).Scan(&cashPayments)
-		_ = tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(r.amount_minor),0) FROM refunds r JOIN payments p ON p.id=r.payment_id JOIN payment_methods pm ON pm.id=p.payment_method_id WHERE p.register_session_id=? AND lower(pm.name)='cash'`, id).Scan(&cashRefunds)
+		if err := tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(p.amount_minor),0) FROM payments p JOIN payment_methods pm ON pm.id=p.payment_method_id WHERE p.register_session_id=? AND lower(pm.name)='cash'`, id).Scan(&cashPayments); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(r.amount_minor),0) FROM refunds r JOIN payments p ON p.id=r.payment_id JOIN payment_methods pm ON pm.id=p.payment_method_id WHERE p.register_session_id=? AND lower(pm.name)='cash'`, id).Scan(&cashRefunds); err != nil {
+			return err
+		}
 		expected = opening + cashPayments - cashRefunds
 		difference = input.CountedCashMinor - expected
 		_, err := tx.ExecContext(r.Context(), "UPDATE cash_register_sessions SET closed_by=?,counted_cash_minor=?,expected_cash_minor=?,difference_minor=?,closing_notes=?,closed_at=? WHERE id=? AND closed_at IS NULL", user.ID, input.CountedCashMinor, expected, difference, nilIfEmpty(input.Notes), now, id)

@@ -82,3 +82,11 @@ Indexes cover session tokens/expiry, patient names/phones/creation, appointment 
 `VACUUM INTO` creates a transactionally consistent standalone snapshot that includes committed WAL content. Each file is opened read-only for `PRAGMA integrity_check`, SHA-256 hashed, and registered in `backup_records`.
 
 Restore validates the registered checksum and integrity, creates a pre-restore snapshot, acquires maintenance mode, checkpoints/truncates WAL, closes SQLite, preserves the current main file, installs the snapshot, reopens and verifies. If open or verification fails, it restores the preserved database. Scheduled backups read their interval/retention from `settings.backup` each minute; only expired automatic snapshots are pruned.
+
+## Migration 017: integrity and recovery safeguards
+
+`017_integrity_guards.sql` adds atomic appointment-overlap checks, finalized-record guards on consultation children, and a guard against disabling the last active doctor. Existing finalized data and existing overlapping appointments are not rewritten. Existing overlaps require staff review when edited; the migration does not choose a clinical schedule automatically.
+
+New `idempotency_records` and `invoice_return_items` tables make supported financial retries and repeated full-line restocking safe. Legacy refunds do not identify returned line IDs reliably: invoices with older restocked credit notes require a stock review before further automatic restocking. Financial refunds without restocking remain available. The new marker applies to returns recorded after this migration. `backup_records.assets_checksum` identifies complete file bundles; an empty value denotes a legacy database-only snapshot. `backup_status` records the last automatic check/error. Legacy database-configured transcription commands are removed.
+
+SQLite uses WAL, foreign keys and `synchronous=FULL`. Backup/restore includes documents, consultation recordings, branding and signatures. Keep each `.db` and matching `.db.files` directory together. Restore stages and checks assets before swapping, preserves originals through reopening, retains recovery catalog entries, and invalidates restored sessions. See DEPLOYMENT.md for upgrade and recovery procedures; a database/file restore is not an atomic filesystem transaction across a power loss.

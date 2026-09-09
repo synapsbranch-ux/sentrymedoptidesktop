@@ -143,7 +143,9 @@ func (s *Server) handlePublicDisplay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {
+	s.maintenance.RLock()
 	settings, _, err := s.publicDisplayConfiguration(r.Context())
+	s.maintenance.RUnlock()
 	if err != nil || !settings.Enabled {
 		writeError(w, http.StatusNotFound, "PUBLIC_DISPLAY_DISABLED", "The clinic public display is not enabled.")
 		return

@@ -47,7 +47,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Connection", "keep-alive")
 	channel, unsubscribe := s.broker.Subscribe()
 	defer unsubscribe()
@@ -63,9 +63,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
+			if !s.eventSessionValid(r) {
+				return
+			}
+			if r.URL.Path == "/api/v1/public/events" {
+				data = []byte(`{"type":"display.changed"}`)
+			}
 			_, _ = fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
 			flusher.Flush()
 		case <-keepAlive.C:
+			if !s.eventSessionValid(r) {
+				return
+			}
 			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
 		}
@@ -364,8 +373,8 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_SETTING", "Clinical settings are invalid.")
 			return
 		}
-		if value.TranscriptionEnabled && strings.TrimSpace(value.TranscriptionCommand) == "" {
-			writeError(w, http.StatusUnprocessableEntity, "TRANSCRIPTION_COMMAND_REQUIRED", "Set a transcription command before enabling transcription.")
+		if value.TranscriptionCommand != "" {
+			writeError(w, http.StatusUnprocessableEntity, "LOCAL_CONFIGURATION_REQUIRED", "Transcription tools must be configured by the server administrator.")
 			return
 		}
 		if value.Analytics != nil {
@@ -383,14 +392,16 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if key == "backup" {
 		var value struct {
-			Directory string `json:"directory"`
+			Directory     string `json:"directory"`
+			IntervalHours int    `json:"intervalHours"`
+			RetentionDays int    `json:"retentionDays"`
 		}
-		if json.Unmarshal(raw, &value) != nil {
+		if json.Unmarshal(raw, &value) != nil || value.IntervalHours < 0 || value.IntervalHours > 168 || value.RetentionDays < 1 || value.RetentionDays > 3650 {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_BACKUP_SETTING", "Backup settings are invalid.")
 			return
 		}
 		if _, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), value.Directory); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+			writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", "The backup folder is unavailable. Check its path and permissions on the server.")
 			return
 		}
 	}
@@ -538,6 +549,10 @@ func (s *Server) handleUsersUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.db.ExecContext(r.Context(), `UPDATE users SET display_name=?, active=?, version=version+1, updated_at=?, updated_by=? WHERE id=? AND version=? AND archived_at IS NULL`, strings.TrimSpace(input.DisplayName), boolInt(input.Active), time.Now().UTC().Format(time.RFC3339Nano), actor.ID, id, input.Version)
 	if err != nil {
+		if strings.Contains(err.Error(), "LAST_DOCTOR_REQUIRED") {
+			writeError(w, 422, "LAST_DOCTOR_REQUIRED", "The clinic must retain at least one active doctor account.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "USER_UPDATE_FAILED", "Could not update the user.")
 		return
 	}
@@ -702,7 +717,9 @@ func (s *Server) handleBackupsList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "BACKUP_LIST_FAILED", "Could not load backups.")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	var checkedAt, backupError string
+	_ = s.db.QueryRowContext(r.Context(), "SELECT checked_at,error FROM backup_status WHERE id=1").Scan(&checkedAt, &backupError)
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "status": map[string]string{"checkedAt": checkedAt, "error": backupError}})
 }
 
 func (s *Server) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
@@ -727,7 +744,7 @@ func (s *Server) handleBackupDestinationValidate(w http.ResponseWriter, r *http.
 	}
 	directory, err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).ValidateDestination(r.Context(), input.Directory)
 	if err != nil {
-		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "BACKUP_DESTINATION_UNAVAILABLE", "The backup folder is unavailable. Check its path and permissions on the server.")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"directory": directory, "writable": true})
@@ -744,8 +761,6 @@ func (s *Server) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
-	s.maintenance.Lock()
-	defer s.maintenance.Unlock()
 	if err := (backup.Service{DB: s.db, DataDir: s.config.DataDir}).Restore(r.Context(), input.BackupID, user.ID); err != nil {
 		s.logger.Error("restore failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "RESTORE_FAILED", "The backup could not be safely restored; the current database was preserved.")

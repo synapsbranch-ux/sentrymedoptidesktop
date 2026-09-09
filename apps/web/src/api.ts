@@ -6,8 +6,10 @@ export class APIError extends Error {
 }
 
 let desktopSessionToken = "";
+const pendingMutations = new Map<string, string>();
 
 export function setDesktopSessionToken(token: string) {
+  if (desktopSessionToken !== token) pendingMutations.clear();
   desktopSessionToken = token;
 }
 
@@ -17,7 +19,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   headers.set("Accept", "application/json");
   if (desktopSessionToken) headers.set("Authorization", `SentryMed ${desktopSessionToken}`);
   const controller = options.signal ? null : new AbortController();
-  const timer = controller ? window.setTimeout(() => controller.abort(), 20000) : 0;
+  const timer = controller ? window.setTimeout(() => controller.abort(), path === "/backups" || path === "/backups/restore" ? 600000 : 20000) : 0;
   let response: Response;
   try {
     response = await fetch(`/api/v1${path}`, { ...options, headers, credentials: "same-origin", signal: options.signal ?? controller?.signal });
@@ -27,6 +29,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   } finally {
     if (timer) window.clearTimeout(timer);
   }
+  if (response.ok && (path === "/auth/login" || path === "/auth/logout")) pendingMutations.clear();
   if (response.status === 204) return undefined as T;
   const type = response.headers.get("content-type") ?? "";
   const body: unknown = type.includes("application/json") ? await response.json() : await response.text();
@@ -64,10 +67,32 @@ async function requestBlob(path: string, signal?: AbortSignal): Promise<{ blob: 
   return { blob: await response.blob(), filename: match ? decodeURIComponent(match[1]) : "" };
 }
 
+// Keep the same key when retrying an uncertain network/server failure. A
+// successful response ends this action, allowing a later deliberate new sale.
+async function post<T>(path: string, body?: unknown): Promise<T> {
+  const jsonBody = body === undefined ? undefined : JSON.stringify(body);
+  const protectedWrite = path === "/invoices" || path === "/pos/checkout" || /^\/invoices\/[^/]+\/payments$/.test(path) || /^\/payments\/[^/]+\/refunds$/.test(path);
+  const fingerprint = `${path}:${jsonBody ?? ""}`;
+  const headers = new Headers();
+  if (protectedWrite) {
+    let key = pendingMutations.get(fingerprint);
+    if (!key) { key = crypto.randomUUID(); pendingMutations.set(fingerprint, key); }
+    headers.set("Idempotency-Key", key);
+  }
+  try {
+    const result = await request<T>(path, { method: "POST", headers, body: body instanceof FormData ? body : jsonBody });
+    pendingMutations.delete(fingerprint);
+    return result;
+  } catch (reason) {
+    if (reason instanceof APIError && reason.status >= 400 && reason.status < 500) pendingMutations.delete(fingerprint);
+    throw reason;
+  }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   blob: requestBlob,
-  post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: body instanceof FormData ? body : body === undefined ? undefined : JSON.stringify(body) }),
+  post,
   // Symmetric with post(): a signature upload/draw sends FormData through PUT
   // (it replaces the one existing record rather than creating a new one), and
   // JSON.stringify()-ing a FormData instance silently serializes to "{}" and

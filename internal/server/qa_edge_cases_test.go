@@ -53,15 +53,18 @@ func TestPatientRejectsMissingIdentityAndImpossibleDates(t *testing.T) {
 	}
 }
 
-func TestPatientAcceptsDatesFarInThePastAndTheFuture(t *testing.T) {
+func TestPatientAcceptsHistoricDatesAndRejectsFutureBirthDates(t *testing.T) {
 	a := newTestApp(t)
-	// A date of birth is not range-checked; the age filter must simply not
-	// mis-handle either extreme.
+	// Historic birth dates remain valid; future birth dates are rejected.
 	for _, dateOfBirth := range []string{"1901-01-01", "2099-12-31"} {
 		created := a.request(http.MethodPost, "/api/v1/patients", map[string]any{
 			"firstName": "Extreme", "lastName": "Dates" + dateOfBirth[:4], "dateOfBirth": dateOfBirth, "tags": []string{},
 		}, a.doctor)
-		if created.Code != http.StatusCreated {
+		want := http.StatusCreated
+		if dateOfBirth == "2099-12-31" {
+			want = http.StatusUnprocessableEntity
+		}
+		if created.Code != want {
 			t.Fatalf("create with dateOfBirth %s: %d %s", dateOfBirth, created.Code, created.Body.String())
 		}
 	}

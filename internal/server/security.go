@@ -12,6 +12,9 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
+// A non-account hash used only to avoid username timing enumeration.
+const dummyPasswordHash = "$argon2id$v=19$m=65536,t=3,p=2$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
 const (
 	argonMemory      = 64 * 1024
 	argonIterations  = 3
@@ -60,7 +63,7 @@ func verifyPassword(password, encoded string) bool {
 		return false
 	}
 	expected, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil || memory > 256*1024 || iterations > 10 || parallelism > 16 {
+	if err != nil || memory < 8*parallelism || memory > 256*1024 || iterations < 1 || iterations > 10 || parallelism < 1 || parallelism > 16 || len(salt) != argonSaltLength || len(expected) != argonKeyLength {
 		return false
 	}
 	actual := argon2.IDKey([]byte(password), salt, uint32(iterations), uint32(memory), uint8(parallelism), uint32(len(expected)))

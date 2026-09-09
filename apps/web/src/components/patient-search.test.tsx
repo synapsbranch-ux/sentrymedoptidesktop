@@ -116,4 +116,53 @@ describe("PatientPicker", () => {
     await act(async () => { vi.advanceTimersByTime(400); });
     expect(patientCalls(get)).toHaveLength(0);
   });
+  it("rejects typed text until an existing patient is selected", () => {
+    vi.spyOn(api, "get").mockResolvedValue({ items: [] } as never);
+    render(<I18nProvider><PatientPicker required value="" onChange={() => undefined} /></I18nProvider>);
+    const input = screen.getByRole("combobox") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "unselected name" } });
+    expect(input.checkValidity()).toBe(false);
+    expect(input.validationMessage).toContain("Select an existing patient");
+  });
+
+  it("loads the selected patient when an appointment is reopened", async () => {
+    const get = vi.spyOn(api, "get").mockImplementation(async (path) => path === "/patients/p1" ? patient() : {} as never);
+    render(<I18nProvider><PatientPicker value="p1" onChange={() => undefined} /></I18nProvider>);
+    await screen.findByText("Jéan Étienne");
+    expect(patientCalls(get)).toContain("/patients/p1");
+    expect(screen.getByRole("button", { name: "Change patient" })).toBeTruthy();
+  });
+
+  it("keeps the saved selection on a failed load and allows retry", async () => {
+    let fail = true;
+    vi.spyOn(api, "get").mockImplementation(async (path) => {
+      if (path === "/patients/p1") { if (fail) throw new Error("Offline"); return patient() as never; }
+      return {} as never;
+    });
+    const change = vi.fn();
+    render(<I18nProvider><PatientPicker value="p1" onChange={change} /></I18nProvider>);
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(change).not.toHaveBeenCalled();
+    fail = false;
+    fireEvent.click(retry);
+    await screen.findByText("Jéan Étienne");
+  });
+
+  it("supports arrow/Enter selection and hides stale results", async () => {
+    vi.spyOn(api, "get").mockResolvedValue({ items: [patient()], total: 1 } as never);
+    const change = vi.fn();
+    render(<I18nProvider><PatientPicker value="" onChange={change} /></I18nProvider>);
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "jean" } });
+    await act(async () => { vi.advanceTimersByTime(310); });
+    await screen.findByRole("option");
+    fireEvent.change(input, { target: { value: "other" } });
+    expect(screen.queryByRole("option")).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(310); });
+    await screen.findByRole("option");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(change).toHaveBeenCalledWith("p1", expect.objectContaining({ id: "p1" }));
+  });
+
 });

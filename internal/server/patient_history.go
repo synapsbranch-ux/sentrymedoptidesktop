@@ -71,21 +71,29 @@ func (s *Server) handlePatientHistoryGet(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handlePatientHistoryUpdate(w http.ResponseWriter, r *http.Request) {
-	var input patientHistory
-	if err := decodeJSON(r, &input); err != nil || input.Version < 1 {
+	patientID := chi.URLParam(r, "id")
+	before, err := scanPatientHistory(s.db.QueryRowContext(r.Context(), "SELECT "+patientHistoryColumns+" FROM patient_histories WHERE patient_id=? AND EXISTS (SELECT 1 FROM patients WHERE id=? AND archived_at IS NULL)", patientID, patientID))
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "PATIENT_NOT_FOUND", "Patient medical history was not found.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PATIENT_HISTORY_FAILED", "Could not load medical history.")
+		return
+	}
+	input := before
+	input.Version = 0
+	if err := decodePatch(r, &input); err != nil || input.Version < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Medical history and its current version are required.")
 		return
 	}
-	patientID := chi.URLParam(r, "id")
-	before, err := scanPatientHistory(s.db.QueryRowContext(r.Context(), "SELECT "+patientHistoryColumns+" FROM patient_histories WHERE patient_id=?", patientID))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "PATIENT_NOT_FOUND", "Patient medical history was not found.")
-		return
+	if input.ChronicDiseases == nil {
+		input.ChronicDiseases = []string{}
 	}
 	chronic, _ := json.Marshal(input.ChronicDiseases)
 	user, _ := userFromContext(r.Context())
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := s.db.ExecContext(r.Context(), `UPDATE patient_histories SET chronic_diseases_json=?,diabetes=?,hypertension=?,cardiovascular_notes=?,neurological_notes=?,surgeries=?,pregnancy_notes=?,tobacco_use=?,family_medical_history=?,family_ocular_history=?,previous_eye_surgery=?,ocular_trauma=?,glaucoma_history=?,cataract_history=?,retinal_disease=?,previous_glasses=?,previous_contact_lenses=?,version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND version=?`, string(chronic), nullableBool(input.Diabetes), nullableBool(input.Hypertension), nilIfEmpty(input.CardiovascularNotes), nilIfEmpty(input.NeurologicalNotes), nilIfEmpty(input.Surgeries), nilIfEmpty(input.PregnancyNotes), nilIfEmpty(input.TobaccoUse), nilIfEmpty(input.FamilyMedicalHistory), nilIfEmpty(input.FamilyOcularHistory), nilIfEmpty(input.PreviousEyeSurgery), nilIfEmpty(input.OcularTrauma), nilIfEmpty(input.GlaucomaHistory), nilIfEmpty(input.CataractHistory), nilIfEmpty(input.RetinalDisease), nilIfEmpty(input.PreviousGlasses), nilIfEmpty(input.PreviousContactLenses), now, user.ID, patientID, input.Version)
+	result, err := s.db.ExecContext(r.Context(), `UPDATE patient_histories SET chronic_diseases_json=?,diabetes=?,hypertension=?,cardiovascular_notes=?,neurological_notes=?,surgeries=?,pregnancy_notes=?,tobacco_use=?,family_medical_history=?,family_ocular_history=?,previous_eye_surgery=?,ocular_trauma=?,glaucoma_history=?,cataract_history=?,retinal_disease=?,previous_glasses=?,previous_contact_lenses=?,version=version+1,updated_at=?,updated_by=? WHERE patient_id=? AND version=? AND EXISTS (SELECT 1 FROM patients WHERE id=patient_histories.patient_id AND archived_at IS NULL)`, string(chronic), nullableBool(input.Diabetes), nullableBool(input.Hypertension), nilIfEmpty(input.CardiovascularNotes), nilIfEmpty(input.NeurologicalNotes), nilIfEmpty(input.Surgeries), nilIfEmpty(input.PregnancyNotes), nilIfEmpty(input.TobaccoUse), nilIfEmpty(input.FamilyMedicalHistory), nilIfEmpty(input.FamilyOcularHistory), nilIfEmpty(input.PreviousEyeSurgery), nilIfEmpty(input.OcularTrauma), nilIfEmpty(input.GlaucomaHistory), nilIfEmpty(input.CataractHistory), nilIfEmpty(input.RetinalDisease), nilIfEmpty(input.PreviousGlasses), nilIfEmpty(input.PreviousContactLenses), now, user.ID, patientID, input.Version)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PATIENT_HISTORY_UPDATE_FAILED", "Could not update medical history.")
 		return
@@ -95,7 +103,11 @@ func (s *Server) handlePatientHistoryUpdate(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusConflict, "CONCURRENT_MODIFICATION", "This medical history changed on another device. Reload before saving.")
 		return
 	}
-	after, _ := scanPatientHistory(s.db.QueryRowContext(r.Context(), "SELECT "+patientHistoryColumns+" FROM patient_histories WHERE patient_id=?", patientID))
+	after, err := scanPatientHistory(s.db.QueryRowContext(r.Context(), "SELECT "+patientHistoryColumns+" FROM patient_histories WHERE patient_id=?", patientID))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PATIENT_HISTORY_FAILED", "History was saved but could not be reloaded. Refresh before editing again.")
+		return
+	}
 	beforeJSON, _ := json.Marshal(before)
 	afterJSON, _ := json.Marshal(after)
 	s.audit(r.Context(), &user, "update", "patient_history", patientID, "Updated structured medical and ocular history", string(beforeJSON), string(afterJSON), r)

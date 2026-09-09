@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -26,7 +27,7 @@ type DB struct {
 
 func Open(ctx context.Context, dataDir string) (*DB, error) {
 	path := filepath.Join(dataDir, "database", "sentrymed.db")
-	dsn := "file:" + filepath.ToSlash(path) + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	dsn := (&url.URL{Scheme: "file", Path: filepath.ToSlash(path)}).String() + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=synchronous(FULL)"
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)
@@ -73,7 +74,15 @@ func (db *DB) IntegrityCheck(ctx context.Context) error {
 	if result != "ok" {
 		return fmt.Errorf("database integrity check failed: %s", result)
 	}
-	return nil
+	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign key check: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return errors.New("database has foreign key violations")
+	}
+	return rows.Err()
 }
 
 func (db *DB) Migrate(ctx context.Context) error {

@@ -22,8 +22,8 @@ import (
 )
 
 // Consultation audio never leaves the clinic machine: it is stored on local disk and,
-// if a transcription command is configured (System -> Clinic), transcribed by shelling
-// out to that local, doctor-configured tool. No audio or transcript is ever sent to a
+// if a transcription tool is configured by the operating-system administrator,
+// transcribed by that local tool. No audio or transcript is ever sent to a
 // third-party or cloud service by this server.
 const maxRecordingBytes = 100 << 20 // 100 MB (~decent length at typical browser opus bitrates)
 
@@ -77,6 +77,7 @@ func (s *Server) handleRecordingCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "RECORDING_TOO_LARGE", "Recording must be 100 MB or smaller.")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 	if r.FormValue("consentConfirmed") != "true" {
 		writeError(w, http.StatusUnprocessableEntity, "CONSENT_REQUIRED", "Patient consent must be confirmed before recording is saved.")
 		return
@@ -100,7 +101,7 @@ func (s *Server) handleRecordingCreate(w http.ResponseWriter, r *http.Request) {
 		mediaType = mediaType[:idx]
 	}
 	mediaType = strings.TrimSpace(strings.ToLower(mediaType))
-	if !allowedRecordingTypes[mediaType] {
+	if !allowedRecordingTypes[mediaType] || !validAudioPrefix(mediaType, prefix) {
 		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_RECORDING_TYPE", "Supported audio formats are WebM, Ogg, MP4, MP3 and WAV.")
 		return
 	}
@@ -132,6 +133,10 @@ func (s *Server) handleRecordingCreate(w http.ResponseWriter, r *http.Request) {
 		id, encounterID, storageName, mediaType, size, duration, hex.EncodeToString(hash.Sum(nil)), now, now, user.ID, user.ID)
 	if err != nil {
 		_ = os.Remove(path)
+		if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+			writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "RECORDING_METADATA_FAILED", "Recording was not added to the consultation.")
 		return
 	}
@@ -153,7 +158,7 @@ func (s *Server) handleRecordingAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", mediaType)
-	http.ServeFile(w, r, filepath.Join(s.config.DataDir, "documents", "recordings", filepath.Base(storage)))
+	serveStoredFile(w, r, filepath.Join(s.config.DataDir, "documents", "recordings"), storage)
 }
 
 func (s *Server) handleRecordingTranscriptUpdate(w http.ResponseWriter, r *http.Request) {
@@ -168,6 +173,10 @@ func (s *Server) handleRecordingTranscriptUpdate(w http.ResponseWriter, r *http.
 	id, now := chi.URLParam(r, "id"), time.Now().UTC().Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(r.Context(), "UPDATE consultation_recordings SET transcript_text=?,transcript_edited=1,updated_at=?,updated_by=? WHERE id=? AND archived_at IS NULL", strings.TrimSpace(input.Text), now, user.ID, id)
 	if err != nil {
+		if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+			writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "TRANSCRIPT_UPDATE_FAILED", "Could not save the transcript correction.")
 		return
 	}
@@ -185,6 +194,10 @@ func (s *Server) handleRecordingArchive(w http.ResponseWriter, r *http.Request) 
 	id, now := chi.URLParam(r, "id"), time.Now().UTC().Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(r.Context(), "UPDATE consultation_recordings SET archived_at=?,updated_at=?,updated_by=? WHERE id=? AND archived_at IS NULL", now, now, user.ID, id)
 	if err != nil {
+		if strings.Contains(err.Error(), "ENCOUNTER_FINALIZED") {
+			writeError(w, http.StatusLocked, "ENCOUNTER_FINALIZED", "This consultation is finalized and locked.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "RECORDING_ARCHIVE_FAILED", "Could not delete the recording.")
 		return
 	}
@@ -205,27 +218,35 @@ type transcriptionSettings struct {
 	TranscriptionCommand string `json:"transcriptionCommand"`
 }
 
-func (s *Server) transcriptionCommand(ctx context.Context) string {
+// Executable configuration is trusted installation state, never a database or
+// web-setting value. A stolen clinic session must not become OS command execution.
+func (s *Server) transcriptionCommand(ctx context.Context) []string {
 	var raw string
 	if err := s.db.QueryRowContext(ctx, "SELECT value_json FROM settings WHERE key='clinical'").Scan(&raw); err != nil {
-		return ""
+		return nil
 	}
 	var value transcriptionSettings
 	if json.Unmarshal([]byte(raw), &value) != nil || !value.TranscriptionEnabled {
-		return ""
+		return nil
 	}
-	return strings.TrimSpace(value.TranscriptionCommand)
+	var command []string
+	if json.Unmarshal([]byte(os.Getenv("SENTRYMED_TRANSCRIPTION_COMMAND_JSON")), &command) != nil || len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return nil
+	}
+	return command
 }
 
 // transcribeRecordingAsync runs entirely against the local filesystem and a locally
 // configured command: no network call is made here. If no command is configured the
 // recording is simply marked unavailable rather than silently left pending forever.
 func (s *Server) transcribeRecordingAsync(recordingID, audioPath string) {
+	s.maintenance.RLock()
+	defer s.maintenance.RUnlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	now := func() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 	command := s.transcriptionCommand(ctx)
-	if command == "" {
+	if len(command) == 0 {
 		_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='unavailable',updated_at=? WHERE id=?", now(), recordingID)
 		s.broker.Publish(realtime.Event{Type: "recording.updated", EntityType: "consultation_recording", EntityID: recordingID})
 		return
@@ -233,31 +254,56 @@ func (s *Server) transcribeRecordingAsync(recordingID, audioPath string) {
 	_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='processing',updated_at=? WHERE id=?", now(), recordingID)
 	s.broker.Publish(realtime.Event{Type: "recording.updated", EntityType: "consultation_recording", EntityID: recordingID})
 
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='failed',transcript_error='Transcription command is empty.',updated_at=? WHERE id=?", now(), recordingID)
-		s.broker.Publish(realtime.Event{Type: "recording.updated", EntityType: "consultation_recording", EntityID: recordingID})
+	select {
+	case s.transcriptionSlots <- struct{}{}:
+		defer func() { <-s.transcriptionSlots }()
+	default:
+		_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='failed',transcript_error='The transcription service is busy.',updated_at=? WHERE id=?", now(), recordingID)
 		return
 	}
-	cmd := exec.CommandContext(ctx, parts[0], append(append([]string{}, parts[1:]...), audioPath)...)
-	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, command[0], append(append([]string{}, command[1:]...), audioPath)...)
+	var stdout, stderr limitedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = err.Error()
-		}
-		if len(message) > 500 {
-			message = message[:500]
-		}
-		s.logger.Error("consultation transcription failed", "recording_id", recordingID, "error", err, "stderr", stderr.String())
+		message := "Local transcription failed. Contact the server administrator."
+		s.logger.Error("consultation transcription failed", "recording_id", recordingID, "error", err)
 		_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='failed',transcript_error=?,updated_at=? WHERE id=?", message, now(), recordingID)
 		s.broker.Publish(realtime.Event{Type: "recording.updated", EntityType: "consultation_recording", EntityID: recordingID})
 		return
 	}
 	text := strings.TrimSpace(stdout.String())
-	_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='done',transcript_text=?,updated_at=? WHERE id=?", text, now(), recordingID)
+	_, _ = s.db.ExecContext(ctx, "UPDATE consultation_recordings SET transcript_status='done',transcript_text=?,updated_at=? WHERE id=? AND transcript_edited=0 AND EXISTS (SELECT 1 FROM encounters WHERE id=consultation_recordings.encounter_id AND status='draft')", text, now(), recordingID)
 	s.broker.Publish(realtime.Event{Type: "recording.updated", EntityType: "consultation_recording", EntityID: recordingID})
+}
+
+// Bound subprocess output even when a local tool malfunctions.
+type limitedBuffer struct{ bytes.Buffer }
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := (2 << 20) - b.Len(); remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		_, _ = b.Buffer.Write(p)
+	}
+	return n, nil
+}
+
+func validAudioPrefix(mediaType string, data []byte) bool {
+	switch mediaType {
+	case "audio/wav", "audio/x-wav":
+		return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WAVE"
+	case "audio/webm":
+		return bytes.HasPrefix(data, []byte{0x1a, 0x45, 0xdf, 0xa3})
+	case "audio/ogg":
+		return bytes.HasPrefix(data, []byte("OggS"))
+	case "audio/mp4":
+		return len(data) >= 12 && string(data[4:8]) == "ftyp"
+	case "audio/mpeg":
+		return bytes.HasPrefix(data, []byte("ID3")) || (len(data) >= 2 && data[0] == 0xff && data[1]&0xe0 == 0xe0)
+	}
+	return false
 }

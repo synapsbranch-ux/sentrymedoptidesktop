@@ -524,14 +524,18 @@ func rawJSON(value string) any {
 }
 
 type prescriptionPayload struct {
-	PatientID   string         `json:"patientId"`
-	EncounterID string         `json:"encounterId"`
-	Type        string         `json:"type"`
-	OD          map[string]any `json:"od"`
-	OS          map[string]any `json:"os"`
-	Details     map[string]any `json:"details"`
-	Notes       string         `json:"notes"`
-	ExpiresAt   string         `json:"expiresAt"`
+	PatientID string `json:"patientId"`
+	// A prescription may be written for somebody who is not on file yet — a
+	// walk-in at the counter. Their details are given here instead of a patient
+	// id, and they are registered as a patient in the same step.
+	NewPatient  *patientPayload `json:"newPatient"`
+	EncounterID string          `json:"encounterId"`
+	Type        string          `json:"type"`
+	OD          map[string]any  `json:"od"`
+	OS          map[string]any  `json:"os"`
+	Details     map[string]any  `json:"details"`
+	Notes       string          `json:"notes"`
+	ExpiresAt   string          `json:"expiresAt"`
 }
 
 func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request) {
@@ -567,9 +571,23 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	validTypes := map[string]bool{"spectacle": true, "contact_lens": true, "medication": true}
-	if input.PatientID == "" || !validTypes[input.Type] {
-		writeError(w, http.StatusUnprocessableEntity, "INVALID_PRESCRIPTION", "Patient and a valid prescription type are required.")
+	if (input.PatientID == "" && input.NewPatient == nil) || !validTypes[input.Type] {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_PRESCRIPTION", "A patient — existing or new — and a valid prescription type are required.")
 		return
+	}
+	if input.PatientID != "" && input.NewPatient != nil {
+		writeError(w, http.StatusUnprocessableEntity, "AMBIGUOUS_PRESCRIPTION_PATIENT", "Choose an existing patient or enter a new one, not both.")
+		return
+	}
+	if input.NewPatient != nil {
+		if input.EncounterID != "" {
+			writeError(w, http.StatusUnprocessableEntity, "NEW_PATIENT_HAS_NO_CONSULTATION", "A person being registered now cannot already have a consultation.")
+			return
+		}
+		if message := validatePatient(input.NewPatient); message != "" {
+			writeError(w, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+			return
+		}
 	}
 	if (input.Type == "spectacle" || input.Type == "contact_lens") && len(input.OD) == 0 && len(input.OS) == 0 {
 		writeError(w, http.StatusUnprocessableEntity, "PRESCRIPTION_VALUES_REQUIRED", "At least one OD or OS value is required.")
@@ -608,10 +626,19 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 	}
 	user, _ := userFromContext(r.Context())
 	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
-	var number string
+	var number, registeredPatientID, registeredMRN string
 	signatureStorage, signatureMediaType := s.signatureForIssuer(r, user.ID)
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
+		// Registering the person and issuing their prescription are one
+		// transaction: a failed prescription never leaves a stray patient record.
+		if input.NewPatient != nil {
+			registeredPatientID, registeredMRN, err = s.insertPatient(r.Context(), tx, *input.NewPatient, user.ID)
+			if err != nil {
+				return err
+			}
+			input.PatientID = registeredPatientID
+		}
 		number, err = s.nextNumber(r.Context(), tx, "prescription", "RX", true)
 		if err != nil {
 			return err
@@ -623,12 +650,25 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 		return err
 	})
 	if err != nil {
+		// A near-match on an existing patient is reported with that patient's id,
+		// so the counter can issue the prescription against the existing file
+		// rather than creating a second record for the same person.
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, http.StatusConflict, apiErr)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "PRESCRIPTION_CREATE_FAILED", "Could not issue the prescription.")
 		return
 	}
+	response := map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName, "patientId": input.PatientID, "encounterId": input.EncounterID, "standalone": input.EncounterID == ""}
+	if registeredPatientID != "" {
+		s.audit(r.Context(), &user, "create", "patient", registeredPatientID, "Registered patient "+registeredMRN+" while issuing prescription "+number, "", "", r)
+		s.broker.Publish(realtime.Event{Type: "patient.created", EntityType: "patient", EntityID: registeredPatientID})
+		response["registeredPatient"] = map[string]any{"id": registeredPatientID, "medicalRecordNumber": registeredMRN}
+	}
 	s.audit(r.Context(), &user, "issue", "prescription", id, "Issued "+input.Type+" prescription "+number, "", "", r)
 	s.broker.Publish(realtime.Event{Type: "prescription.created", EntityType: "prescription", EntityID: id})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "prescriptionNumber": number, "status": "final", "version": 1, "signed": signatureStorage != "", "signedAt": now, "signedBy": user.DisplayName, "encounterId": input.EncounterID, "standalone": input.EncounterID == ""})
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {

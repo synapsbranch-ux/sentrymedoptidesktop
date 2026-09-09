@@ -67,6 +67,12 @@ export function DocumentsPage() {
  */
 function StandalonePrescriptionForm({ onIssued }: { onIssued(created: Prescription): void }) {
   const [patientId, setPatientId] = React.useState("");
+  // Two ways in: pick somebody already on file, or type the details of somebody
+  // who is not. The second path registers them as this prescription is issued,
+  // so no one has to leave for the patient screen and come back.
+  const [mode, setMode] = React.useState<"existing" | "new">("existing");
+  const [newPatient, setNewPatient] = React.useState({ firstName: "", lastName: "", sex: "", dateOfBirth: "", phone: "", email: "", address: "", city: "" });
+  const [duplicate, setDuplicate] = React.useState<{ patientId: string; medicalRecordNumber: string } | null>(null);
   const [type, setType] = React.useState<Prescription["type"]>("spectacle");
   const [od, setOd] = React.useState<Record<string, string>>({});
   const [os, setOs] = React.useState<Record<string, string>>({});
@@ -80,17 +86,25 @@ function StandalonePrescriptionForm({ onIssued }: { onIssued(created: Prescripti
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
+    setDuplicate(null);
     try {
+      const who = mode === "new" ? { newPatient: { ...newPatient, tags: [] } } : { patientId };
       const body = type === "medication"
-        ? { patientId, encounterId: "", type, od: {}, os: {}, details: medication, notes, expiresAt }
-        : { patientId, encounterId: "", type, od, os, details: {}, notes, expiresAt };
-      const created = await api.post<{ id: string; prescriptionNumber: string }>("/prescriptions", body);
-      toast.success(`Prescription ${created.prescriptionNumber} issued`);
+        ? { ...who, encounterId: "", type, od: {}, os: {}, details: medication, notes, expiresAt }
+        : { ...who, encounterId: "", type, od, os, details: {}, notes, expiresAt };
+      const created = await api.post<{ id: string; prescriptionNumber: string; patientId: string; registeredPatient?: { id: string; medicalRecordNumber: string } }>("/prescriptions", body);
+      toast.success(created.registeredPatient ? `Prescription ${created.prescriptionNumber} issued and patient ${created.registeredPatient.medicalRecordNumber} registered` : `Prescription ${created.prescriptionNumber} issued`);
       // Reload the full record so the print view has the signature and origin.
-      const list = await api.get<{ items: Prescription[] }>(`/prescriptions?patientId=${encodeURIComponent(patientId)}`);
+      const list = await api.get<{ items: Prescription[] }>(`/prescriptions?patientId=${encodeURIComponent(created.patientId)}`);
       const full = list.items.find((item) => item.id === created.id);
       if (full) onIssued(full);
     } catch (reason) {
+      // A near-match on somebody already on file is offered, not just refused:
+      // one click switches to their record instead of creating a second one.
+      if (reason instanceof APIError && reason.body.code === "POSSIBLE_DUPLICATE_PATIENT") {
+        const details = reason.body.details as { patientId?: string; medicalRecordNumber?: string } | undefined;
+        if (details?.patientId) { setDuplicate({ patientId: details.patientId, medicalRecordNumber: details.medicalRecordNumber ?? "" }); return; }
+      }
       toast.error(reason instanceof APIError ? reason.body.message : "Could not issue the prescription");
     } finally {
       setSaving(false);
@@ -100,10 +114,28 @@ function StandalonePrescriptionForm({ onIssued }: { onIssued(created: Prescripti
   return <DialogContent className="max-w-3xl">
     <DialogHeader>
       <DialogTitle>New prescription</DialogTitle>
-      <DialogDescription>For a patient who is not in a consultation. It is filed in their record and marked as issued outside a consultation.</DialogDescription>
+      <DialogDescription>For anyone not in a consultation — an existing patient, or somebody who is not on file yet and is registered as the prescription is issued. Either way it is filed in their record and marked as issued outside a consultation.</DialogDescription>
     </DialogHeader>
     <form className="grid gap-4" onSubmit={submit}>
-      <FieldGroup label="Patient"><PatientPicker required value={patientId} onChange={setPatientId} /></FieldGroup>
+      <div className="flex gap-1 rounded-md bg-[var(--muted)] p-1" role="tablist">
+        {([["existing", "Existing patient"], ["new", "New person"]] as const).map(([value, label]) => (
+          <button key={value} type="button" role="tab" aria-selected={mode === value} onClick={() => { setMode(value); setDuplicate(null); }} className={`min-h-10 flex-1 rounded-[var(--radius)] px-3 text-sm font-semibold ${mode === value ? "bg-[var(--card)] shadow-sm" : "text-[var(--muted-foreground)]"}`}>{label}</button>
+        ))}
+      </div>
+      {mode === "existing"
+        ? <FieldGroup label="Patient"><PatientPicker required value={patientId} onChange={setPatientId} /></FieldGroup>
+        : <fieldset className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+            <legend className="px-1 text-xs font-bold uppercase">Register this person</legend>
+            <Field label="First name"><Input required value={newPatient.firstName} onChange={(event) => setNewPatient({ ...newPatient, firstName: event.target.value })} /></Field>
+            <Field label="Last name"><Input required value={newPatient.lastName} onChange={(event) => setNewPatient({ ...newPatient, lastName: event.target.value })} /></Field>
+            <Field label="Date of birth"><Input type="date" value={newPatient.dateOfBirth} onChange={(event) => setNewPatient({ ...newPatient, dateOfBirth: event.target.value })} /></Field>
+            <Field label="Sex"><Select value={newPatient.sex} onChange={(event) => setNewPatient({ ...newPatient, sex: event.target.value })}><option value="">Not recorded</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field>
+            <Field label="Phone"><Input value={newPatient.phone} onChange={(event) => setNewPatient({ ...newPatient, phone: event.target.value })} /></Field>
+            <Field label="Email"><Input type="email" value={newPatient.email} onChange={(event) => setNewPatient({ ...newPatient, email: event.target.value })} /></Field>
+            <Field label="Address"><Input value={newPatient.address} onChange={(event) => setNewPatient({ ...newPatient, address: event.target.value })} /></Field>
+            <Field label="City"><Input value={newPatient.city} onChange={(event) => setNewPatient({ ...newPatient, city: event.target.value })} /></Field>
+          </fieldset>}
+      {duplicate && <div role="alert" className="grid gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><span><strong>Someone with these details is already on file</strong> as {duplicate.medicalRecordNumber}.</span><div><Button type="button" size="sm" variant="outline" onClick={() => { setPatientId(duplicate.patientId); setMode("existing"); setDuplicate(null); }}>Use the existing record</Button></div></div>}
       <Field label="Prescription type">
         <Select value={type} onChange={(event) => setType(event.target.value as Prescription["type"])}>
           <option value="spectacle">Spectacle</option><option value="contact_lens">Contact lens</option><option value="medication">Medication</option>
@@ -151,7 +183,7 @@ function StandalonePrescriptionForm({ onIssued }: { onIssued(created: Prescripti
         Your stored signature is applied when this is issued, with your name and the time. Add or change it in System → My signature.
       </p>
       <DialogFooter>
-        <Button type="submit" disabled={saving || !patientId}>{saving ? "Issuing…" : "Issue and open for printing"}</Button>
+        <Button type="submit" disabled={saving || (mode === "existing" ? !patientId : !newPatient.firstName.trim() || !newPatient.lastName.trim())}>{saving ? "Issuing…" : mode === "new" ? "Register and issue" : "Issue and open for printing"}</Button>
       </DialogFooter>
     </form>
   </DialogContent>;

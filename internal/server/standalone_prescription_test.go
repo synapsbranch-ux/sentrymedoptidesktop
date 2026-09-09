@@ -100,3 +100,93 @@ func TestOnlyADoctorCanIssueAStandalonePrescription(t *testing.T) {
 		t.Fatalf("nurse issuing a prescription = %d, want 403", response.Code)
 	}
 }
+
+func TestPrescriptionRegistersAnUnknownPersonInTheSameStep(t *testing.T) {
+	a := newTestApp(t)
+	created := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{
+		"newPatient": map[string]any{"firstName": "Walk", "lastName": "In", "sex": "female", "dateOfBirth": "1980-04-02", "phone": "3456 0011", "tags": []string{}},
+		"type":       "spectacle", "od": map[string]string{"sphere": "-2.00"}, "os": map[string]string{"sphere": "-2.25"},
+	}, a.doctor)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("prescription for a new person: %d %s", created.Code, created.Body.String())
+	}
+	record := decodeResponse[map[string]any](t, created)
+	registered, _ := record["registeredPatient"].(map[string]any)
+	if registered == nil || registered["medicalRecordNumber"] == "" {
+		t.Fatalf("the person was not registered as a patient: %v", record)
+	}
+	patientID := registered["id"].(string)
+	if record["patientId"] != patientID {
+		t.Fatalf("the prescription is filed against %v, not the registered patient", record["patientId"])
+	}
+
+	// They are a full patient: findable, with the prescription in their file.
+	patient := a.request(http.MethodGet, "/api/v1/patients/"+patientID, nil, a.doctor)
+	if patient.Code != http.StatusOK {
+		t.Fatalf("registered patient lookup: %d %s", patient.Code, patient.Body.String())
+	}
+	if decodeResponse[patientRecord](t, patient).LastName != "In" {
+		t.Fatal("the registered patient does not carry the details given on the prescription")
+	}
+	list := decodeResponse[map[string]any](t, a.request(http.MethodGet, "/api/v1/prescriptions?patientId="+patientID, nil, a.doctor))
+	if items, _ := list["items"].([]any); len(items) != 1 {
+		t.Fatalf("the new patient's file holds %d prescriptions, want 1", len(items))
+	}
+}
+
+func TestPrescriptionForAnUnknownPersonPointsAtAnExistingDuplicate(t *testing.T) {
+	a := newTestApp(t)
+	existing := a.request(http.MethodPost, "/api/v1/patients", map[string]any{"firstName": "Marie", "lastName": "Joseph", "dateOfBirth": "1975-06-01", "phone": "", "tags": []string{}}, a.doctor)
+	if existing.Code != http.StatusCreated {
+		t.Fatalf("seed patient: %d %s", existing.Code, existing.Body.String())
+	}
+	existingID := decodeResponse[patientRecord](t, existing).ID
+
+	duplicate := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{
+		"newPatient": map[string]any{"firstName": "Marie", "lastName": "Joseph", "dateOfBirth": "1975-06-01", "tags": []string{}},
+		"type":       "spectacle", "od": map[string]string{"sphere": "-1.00"},
+	}, a.doctor)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate registration = %d, want 409: %s", duplicate.Code, duplicate.Body.String())
+	}
+	body := decodeResponse[map[string]any](t, duplicate)
+	details, _ := body["details"].(map[string]any)
+	if body["code"] != "POSSIBLE_DUPLICATE_PATIENT" || details["patientId"] != existingID {
+		t.Fatalf("the duplicate response does not point at the existing patient: %v", body)
+	}
+	// Nothing was written: no prescription and no second patient record.
+	var patients, prescriptions int
+	_ = a.server.db.QueryRow("SELECT COUNT(*) FROM patients WHERE lower(last_name)='joseph'").Scan(&patients)
+	_ = a.server.db.QueryRow("SELECT COUNT(*) FROM prescriptions").Scan(&prescriptions)
+	if patients != 1 || prescriptions != 0 {
+		t.Fatalf("a refused registration left %d patients and %d prescriptions behind", patients, prescriptions)
+	}
+}
+
+func TestPrescriptionRejectsBothAnExistingAndANewPatient(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Both", "Ways")
+	response := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{
+		"patientId": patient.ID, "newPatient": map[string]any{"firstName": "Someone", "lastName": "Else", "tags": []string{}},
+		"type": "spectacle", "od": map[string]string{"sphere": "-1.00"},
+	}, a.doctor)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("naming both an existing and a new patient = %d, want 422", response.Code)
+	}
+}
+
+func TestPrescriptionValidatesTheNewPersonsDetails(t *testing.T) {
+	a := newTestApp(t)
+	response := a.request(http.MethodPost, "/api/v1/prescriptions", map[string]any{
+		"newPatient": map[string]any{"firstName": "  ", "lastName": "", "tags": []string{}},
+		"type":       "spectacle", "od": map[string]string{"sphere": "-1.00"},
+	}, a.doctor)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a nameless new person = %d, want 422", response.Code)
+	}
+	var patients int
+	_ = a.server.db.QueryRow("SELECT COUNT(*) FROM patients").Scan(&patients)
+	if patients != 0 {
+		t.Fatalf("an invalid registration created %d patients", patients)
+	}
+}

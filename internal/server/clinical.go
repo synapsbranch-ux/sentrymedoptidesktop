@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -141,6 +142,33 @@ const prefixedPatientColumns = `p.id, p.medical_record_number, p.first_name, COA
 
 const patientColumns = `id, medical_record_number, first_name, COALESCE(middle_name,''), last_name, COALESCE(preferred_name,''), COALESCE(sex,''), COALESCE(date_of_birth,''), COALESCE(phone,''), COALESCE(alternate_phone,''), COALESCE(email,''), COALESCE(address,''), COALESCE(city,''), COALESCE(occupation,''), COALESCE(employer,''), COALESCE(preferred_language,''), COALESCE(communication_preference,''), COALESCE(referral_source,''), COALESCE(referring_provider,''), COALESCE(civil_status,''), COALESCE(religion,''), COALESCE(religion_other,''), COALESCE(notes,''), tags_json, version, created_at, updated_at, updated_by`
 
+// insertPatient registers a patient inside an existing transaction. It is shared
+// by the patient screen and by the prescription flow, which registers the person
+// it is written for in the same step, so both paths get the same duplicate
+// check, the same medical record number sequence and the same history stub.
+func (s *Server) insertPatient(ctx context.Context, tx *sql.Tx, input patientPayload, userID string) (string, string, error) {
+	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
+	tags, _ := json.Marshal(input.Tags)
+	number, err := s.nextNumber(ctx, tx, "patient", "PT", false)
+	if err != nil {
+		return "", "", err
+	}
+	var duplicateID, duplicateNumber string
+	duplicateErr := tx.QueryRowContext(ctx, `SELECT id,medical_record_number FROM patients WHERE archived_at IS NULL AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
+	if duplicateErr == nil {
+		return "", "", &APIError{Code: "POSSIBLE_DUPLICATE_PATIENT", Message: "A possible duplicate patient already exists.", Details: map[string]any{"patientId": duplicateID, "medicalRecordNumber": duplicateNumber}}
+	}
+	if duplicateErr != sql.ErrNoRows {
+		return "", "", duplicateErr
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, userID, userID); err != nil {
+		return "", "", err
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO patient_histories(id,patient_id,created_at,updated_at,updated_by) VALUES(?,?,?,?,?)", uuid.NewString(), id, now, now, userID)
+	return id, number, err
+}
+
 func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 	var input patientPayload
 	if err := decodeJSON(r, &input); err != nil {
@@ -159,29 +187,10 @@ func (s *Server) handlePatientsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, _ := userFromContext(r.Context())
-	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
-	tags, _ := json.Marshal(input.Tags)
-	var number string
+	var id, number string
 	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
 		var err error
-		number, err = s.nextNumber(r.Context(), tx, "patient", "PT", false)
-		if err != nil {
-			return err
-		}
-		var duplicateID, duplicateNumber string
-		duplicateErr := tx.QueryRowContext(r.Context(), `SELECT id,medical_record_number FROM patients WHERE archived_at IS NULL AND lower(first_name)=lower(?) AND lower(last_name)=lower(?) AND ((date_of_birth=? AND ?<>'') OR (phone=? AND ?<>'')) LIMIT 1`, input.FirstName, input.LastName, input.DateOfBirth, input.DateOfBirth, input.Phone, input.Phone).Scan(&duplicateID, &duplicateNumber)
-		if duplicateErr == nil {
-			return &APIError{Code: "POSSIBLE_DUPLICATE_PATIENT", Message: "A possible duplicate patient already exists.", Details: map[string]any{"patientId": duplicateID, "medicalRecordNumber": duplicateNumber}}
-		}
-		if duplicateErr != sql.ErrNoRows {
-			return duplicateErr
-		}
-		_, err = tx.ExecContext(r.Context(), `INSERT INTO patients(id,medical_record_number,first_name,middle_name,last_name,preferred_name,sex,date_of_birth,phone,alternate_phone,email,address,city,occupation,employer,preferred_language,communication_preference,referral_source,referring_provider,civil_status,religion,religion_other,notes,tags_json,created_at,updated_at,created_by,updated_by)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, number, input.FirstName, nilIfEmpty(input.MiddleName), input.LastName, nilIfEmpty(input.PreferredName), nilIfEmpty(input.Sex), nilIfEmpty(input.DateOfBirth), nilIfEmpty(input.Phone), nilIfEmpty(input.AlternatePhone), nilIfEmpty(input.Email), nilIfEmpty(input.Address), nilIfEmpty(input.City), nilIfEmpty(input.Occupation), nilIfEmpty(input.Employer), nilIfEmpty(input.PreferredLanguage), nilIfEmpty(input.CommunicationPreference), nilIfEmpty(input.ReferralSource), nilIfEmpty(input.ReferringProvider), nilIfEmpty(input.CivilStatus), nilIfEmpty(input.Religion), nilIfEmpty(input.ReligionOther), nilIfEmpty(input.Notes), string(tags), now, now, user.ID, user.ID)
-		if err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(r.Context(), "INSERT INTO patient_histories(id,patient_id,created_at,updated_at,updated_by) VALUES(?,?,?,?,?)", uuid.NewString(), id, now, now, user.ID)
+		id, number, err = s.insertPatient(r.Context(), tx, input, user.ID)
 		return err
 	})
 	if err != nil {

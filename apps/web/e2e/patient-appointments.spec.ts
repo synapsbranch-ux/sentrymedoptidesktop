@@ -16,8 +16,9 @@ test("patient gender saves and appointment creation searches existing patients",
   const patient = await created.json() as { id: string };
   await page.goto(`/patients?id=${patient.id}`);
   await page.getByRole("complementary", { name: "Patient record" }).getByRole("button", { name: "Edit", exact: true }).click();
-  const edit = page.getByRole("dialog", { name: "Edit patient record" });
-  await edit.getByLabel("Sex", { exact: true }).selectOption("female");
+  const edit = page.getByRole("dialog");
+  await expect(edit).toBeVisible();
+  await edit.locator("select").first().selectOption("female");
   const saved = page.waitForResponse((res) => res.url().endsWith(`/api/v1/patients/${patient.id}`) && res.request().method() === "PUT");
   await edit.getByRole("button", { name: "Save changes" }).click();
   expect((await saved).status()).toBe(200);

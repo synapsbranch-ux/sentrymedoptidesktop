@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: ./scripts/build-windows-installer.ps1
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SentryMed-Opti-Windows-Installer
           path: build/bin/*-installer.exe

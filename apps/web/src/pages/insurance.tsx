@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Building2, Plus, ShieldCheck, WalletCards } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "../api";
+import { api, APIError } from "../api";
 import { useAuth } from "../auth";
 import { useLoad, usePagedList } from "../hooks";
 import { money } from "../lib";
@@ -36,6 +36,7 @@ import {
 import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { PatientPicker } from "../components/patient-search";
 
+interface ClaimProposal { currency: string; exchangeRate: string; claimAmountMinor: number; payerPortionMinor: number; patientPortionMinor: number; alreadyClaimedMinor: number; policyFound: boolean; policy: { payerId: string; payerName: string; memberNumber: string; policyNumber: string; authorization: string; coveragePercent: number } }
 interface Payer {
   id: string;
   name: string;
@@ -368,6 +369,29 @@ function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
     patientPortionMinor: 0,
     payerPortionMinor: 0,
   });
+  const [proposal, setProposal] = React.useState<ClaimProposal | null>(null);
+  // The claim is proposed from the patient's own policy — its coverage
+  // percentage against what is still unclaimed on the bill — rather than left
+  // as arithmetic done by hand into three boxes that have to agree.
+  React.useEffect(() => {
+    if (!f.patientId || !f.invoiceId) { setProposal(null); return; }
+    let active = true;
+    api.get<ClaimProposal>(`/insurance/claims/proposal?patientId=${encodeURIComponent(f.patientId)}&invoiceId=${encodeURIComponent(f.invoiceId)}`)
+      .then((next) => {
+        if (!active) return;
+        setProposal(next);
+        setF((current) => ({
+          ...current, currency: next.currency, exchangeRate: next.exchangeRate,
+          claimAmountMinor: next.claimAmountMinor, payerPortionMinor: next.payerPortionMinor, patientPortionMinor: next.patientPortionMinor,
+          memberNumber: current.memberNumber || next.policy.memberNumber,
+          policyNumber: current.policyNumber || next.policy.policyNumber,
+          authorization: current.authorization || next.policy.authorization,
+          payerId: current.payerId || next.policy.payerId,
+        }));
+      })
+      .catch(() => { if (active) setProposal(null); });
+    return () => { active = false; };
+  }, [f.patientId, f.invoiceId]);
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -375,7 +399,7 @@ function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
       toast.success("Insurance claim created");
       onSaved();
     } catch (x) {
-      toast.error(x instanceof Error ? x.message : "Could not create claim");
+      toast.error(x instanceof APIError ? x.body.message : "Could not create claim");
     }
   };
   return (
@@ -425,6 +449,13 @@ function ClaimForm({ payers, onSaved }: { payers: Payer[]; onSaved(): void }) {
               ))}
           </Select>
         </Field>
+        {proposal && (proposal.policyFound
+          ? <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-900">
+              <strong>{proposal.policy.payerName}</strong> covers {proposal.policy.coveragePercent}% of this bill.
+              {proposal.alreadyClaimedMinor > 0 && <> {money(proposal.alreadyClaimedMinor, proposal.currency)} has already been claimed, so {money(proposal.claimAmountMinor, proposal.currency)} remains.</>}
+              <div className="mt-1 text-xs">The figures below are filled from the policy and stay editable.</div>
+            </div>
+          : <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">This patient has no insurance policy on file, so nothing can be proposed. Record their policy on the patient screen, or enter the split by hand.</div>)}
         <Field label="Policy authorization / reference">
           <Input
             value={f.authorization}

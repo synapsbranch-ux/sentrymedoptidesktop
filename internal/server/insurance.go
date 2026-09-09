@@ -142,8 +142,10 @@ func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleClaimCreate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		PatientID, PayerID, InvoiceID, Authorization, MemberNumber, PolicyNumber string
-		Currency, ExchangeRate                                                   string
-		ClaimAmountMinor, PatientPortionMinor, PayerPortionMinor                 int64
+		// A claim may cover one line of an invoice rather than the whole bill.
+		InvoiceItemID                                            string
+		Currency, ExchangeRate                                   string
+		ClaimAmountMinor, PatientPortionMinor, PayerPortionMinor int64
 	}
 	if decodeJSON(r, &in) != nil || in.PatientID == "" || in.PayerID == "" || in.ClaimAmountMinor <= 0 || in.PatientPortionMinor < 0 || in.PayerPortionMinor < 0 || in.PatientPortionMinor+in.PayerPortionMinor != in.ClaimAmountMinor {
 		writeError(w, 422, "INVALID_CLAIM", "Patient and insurer are required, and patient plus insurer portions must equal the claim total.")
@@ -169,9 +171,16 @@ func (s *Server) handleClaimCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 422, "INVALID_CURRENCY", "Currency and a positive exchange rate are required.")
 		return
 	}
+	if in.InvoiceItemID != "" {
+		var onInvoice int
+		if err := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM invoice_items WHERE id=? AND invoice_id=?", in.InvoiceItemID, in.InvoiceID).Scan(&onInvoice); err != nil || onInvoice != 1 {
+			writeError(w, 422, "INVOICE_ITEM_NOT_FOUND", "That line is not on the invoice being claimed for.")
+			return
+		}
+	}
 	id := uuid.NewString()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.ExecContext(r.Context(), `INSERT INTO insurance_claims(id,patient_id,payer_id,invoice_id,authorization,member_number,policy_number,currency,exchange_rate,claim_amount_minor,patient_portion_minor,payer_portion_minor,status,version,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'draft',1,?,?,?,?)`, id, in.PatientID, in.PayerID, nilIfEmpty(in.InvoiceID), nilIfEmpty(in.Authorization), nilIfEmpty(in.MemberNumber), nilIfEmpty(in.PolicyNumber), in.Currency, in.ExchangeRate, in.ClaimAmountMinor, in.PatientPortionMinor, in.PayerPortionMinor, now, now, u.ID, u.ID)
+	_, err := s.db.ExecContext(r.Context(), `INSERT INTO insurance_claims(id,patient_id,payer_id,invoice_id,invoice_item_id,authorization,member_number,policy_number,currency,exchange_rate,claim_amount_minor,patient_portion_minor,payer_portion_minor,status,version,created_at,updated_at,created_by,updated_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?, 'draft',1,?,?,?,?)`, id, in.PatientID, in.PayerID, nilIfEmpty(in.InvoiceID), nilIfEmpty(in.InvoiceItemID), nilIfEmpty(in.Authorization), nilIfEmpty(in.MemberNumber), nilIfEmpty(in.PolicyNumber), in.Currency, in.ExchangeRate, in.ClaimAmountMinor, in.PatientPortionMinor, in.PayerPortionMinor, now, now, u.ID, u.ID)
 	if err != nil {
 		writeError(w, 422, "CLAIM_CREATE_FAILED", "Could not create claim. Verify patient, insurer and invoice.")
 		return
@@ -266,4 +275,148 @@ func (s *Server) handleClaimPayment(w http.ResponseWriter, r *http.Request) {
 	s.audit(r.Context(), &u, "payment", "insurance_claim", claimID, "Recorded manual insurer payment", "", "", r)
 	s.broker.Publish(realtime.Event{Type: "insurance.changed", EntityType: "insurance_claim", EntityID: claimID})
 	writeJSON(w, 201, map[string]any{"id": id})
+}
+
+type patientPolicyPayload struct {
+	PayerID         string  `json:"payerId"`
+	PayerName       string  `json:"payerName"`
+	MemberNumber    string  `json:"memberNumber"`
+	PolicyNumber    string  `json:"policyNumber"`
+	Authorization   string  `json:"authorization"`
+	CoveragePercent float64 `json:"coveragePercent"`
+	IsPrimary       bool    `json:"isPrimary"`
+	Version         int     `json:"version"`
+}
+
+// handlePatientPoliciesList reads what a patient is covered by, including how
+// much of a bill each policy takes.
+func (s *Server) handlePatientPoliciesList(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.URL.Query().Get("patientId"))
+	if patientID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A patient is required.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,COALESCE(payer_id,''),payer_name,COALESCE(member_number,''),COALESCE(policy_number,''),COALESCE(authorization,''),coverage_percent,is_primary,version
+		FROM patient_insurance WHERE patient_id=? ORDER BY is_primary DESC, payer_name`, patientID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "POLICIES_FAILED", "Could not load the patient's insurance.")
+		return
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var id, payerID, payerName, member, policy, authorization string
+		var coverage float64
+		var primary bool
+		var version int
+		if err := rows.Scan(&id, &payerID, &payerName, &member, &policy, &authorization, &coverage, &primary, &version); err != nil {
+			writeError(w, http.StatusInternalServerError, "POLICIES_FAILED", "Could not load the patient's insurance.")
+			return
+		}
+		items = append(items, map[string]any{"id": id, "payerId": payerID, "payerName": payerName, "memberNumber": member, "policyNumber": policy,
+			"authorization": authorization, "coveragePercent": coverage, "isPrimary": primary, "version": version})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handlePatientPolicySave(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(chi.URLParam(r, "patientId"))
+	var input patientPolicyPayload
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+	input.PayerName = strings.TrimSpace(input.PayerName)
+	if input.PayerID != "" && input.PayerName == "" {
+		// A named insurer keeps its own name on the policy, so a policy still
+		// reads correctly if the insurer record is later renamed or retired.
+		_ = s.db.QueryRowContext(r.Context(), "SELECT name FROM payers WHERE id=?", input.PayerID).Scan(&input.PayerName)
+	}
+	if input.PayerName == "" || input.CoveragePercent < 0 || input.CoveragePercent > 100 {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_POLICY", "An insurer and a coverage between 0 and 100 percent are required.")
+		return
+	}
+	var exists int
+	if err := s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM patients WHERE id=? AND archived_at IS NULL", patientID).Scan(&exists); err != nil || exists != 1 {
+		writeError(w, http.StatusUnprocessableEntity, "PATIENT_NOT_FOUND", "That patient was not found.")
+		return
+	}
+	user, _ := userFromContext(r.Context())
+	id, now := uuid.NewString(), time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.ExecContext(r.Context(), `INSERT INTO patient_insurance(id,patient_id,payer_id,payer_name,member_number,policy_number,authorization,coverage_percent,is_primary,created_at,updated_at,updated_by)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, patientID, nilIfEmpty(input.PayerID), input.PayerName, nilIfEmpty(input.MemberNumber), nilIfEmpty(input.PolicyNumber),
+		nilIfEmpty(input.Authorization), input.CoveragePercent, boolInt(input.IsPrimary), now, now, user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "POLICY_SAVE_FAILED", "Could not record the policy.")
+		return
+	}
+	s.audit(r.Context(), &user, "create", "patient_insurance", id, "Recorded insurance policy with "+input.PayerName, "", "", r)
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "payerName": input.PayerName, "coveragePercent": input.CoveragePercent, "version": 1})
+}
+
+// handleClaimProposal works out what a claim for this bill should say: the
+// patient's policy, what the insurer's percentage comes to, and what would be
+// left for the patient after everything already paid or claimed. It proposes;
+// it never files anything, and the figures stay editable.
+func (s *Server) handleClaimProposal(w http.ResponseWriter, r *http.Request) {
+	patientID := strings.TrimSpace(r.URL.Query().Get("patientId"))
+	invoiceID := strings.TrimSpace(r.URL.Query().Get("invoiceId"))
+	invoiceItemID := strings.TrimSpace(r.URL.Query().Get("invoiceItemId"))
+	if patientID == "" || invoiceID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "A patient and an invoice are required.")
+		return
+	}
+	var owner, currency, exchangeRate string
+	var invoiceTotal int64
+	switch err := s.db.QueryRowContext(r.Context(), "SELECT COALESCE(patient_id,''),currency,exchange_rate,total_minor FROM invoices WHERE id=? AND archived_at IS NULL", invoiceID).
+		Scan(&owner, &currency, &exchangeRate, &invoiceTotal); {
+	case err == sql.ErrNoRows:
+		writeError(w, http.StatusUnprocessableEntity, "INVOICE_NOT_FOUND", "That invoice was not found.")
+		return
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "CLAIM_PROPOSAL_FAILED", "Could not read the invoice.")
+		return
+	case owner != "" && owner != patientID:
+		writeError(w, http.StatusUnprocessableEntity, "INVOICE_PATIENT_MISMATCH", "That invoice belongs to a different patient.")
+		return
+	}
+	// A claim can be for one line rather than the whole bill.
+	claimable, lineDescription := invoiceTotal, ""
+	if invoiceItemID != "" {
+		if err := s.db.QueryRowContext(r.Context(), "SELECT line_total_minor,description FROM invoice_items WHERE id=? AND invoice_id=?", invoiceItemID, invoiceID).Scan(&claimable, &lineDescription); err == sql.ErrNoRows {
+			writeError(w, http.StatusUnprocessableEntity, "INVOICE_ITEM_NOT_FOUND", "That line is not on this invoice.")
+			return
+		} else if err != nil {
+			writeError(w, http.StatusInternalServerError, "CLAIM_PROPOSAL_FAILED", "Could not read the invoice line.")
+			return
+		}
+	}
+	var payerID, payerName, member, policy, authorization string
+	var coverage float64
+	policyFound := true
+	if err := s.db.QueryRowContext(r.Context(), `SELECT COALESCE(pi.payer_id,''),pi.payer_name,COALESCE(pi.member_number,''),COALESCE(pi.policy_number,''),COALESCE(pi.authorization,''),
+		CASE WHEN pi.coverage_percent>0 THEN pi.coverage_percent ELSE COALESCE(p.default_coverage_percent,0) END
+		FROM patient_insurance pi LEFT JOIN payers p ON p.id=pi.payer_id WHERE pi.patient_id=? ORDER BY pi.is_primary DESC LIMIT 1`, patientID).
+		Scan(&payerID, &payerName, &member, &policy, &authorization, &coverage); err == sql.ErrNoRows {
+		policyFound = false
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "CLAIM_PROPOSAL_FAILED", "Could not read the patient's insurance.")
+		return
+	}
+	// Anything already claimed against this invoice is not claimable twice.
+	var alreadyClaimed int64
+	_ = s.db.QueryRowContext(r.Context(), "SELECT COALESCE(SUM(claim_amount_minor),0) FROM insurance_claims WHERE invoice_id=? AND status<>'cancelled'", invoiceID).Scan(&alreadyClaimed)
+	remaining := claimable - alreadyClaimed
+	if remaining < 0 {
+		remaining = 0
+	}
+	payerPortion := int64(float64(remaining) * coverage / 100)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"invoiceId": invoiceID, "invoiceItemId": invoiceItemID, "lineDescription": lineDescription,
+		"currency": currency, "exchangeRate": exchangeRate,
+		"invoiceTotalMinor": invoiceTotal, "claimableMinor": claimable, "alreadyClaimedMinor": alreadyClaimed,
+		"claimAmountMinor": remaining, "payerPortionMinor": payerPortion, "patientPortionMinor": remaining - payerPortion,
+		"policyFound": policyFound,
+		"policy":      map[string]any{"payerId": payerID, "payerName": payerName, "memberNumber": member, "policyNumber": policy, "authorization": authorization, "coveragePercent": coverage},
+	})
 }

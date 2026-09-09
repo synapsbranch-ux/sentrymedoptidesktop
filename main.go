@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/app"
@@ -38,6 +39,18 @@ func (d *DesktopBridge) startup(ctx context.Context) { d.ctx = ctx }
 
 func (d *DesktopBridge) OpenMobileAccess() {
 	runtime.BrowserOpenURL(d.ctx, d.config.LoopbackURL())
+}
+
+// OpenInBrowser opens one page of the clinic application in the computer's own
+// browser. The embedded webview cannot capture audio on every platform — the
+// WebKitGTK view used on Linux declines the microphone without prompting — so
+// recording falls back to the browser, where the permission prompt does appear.
+// Only a path within this application is opened, never an arbitrary URL.
+func (d *DesktopBridge) OpenInBrowser(path string) {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
+		path = "/"
+	}
+	runtime.BrowserOpenURL(d.ctx, strings.TrimSuffix(d.config.LoopbackURL(), "/")+path)
 }
 
 func (d *DesktopBridge) OpenBackupFolder(path string) {

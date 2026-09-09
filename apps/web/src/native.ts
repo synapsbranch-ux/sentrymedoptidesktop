@@ -2,6 +2,7 @@ interface DesktopBridge {
   Exit(): Promise<void>;
   MinimizeServer(): Promise<void>;
   OpenBackupFolder(path: string): Promise<void>;
+  OpenInBrowser(path: string): Promise<void>;
   OpenMobileAccess(): Promise<void>;
   SelectBackupFolder(): Promise<string>;
 }

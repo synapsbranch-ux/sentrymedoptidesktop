@@ -1,6 +1,6 @@
 import * as React from "react";
 import { toast } from "sonner";
-import { Mic, MicOff, Save, Square, Trash2 } from "lucide-react";
+import { ExternalLink, Mic, MicOff, Save, Square, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useLoad } from "../hooks";
@@ -9,7 +9,8 @@ import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge, EmptyState, Skeleton } from "./ui/data";
 import { Textarea } from "./ui/input";
-import { inspectMicrophoneEnvironment, type MicrophoneProblem } from "../microphone";
+import { inspectMicrophoneEnvironment, readMicrophonePermissionState, type MicrophoneProblem } from "../microphone";
+import { desktopBridge } from "../native";
 import { formatDuration, useRecording } from "./recording";
 
 interface Recording {
@@ -81,7 +82,7 @@ export function ConsultationRecorder({ canRecord }: { canRecord: boolean }) {
             )}
             {!recording ? (
               <>
-                {blocking && <MicrophoneNotice problem={blocking} />}
+                {blocking && <MicrophoneNotice problem={blocking} encounterId={encounterId} />}
                 <label className="flex min-h-11 items-start gap-3 rounded-md border p-3 text-sm">
                   <input type="checkbox" className="mt-0.5" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
                   <span>The patient has been informed that this consultation may be recorded for clinical documentation, and consents.</span>
@@ -130,7 +131,13 @@ export function ConsultationRecorder({ canRecord }: { canRecord: boolean }) {
   );
 }
 
-function MicrophoneNotice({ problem }: { problem: MicrophoneProblem }) {
+function MicrophoneNotice({ problem, encounterId }: { problem: MicrophoneProblem; encounterId: string }) {
+  const [permissionState, setPermissionState] = React.useState<PermissionState | "unavailable" | null>(null);
+  const bridge = desktopBridge();
+  // "prompt" means the request never reached anyone: the webview or the browser
+  // refused it before a person could answer. That is a different problem from a
+  // person having said no, and it changes what the clinic should do about it.
+  React.useEffect(() => { let active = true; void readMicrophonePermissionState().then((state) => { if (active) setPermissionState(state); }); return () => { active = false; }; }, []);
   return (
     <div role="alert" className="grid gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
       <div className="flex items-center gap-2 font-semibold">
@@ -139,6 +146,15 @@ function MicrophoneNotice({ problem }: { problem: MicrophoneProblem }) {
       </div>
       <p>{problem.message}</p>
       <p className="text-xs opacity-90">{problem.guidance}</p>
+      {permissionState === "prompt" && <p className="text-xs opacity-90">This device has never been asked for the microphone — the request was refused before anyone could answer it, so there is no permission to change in a settings screen.</p>}
+      {bridge && (
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => void bridge.OpenInBrowser(`/clinical?encounter=${encodeURIComponent(encounterId)}`)}>
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open in browser to record
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

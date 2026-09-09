@@ -10,6 +10,7 @@ export type MicrophoneBlockReason =
   | "unsupported_browser"
   | "permission_denied"
   | "permissions_policy"
+  | "desktop_shell_blocked"
   | "no_microphone"
   | "microphone_busy"
   | "unknown";
@@ -21,13 +22,22 @@ export interface MicrophoneProblem {
   guidance: string;
 }
 
-interface MicrophoneEnvironment {
+export interface MicrophoneEnvironment {
   isSecureContext: boolean;
   hasMediaDevices: boolean;
   hasMediaRecorder: boolean;
   origin: string;
   /** Result of a Permissions-Policy check, when the browser exposes one. */
   policyAllowsMicrophone: boolean | null;
+  /**
+   * True inside the Wails desktop shell. Its webview has no address bar and no
+   * site settings, so the browser instructions below cannot be followed there —
+   * and on Linux the WebKitGTK webview refuses microphone access outright
+   * rather than prompting.
+   */
+  isDesktopShell: boolean;
+  /** "linux", "windows", "macos" or "" when it cannot be told apart. */
+  platform: string;
 }
 
 const httpsGuidance =
@@ -35,6 +45,15 @@ const httpsGuidance =
 
 const permissionGuidance =
   "The microphone is blocked for this site in this browser profile. Select the padlock or camera icon in the address bar, set Microphone to Allow, then reload the page. On iOS also check Settings → Safari → Microphone.";
+
+// The desktop window has no address bar and no per-site settings, so the browser
+// instructions are useless there. On Linux in particular the WebKitGTK webview
+// the desktop shell embeds declines microphone access without ever prompting,
+// which is exactly the "Recording is not available on this device yet" the
+// clinic sees. Recording from the browser on the same machine works, because
+// there the prompt does appear.
+const desktopGuidance =
+  "The SentryMed desktop window cannot capture audio on this computer — its built-in webview declines the microphone without asking. Use \"Open in browser to record\" below: the clinic page opens in your normal browser, which will ask for the microphone. Everything else in the desktop window keeps working, and the recording is saved to the same consultation.";
 
 const policyGuidance =
   "A Permissions-Policy header or an embedding frame is withholding the microphone from this page. If SentryMed is embedded in another page, that page's iframe needs allow=\"microphone\".";
@@ -57,7 +76,34 @@ export function readMicrophoneEnvironment(): MicrophoneEnvironment {
     hasMediaRecorder: typeof MediaRecorder !== "undefined",
     origin: window.location.origin,
     policyAllowsMicrophone,
+    isDesktopShell: Boolean((window as { go?: unknown }).go),
+    platform: detectPlatform(),
   };
+}
+
+function detectPlatform(): string {
+  const agent = typeof navigator === "undefined" ? "" : `${navigator.userAgent} ${navigator.platform ?? ""}`.toLowerCase();
+  if (agent.includes("android")) return "android";
+  if (/iphone|ipad|ipod/.test(agent)) return "ios";
+  if (agent.includes("win")) return "windows";
+  if (agent.includes("mac")) return "macos";
+  if (agent.includes("linux") || agent.includes("x11")) return "linux";
+  return "";
+}
+
+/**
+ * What the browser says about the microphone permission before it is asked for.
+ * "prompt" means the request has never reached the person — which is how a
+ * webview that declines silently is told apart from a person who said no.
+ */
+export async function readMicrophonePermissionState(): Promise<PermissionState | "unavailable"> {
+  const permissions = typeof navigator === "undefined" ? undefined : navigator.permissions;
+  if (!permissions?.query) return "unavailable";
+  try {
+    return (await permissions.query({ name: "microphone" as PermissionName })).state;
+  } catch {
+    return "unavailable";
+  }
 }
 
 /**
@@ -65,6 +111,8 @@ export function readMicrophoneEnvironment(): MicrophoneEnvironment {
  * called, or null when the request is worth attempting.
  */
 export function inspectMicrophoneEnvironment(environment: MicrophoneEnvironment = readMicrophoneEnvironment()): MicrophoneProblem | null {
+  if (!environment.isSecureContext && environment.isDesktopShell)
+    return { reason: "desktop_shell_blocked", message: "The desktop window's built-in webview does not treat its own page as a secure context, so it will not allow microphone access.", guidance: desktopGuidance };
   if (!environment.isSecureContext)
     return {
       reason: "insecure_context",
@@ -100,6 +148,8 @@ export function describeMicrophoneFailure(reason: unknown, environment: Micropho
         return { reason: "insecure_context", message: `The browser refused microphone access because this page is served over an insecure connection (${environment.origin}).`, guidance: httpsGuidance };
       if (environment.policyAllowsMicrophone === false)
         return { reason: "permissions_policy", message: "This page is not permitted to use the microphone.", guidance: policyGuidance };
+      if (environment.isDesktopShell)
+        return { reason: "desktop_shell_blocked", message: "The desktop window's built-in webview declined microphone access.", guidance: desktopGuidance };
       return { reason: "permission_denied", message: "Microphone access was declined for this site.", guidance: permissionGuidance };
     case "NotFoundError":
     case "OverconstrainedError":

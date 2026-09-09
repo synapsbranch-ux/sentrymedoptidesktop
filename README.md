@@ -42,6 +42,27 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 
 A doctor or nurse can record a consultation from the "Recording" tab of an encounter. The patient's consent must be confirmed with a checkbox before recording starts; every recording (and who confirmed consent) is written to the audit log. Audio is stored locally under the clinic data directory and is never uploaded anywhere by SentryMed itself.
 
+### Recording from the desktop window on Linux
+
+The desktop application embeds a WebKitGTK webview, and that webview declines
+microphone access without ever showing a prompt. A doctor who selects **Start
+recording** in the desktop window on Linux therefore sees "Recording is not
+available on this device yet" no matter what the operating system's own
+microphone settings say — there is no permission to grant, because nothing was
+ever asked.
+
+The recording panel detects this and offers **Open in browser to record**, which
+opens the same consultation at the clinic's local address in the computer's own
+browser. The browser does prompt for the microphone, and the recording is saved
+to the same consultation and appears in the desktop window as soon as it is
+uploaded. Everything else in the desktop window keeps working normally.
+
+Windows and macOS desktop builds, and every LAN browser, prompt for the
+microphone in the usual way; only the Linux desktop window needs the browser
+fallback. Recording over the LAN requires the clinic's `https://` address, since
+browsers refuse the microphone on a plain `http://` page from anywhere except
+the computer's own localhost.
+
 Automatic transcription is optional and off by default. When enabled (**System → Clinic → Consultation recording & transcription**), the server runs a command you configure entirely on the clinic computer — no cloud speech API is called. A ready-to-use, offline, English-language reference implementation is included at `scripts/transcribe_pocketsphinx.py`:
 
 ```bash

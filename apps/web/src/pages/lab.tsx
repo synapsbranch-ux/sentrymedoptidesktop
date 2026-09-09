@@ -20,10 +20,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "../components/ui/dialog";
-import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
+import { Badge, EmptyState, ErrorState, Pager, Skeleton } from "../components/ui/data";
 import { Field, FieldGroup, Input, Select, Textarea } from "../components/ui/input";
 import { DateTimeInput } from "../components/ui/date-time";
-import { useLoad } from "../hooks";
+import { useLoad, usePagedList } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
 import type { LabOrder } from "../types";
@@ -43,10 +43,7 @@ export function LabPage() {
   const { revision } = useRealtime();
   const [open, setOpen] = React.useState(false);
   const [printing, setPrinting] = React.useState<LabOrder | null>(null);
-  const orders = useLoad(
-    () => api.get<{ items: LabOrder[] }>("/lab-orders"),
-    [revision],
-  );
+  const orders = usePagedList<LabOrder>((page, limit) => `/lab-orders?page=${page}&limit=${limit}`, [revision]);
   const move = async (order: LabOrder) => {
     const next =
       stages[Math.min(stages.indexOf(order.status) + 1, stages.length - 1)];
@@ -113,7 +110,8 @@ export function LabPage() {
         <div className="mt-6">
           <ErrorState message={orders.error.message} retry={orders.reload} />
         </div>
-      ) : orders.data?.items.length ? (
+      ) : orders.items.length ? (
+        <>
         <div className="mt-6 flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => (
             <section key={stage} className="w-72 shrink-0">
@@ -122,12 +120,12 @@ export function LabPage() {
                   {stage.replaceAll("_", " ")}
                 </h2>
                 <Badge>
-                  {orders.data?.items.filter((item) => item.status === stage)
+                  {orders.items.filter((item) => item.status === stage)
                     .length ?? 0}
                 </Badge>
               </div>
               <div className="space-y-3">
-                {orders.data?.items
+                {orders.items
                   .filter((item) => item.status === stage)
                   .map((order) => (
                     <Card key={order.id}>
@@ -193,6 +191,9 @@ export function LabPage() {
             </section>
           ))}
         </div>
+        {/* The board shows one page of orders; the rest stay on the server. */}
+        <Pager page={orders.page} pageSize={orders.pageSize} total={orders.total} hasMore={orders.hasMore} onPrevious={orders.previous} onNext={orders.next} />
+        </>
       ) : (
         <div className="mt-6">
           <EmptyState

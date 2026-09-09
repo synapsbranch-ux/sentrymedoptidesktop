@@ -38,8 +38,14 @@ func (s *Server) handleEncountersList(w http.ResponseWriter, r *http.Request) {
 		where += " AND e.patient_id=?"
 		args = append(args, patientID)
 	}
+	paging := paginationFrom(r, 50, 200)
+	encounterCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM encounters e WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LIST_FAILED", "Could not load consultations.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT e.id,e.encounter_number,e.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(e.appointment_id,''),COALESCE(e.doctor_id,''),COALESCE(u.display_name,''),COALESCE(e.visit_reason,''),COALESCE(e.chief_complaint,''),COALESCE(e.assessment,''),e.status,e.workflow_stage,COALESCE(e.finalized_at,''),e.version,e.created_at,e.updated_at
-		FROM encounters e JOIN patients p ON p.id=e.patient_id LEFT JOIN users u ON u.id=e.doctor_id WHERE `+where+` ORDER BY e.created_at DESC LIMIT 500`, args...)
+		FROM encounters e JOIN patients p ON p.id=e.patient_id LEFT JOIN users u ON u.id=e.doctor_id WHERE `+where+` ORDER BY e.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "ENCOUNTER_LIST_FAILED", "Could not load consultations.")
 		return
@@ -55,7 +61,7 @@ func (s *Server) handleEncountersList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "encounterNumber": number, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "appointmentId": appointmentID, "doctorId": doctorID, "doctorName": doctorName, "visitReason": reason, "chiefComplaint": complaint, "assessment": assessment, "status": status, "workflowStage": workflowStage, "finalizedAt": finalizedAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(encounterCount)))
 }
 
 func (s *Server) handleEncounterCreate(w http.ResponseWriter, r *http.Request) {
@@ -545,7 +551,13 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 		where += " AND p.patient_id=?"
 		args = append(args, patientID)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name,COALESCE(signer.display_name,''),COALESCE(p.signed_at,''),CASE WHEN COALESCE(p.signature_storage_name,'')='' THEN 0 ELSE 1 END FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id LEFT JOIN users signer ON signer.id=p.signed_by WHERE `+where+` ORDER BY p.issued_at DESC`, args...)
+	paging := paginationFrom(r, 50, 200)
+	prescriptionCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM prescriptions p WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT p.id,p.prescription_number,p.patient_id,pt.first_name||' '||pt.last_name,COALESCE(p.encounter_id,''),p.type,p.od_json,p.os_json,p.details_json,COALESCE(p.notes,''),p.issued_at,COALESCE(p.expires_at,''),p.status,p.version,u.display_name,COALESCE(signer.display_name,''),COALESCE(p.signed_at,''),CASE WHEN COALESCE(p.signature_storage_name,'')='' THEN 0 ELSE 1 END FROM prescriptions p JOIN patients pt ON pt.id=p.patient_id JOIN users u ON u.id=p.doctor_id LEFT JOIN users signer ON signer.id=p.signed_by WHERE `+where+` ORDER BY p.issued_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "PRESCRIPTION_LIST_FAILED", "Could not load prescriptions.")
 		return
@@ -561,7 +573,7 @@ func (s *Server) handlePrescriptionsList(w http.ResponseWriter, r *http.Request)
 		}
 		items = append(items, map[string]any{"id": id, "prescriptionNumber": number, "patientId": patientID, "patientName": patientName, "encounterId": encounterID, "type": kind, "od": rawJSON(od), "os": rawJSON(osValue), "details": rawJSON(details), "notes": notes, "issuedAt": issuedAt, "expiresAt": expiresAt, "status": status, "version": version, "doctor": doctor, "signedBy": signedBy, "signedAt": signedAt, "signed": signed == 1, "standalone": encounterID == ""})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(prescriptionCount)))
 }
 
 func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request) {
@@ -673,7 +685,13 @@ func (s *Server) handlePrescriptionCreate(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {
 	patientID := r.URL.Query().Get("patientId")
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,COALESCE(patient_id,''),COALESCE(encounter_id,''),category,display_name,media_type,size_bytes,created_at FROM documents WHERE archived_at IS NULL AND (?='' OR patient_id=?) ORDER BY created_at DESC`, patientID, patientID)
+	paging := paginationFrom(r, 50, 200)
+	documentCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM documents WHERE archived_at IS NULL AND (?='' OR patient_id=?)", patientID, patientID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DOCUMENT_LIST_FAILED", "Could not load documents.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,COALESCE(patient_id,''),COALESCE(encounter_id,''),category,display_name,media_type,size_bytes,created_at FROM documents WHERE archived_at IS NULL AND (?='' OR patient_id=?) ORDER BY created_at DESC LIMIT ? OFFSET ?`, paging.Args(patientID, patientID)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DOCUMENT_LIST_FAILED", "Could not load documents.")
 		return
@@ -689,7 +707,7 @@ func (s *Server) handleDocumentsList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "patientId": patient, "encounterId": encounter, "category": category, "displayName": name, "mediaType": mediaType, "sizeBytes": size, "createdAt": createdAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(documentCount)))
 }
 
 func (s *Server) handleDocumentUpload(w http.ResponseWriter, r *http.Request) {

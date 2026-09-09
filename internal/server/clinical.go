@@ -348,8 +348,17 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 		where += " AND julianday(a.starts_at)>=julianday(?) AND julianday(a.starts_at)<julianday(?)"
 		args = append(args, from, to)
 	}
+	// A calendar view asks for a date range, which is itself the server-side
+	// window; the default page is large enough to hold a busy month, and an
+	// agenda list can page through it explicitly.
+	paging := paginationFrom(r, 500, 1000)
+	appointmentCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM appointments a WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "APPOINTMENT_LIST_FAILED", "Could not load appointments.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id,a.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(a.practitioner_id,''),COALESCE(u.display_name,''),a.starts_at,a.duration_minutes,a.type,COALESCE(a.reason,''),COALESCE(a.notes,''),a.status,a.version
-		FROM appointments a JOIN patients p ON p.id=a.patient_id LEFT JOIN users u ON u.id=a.practitioner_id WHERE `+where+` ORDER BY a.starts_at LIMIT 500`, args...)
+		FROM appointments a JOIN patients p ON p.id=a.patient_id LEFT JOIN users u ON u.id=a.practitioner_id WHERE `+where+` ORDER BY a.starts_at LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "APPOINTMENT_LIST_FAILED", "Could not load appointments.")
 		return
@@ -365,7 +374,7 @@ func (s *Server) handleAppointmentsList(w http.ResponseWriter, r *http.Request) 
 		}
 		items = append(items, map[string]any{"id": id, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "practitionerId": practitionerID, "practitionerName": practitionerName, "startsAt": startsAt, "durationMinutes": duration, "type": kind, "reason": reason, "notes": notes, "status": status, "version": version})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(appointmentCount)))
 }
 
 // appointmentConflict reports whether the given slot overlaps an existing active appointment.

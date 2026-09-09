@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { useLoad } from "../hooks";
+import { useLoad, usePagedList } from "../hooks";
 import { dateTime, money } from "../lib";
 import { useRealtime } from "../realtime";
 import { PrintHeader, triggerPrint } from "../components/print";
@@ -35,6 +35,7 @@ import {
   Badge,
   EmptyState,
   ErrorState,
+  Pager,
   Skeleton,
   Table,
   Td,
@@ -74,10 +75,7 @@ export function BillingPage() {
   const { revision } = useRealtime();
   const [selectedID, setSelectedID] = React.useState<string | null>(null);
   const [registerOpen, setRegisterOpen] = React.useState(false);
-  const invoices = useLoad(
-    () => api.get<{ items: Invoice[] }>("/invoices"),
-    [revision],
-  );
+  const invoices = usePagedList<Invoice>((page, limit) => `/invoices?page=${page}&limit=${limit}`, [revision]);
   const register = useLoad(
     () =>
       api.get<{
@@ -127,7 +125,7 @@ export function BillingPage() {
               retry={invoices.reload}
             />
           </div>
-        ) : invoices.data?.items.length ? (
+        ) : invoices.items.length ? (
           <>
             <div className="hidden md:block">
               <Table>
@@ -143,7 +141,7 @@ export function BillingPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.data.items.map((item) => (
+                  {invoices.items.map((item) => (
                     <tr
                       key={item.id}
                       onClick={() => setSelectedID(item.id)}
@@ -184,7 +182,7 @@ export function BillingPage() {
               </Table>
             </div>
             <div className="divide-y md:hidden">
-              {invoices.data.items.map((item) => (
+              {invoices.items.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setSelectedID(item.id)}
@@ -210,6 +208,7 @@ export function BillingPage() {
                 </button>
               ))}
             </div>
+            <Pager page={invoices.page} pageSize={invoices.pageSize} total={invoices.total} hasMore={invoices.hasMore} onPrevious={invoices.previous} onNext={invoices.next} />
           </>
         ) : (
           <EmptyState

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -693,12 +692,14 @@ func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	if requested, _ := strconv.Atoi(r.URL.Query().Get("limit")); requested > 0 && requested <= 500 {
-		limit = requested
+	paging := paginationFrom(r, 100, 500)
+	entryCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM audit_logs")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AUDIT_FAILED", "Could not load the audit log.")
+		return
 	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT a.id, COALESCE(u.display_name,'System'), a.action, a.entity_type, COALESCE(a.entity_id,''), a.summary, COALESCE(a.ip_address,''), a.created_at
-		FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT ?`, limit)
+		FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.created_at DESC LIMIT ? OFFSET ?`, paging.Limit, paging.Offset())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "AUDIT_FAILED", "Could not load the audit log.")
 		return
@@ -713,7 +714,7 @@ func (s *Server) handleAuditList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]string{"id": id, "user": user, "action": action, "entityType": entityType, "entityId": entityID, "summary": summary, "ipAddress": ip, "createdAt": created})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, mergeMeta(paging.Meta(entryCount), map[string]any{"items": items}))
 }
 
 func (s *Server) handleBackupsList(w http.ResponseWriter, r *http.Request) {

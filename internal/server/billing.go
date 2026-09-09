@@ -55,11 +55,17 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		where += " AND i.patient_id=?"
 		args = append(args, patientID)
 	}
+	paging := paginationFrom(r, 50, 200)
+	invoiceCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM invoices i WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
+		return
+	}
 	rows, err := s.db.QueryContext(r.Context(), `SELECT i.id,i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)),COALESCE(i.due_at,''),i.version,i.created_at,i.updated_at
 		FROM invoices i LEFT JOIN patients p ON p.id=i.patient_id
 		LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) pay ON pay.invoice_id=i.id
 		LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id
-		WHERE `+where+` ORDER BY i.created_at DESC LIMIT 1000`, args...)
+		WHERE `+where+` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
 		return
@@ -76,7 +82,7 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(invoiceCount)))
 }
 
 func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {

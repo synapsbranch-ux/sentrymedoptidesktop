@@ -2,14 +2,14 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, FileUp, Plus, Printer, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, APIError } from "../api";
-import { useDebouncedValue, useLoad } from "../hooks";
+import { useDebouncedValue, useLoad, usePagedList } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
 import type { Patient } from "../types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
-import { Badge, EmptyState, ErrorState, Skeleton, Table, Td, Th } from "../components/ui/data";
+import { Badge, EmptyState, ErrorState, Pager, Skeleton, Table, Td, Th } from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
 import { PrintHeader, triggerPrint } from "../components/print";
 import { DocumentViewer } from "../components/document-viewer";
@@ -66,11 +66,11 @@ function PatientPanel({ patient, onClose, onChanged }: { patient: Patient; onClo
 /** Files attached to this patient, opened in the in-app viewer. Before this the
  *  patient record listed no documents at all and offered no way to open one. */
 function PatientDocuments({ patientId, reloadKey, uploading, onUpload }: { patientId: string; reloadKey: number; uploading: boolean; onUpload(event: React.ChangeEvent<HTMLInputElement>): void }) {
-  const documents = useLoad(() => api.get<{ items: DocumentItem[] }>(`/documents?patientId=${encodeURIComponent(patientId)}`), [patientId, reloadKey]);
+  const documents = usePagedList<DocumentItem>((page, limit) => `/documents?patientId=${encodeURIComponent(patientId)}&page=${page}&limit=${limit}`, [patientId, reloadKey], 25);
   const [viewing, setViewing] = React.useState<DocumentItem | null>(null);
   return <Card><CardHeader><CardTitle>Documents</CardTitle></CardHeader><CardContent>
     <label className="flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 p-5 text-sm font-semibold hover:bg-zinc-50"><FileUp className="h-4 w-4" />{uploading ? "Uploading…" : "Upload PDF, image, scan or document"}<input className="sr-only" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.doc,.docx" onChange={onUpload} disabled={uploading} /></label>
-    {documents.loading ? <Skeleton className="mt-4 h-24" /> : documents.error ? <div className="mt-4"><ErrorState message={documents.error.message} retry={documents.reload} /></div> : documents.data?.items.length ? <div className="mt-2 divide-y">{documents.data.items.map((item) => <DocumentRow key={item.id} item={item} onOpen={setViewing} />)}</div> : <p className="mt-4 text-sm text-zinc-500">No documents attached to this patient yet.</p>}
+    {documents.loading ? <Skeleton className="mt-4 h-24" /> : documents.error ? <div className="mt-4"><ErrorState message={documents.error.message} retry={documents.reload} /></div> : documents.items.length ? <><div className="mt-2 divide-y">{documents.items.map((item) => <DocumentRow key={item.id} item={item} onOpen={setViewing} />)}</div><Pager page={documents.page} pageSize={documents.pageSize} total={documents.total} hasMore={documents.hasMore} onPrevious={documents.previous} onNext={documents.next} /></> : <p className="mt-4 text-sm text-zinc-500">No documents attached to this patient yet.</p>}
     <DocumentViewer document={viewing} onClose={() => setViewing(null)} />
   </CardContent></Card>;
 }

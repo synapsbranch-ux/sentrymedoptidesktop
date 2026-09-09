@@ -40,7 +40,13 @@ func (s *Server) handleLabOrdersList(w http.ResponseWriter, r *http.Request) {
 		where += " AND l.patient_id=?"
 		args = append(args, patientID)
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT l.id,l.order_number,l.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(l.prescription_id,''),COALESCE(l.invoice_id,''),COALESCE(l.supplier_id,''),COALESCE(s.company,''),COALESCE(l.frame_item_id,''),COALESCE(f.name,''),COALESCE(l.lens_item_id,''),COALESCE(le.name,''),COALESCE(l.lens_type,''),COALESCE(l.material,''),l.coatings_json,COALESCE(l.tint,''),l.treatments_json,l.measurements_json,COALESCE(l.notes,''),COALESCE(l.ordered_at,''),COALESCE(l.expected_at,''),l.cost_minor,l.sale_price_minor,l.status,COALESCE(l.delivered_at,''),l.version,l.created_at,l.updated_at FROM lab_orders l JOIN patients p ON p.id=l.patient_id LEFT JOIN suppliers s ON s.id=l.supplier_id LEFT JOIN inventory_items f ON f.id=l.frame_item_id LEFT JOIN inventory_items le ON le.id=l.lens_item_id WHERE `+where+` ORDER BY CASE l.status WHEN 'ready' THEN 0 WHEN 'quality_control' THEN 1 ELSE 2 END,l.expected_at,l.created_at DESC`, args...)
+	paging := paginationFrom(r, 50, 200)
+	orderCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM lab_orders l WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LAB_ORDER_LIST_FAILED", "Could not load optical lab orders.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT l.id,l.order_number,l.patient_id,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(l.prescription_id,''),COALESCE(l.invoice_id,''),COALESCE(l.supplier_id,''),COALESCE(s.company,''),COALESCE(l.frame_item_id,''),COALESCE(f.name,''),COALESCE(l.lens_item_id,''),COALESCE(le.name,''),COALESCE(l.lens_type,''),COALESCE(l.material,''),l.coatings_json,COALESCE(l.tint,''),l.treatments_json,l.measurements_json,COALESCE(l.notes,''),COALESCE(l.ordered_at,''),COALESCE(l.expected_at,''),l.cost_minor,l.sale_price_minor,l.status,COALESCE(l.delivered_at,''),l.version,l.created_at,l.updated_at FROM lab_orders l JOIN patients p ON p.id=l.patient_id LEFT JOIN suppliers s ON s.id=l.supplier_id LEFT JOIN inventory_items f ON f.id=l.frame_item_id LEFT JOIN inventory_items le ON le.id=l.lens_item_id WHERE `+where+` ORDER BY CASE l.status WHEN 'ready' THEN 0 WHEN 'quality_control' THEN 1 ELSE 2 END,l.expected_at,l.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "LAB_ORDER_LIST_FAILED", "Could not load optical lab orders.")
 		return
@@ -57,7 +63,7 @@ func (s *Server) handleLabOrdersList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "orderNumber": number, "patientId": patientID, "medicalRecordNumber": mrn, "patientName": patientName, "prescriptionId": prescriptionID, "invoiceId": invoiceID, "supplierId": supplierID, "supplierName": supplierName, "frameItemId": frameID, "frameName": frameName, "lensItemId": lensID, "lensName": lensName, "lensType": lensType, "material": material, "coatings": rawJSON(coatings), "tint": tint, "treatments": rawJSON(treatments), "measurements": rawJSON(measurements), "notes": notes, "orderedAt": orderedAt, "expectedAt": expectedAt, "costMinor": cost, "salePriceMinor": price, "status": status, "deliveredAt": deliveredAt, "version": version, "createdAt": createdAt, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(orderCount)))
 }
 
 func (s *Server) handleLabOrderCreate(w http.ResponseWriter, r *http.Request) {

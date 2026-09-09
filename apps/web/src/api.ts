@@ -102,3 +102,14 @@ export const api = {
   patch: <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
+
+/**
+ * Reads one page of a server-paged list. Endpoints that predate paging answer
+ * without the metadata, so a missing total is read as "this page is everything"
+ * rather than as an error.
+ */
+export async function apiGetPage<T>(path: string): Promise<{ items: T[]; page: number; limit: number; total: number; hasMore: boolean }> {
+  const body = await api.get<{ items?: T[]; page?: number; limit?: number; total?: number; hasMore?: boolean }>(path);
+  const items = body.items ?? [];
+  return { items, page: body.page ?? 1, limit: body.limit ?? items.length, total: body.total ?? items.length, hasMore: body.hasMore ?? false };
+}

@@ -54,6 +54,7 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.With(s.requireDoctor).Post("/insurance/payers", s.handlePayerCreate)
 	r.With(s.requireDoctor).Put("/insurance/payers/{id}", s.handlePayerUpdate)
 	r.Get("/insurance/claims", s.handleClaimsList)
+	r.Get("/insurance/claims/summary", s.handleClaimsSummary)
 	r.Post("/insurance/claims", s.handleClaimCreate)
 	r.With(s.requireDoctor).Patch("/insurance/claims/{id}/status", s.handleClaimStatus)
 	r.With(s.requireDoctor).Post("/insurance/claims/{id}/payments", s.handleClaimPayment)

@@ -46,7 +46,13 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 	if lowStock {
 		where += " AND track_stock=1 AND quantity<=reorder_level"
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,COALESCE(procedure_code,''),version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT 1000`, args...)
+	paging := paginationFrom(r, 50, 200)
+	itemCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM inventory_items WHERE "+where, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT id,sku,COALESCE(barcode,''),category,name,COALESCE(brand,''),COALESCE(model,''),attributes_json,COALESCE(supplier_id,''),cost_minor,sale_price_minor,currency,quantity,reorder_level,track_stock,COALESCE(procedure_code,''),version,updated_at FROM inventory_items WHERE `+where+` ORDER BY name LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVENTORY_LIST_FAILED", "Could not load inventory.")
 		return
@@ -64,7 +70,7 @@ func (s *Server) handleInventoryList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "sku": sku, "barcode": barcode, "category": category, "name": name, "brand": brand, "model": model, "attributes": rawJSON(attributes), "supplierId": supplierID, "costMinor": cost, "salePriceMinor": price, "currency": currency, "quantity": quantity, "reorderLevel": reorder, "trackStock": tracked, "procedureCode": procedureCode, "lowStock": tracked && quantity <= reorder, "version": version, "updatedAt": updatedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, withItems(items, paging.Meta(itemCount)))
 }
 
 func (s *Server) handleInventoryCreate(w http.ResponseWriter, r *http.Request) {

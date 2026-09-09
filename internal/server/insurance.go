@@ -78,10 +78,35 @@ func (s *Server) handlePayerUpdate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
+// handleClaimsSummary counts the claim states the insurance screen headlines.
+// Those counts are over every claim, so they are computed in SQL rather than by
+// filtering whatever page the table happens to be showing.
+func (s *Server) handleClaimsSummary(w http.ResponseWriter, r *http.Request) {
+	var open, outstanding, overdue int
+	err := s.db.QueryRowContext(r.Context(), `SELECT
+		COUNT(*) FILTER (WHERE c.status NOT IN ('paid','rejected','cancelled')),
+		COUNT(*) FILTER (WHERE c.payer_portion_minor - COALESCE(p.paid,0) > 0),
+		COUNT(*) FILTER (WHERE c.payer_portion_minor - COALESCE(p.paid,0) > 0 AND julianday('now') - julianday(c.created_at) > 90)
+		FROM insurance_claims c
+		LEFT JOIN (SELECT claim_id, SUM(amount_minor) paid FROM insurance_claim_payments GROUP BY claim_id) p ON p.claim_id=c.id`).
+		Scan(&open, &outstanding, &overdue)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "CLAIMS_SUMMARY_FAILED", "Could not summarize insurance claims.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"openClaims": open, "outstandingClaims": outstanding, "overNinetyDays": overdue})
+}
+
 func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
-	q := `SELECT c.id,p.medical_record_number,p.first_name||' '||p.last_name,c.patient_id,py.name,c.payer_id,COALESCE(i.invoice_number,''),COALESCE(c.invoice_id,''),COALESCE(c.authorization,''),COALESCE(c.member_number,''),COALESCE(c.policy_number,''),c.currency,c.exchange_rate,c.claim_amount_minor,c.patient_portion_minor,c.payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=c.id),0),c.status,COALESCE(c.submitted_at,''),c.version,c.created_at,c.updated_at FROM insurance_claims c JOIN patients p ON p.id=c.patient_id JOIN payers py ON py.id=c.payer_id LEFT JOIN invoices i ON i.id=c.invoice_id WHERE (?='' OR c.status=?) ORDER BY c.updated_at DESC`
+	q := `SELECT c.id,p.medical_record_number,p.first_name||' '||p.last_name,c.patient_id,py.name,c.payer_id,COALESCE(i.invoice_number,''),COALESCE(c.invoice_id,''),COALESCE(c.authorization,''),COALESCE(c.member_number,''),COALESCE(c.policy_number,''),c.currency,c.exchange_rate,c.claim_amount_minor,c.patient_portion_minor,c.payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=c.id),0),c.status,COALESCE(c.submitted_at,''),c.version,c.created_at,c.updated_at FROM insurance_claims c JOIN patients p ON p.id=c.patient_id JOIN payers py ON py.id=c.payer_id LEFT JOIN invoices i ON i.id=c.invoice_id WHERE (?='' OR c.status=?) ORDER BY c.updated_at DESC LIMIT ? OFFSET ?`
 	status := r.URL.Query().Get("status")
-	rows, err := s.db.QueryContext(r.Context(), q, status, status)
+	paging := paginationFrom(r, 50, 200)
+	claimCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM insurance_claims c WHERE (?='' OR c.status=?)", status, status)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "CLAIMS_FAILED", "Could not load insurance claims.")
+		return
+	}
+	rows, err := s.db.QueryContext(r.Context(), q, paging.Args(status, status)...)
 	if err != nil {
 		writeError(w, 500, "CLAIMS_FAILED", "Could not load insurance claims.")
 		return
@@ -111,7 +136,7 @@ func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, map[string]any{"id": id, "medicalRecordNumber": mrn, "patientName": name, "patientId": patientID, "payerName": payer, "payerId": payerID, "invoiceNumber": inv, "invoiceId": invID, "authorization": auth, "memberNumber": member, "policyNumber": policy, "currency": currency, "exchangeRate": exchangeRate, "claimAmountMinor": claim, "patientPortionMinor": patient, "payerPortionMinor": payerPart, "paidMinor": paid, "outstandingMinor": payerPart - paid, "status": status, "submittedAt": submitted, "version": version, "createdAt": created, "updatedAt": updated, "agingBucket": bucket})
 	}
-	writeJSON(w, 200, map[string]any{"items": items})
+	writeJSON(w, 200, withItems(items, paging.Meta(claimCount)))
 }
 
 func (s *Server) handleClaimCreate(w http.ResponseWriter, r *http.Request) {

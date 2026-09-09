@@ -3,7 +3,7 @@ import { Building2, Plus, ShieldCheck, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../api";
 import { useAuth } from "../auth";
-import { useLoad } from "../hooks";
+import { useLoad, usePagedList } from "../hooks";
 import { money } from "../lib";
 import { useRealtime } from "../realtime";
 import type { Invoice } from "../types";
@@ -27,6 +27,7 @@ import {
   Badge,
   EmptyState,
   ErrorState,
+  Pager,
   Skeleton,
   Table,
   Td,
@@ -87,16 +88,17 @@ export function InsurancePage() {
     () => api.get<{ items: Payer[] }>("/insurance/payers"),
     [revision],
   );
-  const claims = useLoad(
-    () => api.get<{ items: Claim[] }>("/insurance/claims"),
-    [revision],
-  );
+  const claims = usePagedList<Claim>((page, limit) => `/insurance/claims?page=${page}&limit=${limit}`, [revision]);
+  // The headline counts are over every claim, not the page on screen, so they
+  // come from the server rather than from filtering the loaded rows.
+  const claimTotals = useLoad(() => api.get<{ openClaims: number; outstandingClaims: number; overNinetyDays: number }>("/insurance/claims/summary"), [revision]);
   const [newPayer, setNewPayer] = React.useState(false);
   const [newClaim, setNewClaim] = React.useState(false);
   const [selected, setSelected] = React.useState<Claim | null>(null);
   const reload = () => {
     payers.reload();
     claims.reload();
+    claimTotals.reload();
   };
   return (
     <div className="page">
@@ -123,28 +125,9 @@ export function InsurancePage() {
         </div>
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <Metric
-          label="Open claims"
-          value={
-            claims.data?.items.filter(
-              (x) => !["paid", "rejected", "cancelled"].includes(x.status),
-            ).length ?? 0
-          }
-        />
-        <Metric
-          label="Outstanding claims"
-          value={
-            claims.data?.items.filter((x) => x.outstandingMinor > 0).length ?? 0
-          }
-        />
-        <Metric
-          label="Over 90 days"
-          value={
-            claims.data?.items.filter(
-              (x) => x.agingBucket === "90+" && x.outstandingMinor > 0,
-            ).length ?? 0
-          }
-        />
+        <Metric label="Open claims" value={claimTotals.data?.openClaims ?? 0} />
+        <Metric label="Outstanding claims" value={claimTotals.data?.outstandingClaims ?? 0} />
+        <Metric label="Over 90 days" value={claimTotals.data?.overNinetyDays ?? 0} />
       </div>
       <Card className="mt-6">
         <CardHeader>
@@ -162,7 +145,7 @@ export function InsurancePage() {
           <div className="p-5">
             <ErrorState message={claims.error.message} retry={claims.reload} />
           </div>
-        ) : claims.data?.items.length ? (
+        ) : claims.items.length ? (
           <>
             <div className="hidden overflow-x-auto md:block">
               <Table>
@@ -179,7 +162,7 @@ export function InsurancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {claims.data.items.map((c) => (
+                  {claims.items.map((c) => (
                     <tr
                       key={c.id}
                       className="cursor-pointer hover:bg-zinc-50"
@@ -224,7 +207,7 @@ export function InsurancePage() {
               </Table>
             </div>
             <div className="divide-y md:hidden">
-              {claims.data.items.map((c) => (
+              {claims.items.map((c) => (
                 <button
                   className="w-full p-4 text-left"
                   key={c.id}
@@ -248,6 +231,7 @@ export function InsurancePage() {
                 </button>
               ))}
             </div>
+            <div className="px-4 pb-4"><Pager page={claims.page} pageSize={claims.pageSize} total={claims.total} hasMore={claims.hasMore} onPrevious={claims.previous} onNext={claims.next} /></div>
           </>
         ) : (
           <EmptyState

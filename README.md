@@ -23,7 +23,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - manual offline insurance claims, insurer payments and receivable aging;
 - guided refunds, automatic credit notes and transactional product returns;
 - optical lab Kanban, advanced fitting values, QC gate and delivery status;
-- expenses, financial summaries, live charts and branded report/CSV/PDF-print export;
+- income ledger fed automatically from every payment, refund and insurer remittance, plus manual entries, quotes convertible to invoices, expenses, financial summaries, an end-to-end profit and loss view, live charts and branded report/CSV/PDF-print export;
 - clinic-wide search, audit logs and configurable clinic identity;
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
 - installable, touch-first PWA with compact header, drawer and bottom navigation;
@@ -86,6 +86,25 @@ The same session also runs two other tests on the lane screen:
 
 - **Colour vision screening.** Pseudo-isochromatic plates are generated rather than reproduced — the published Ishihara plates are copyrighted, and a scan would print at whatever size and colour the screen happened to render. Figure and ground share lightness and differ along the red-green confusion axis, so the number separates by hue alone. The expected number is shown only on the examiner's phone, never on the patient's screen. These plates flag a likely red-green deficiency for referral; they do not classify or grade one, and a normal result does not rule out a subtle defect.
 - **Amsler grid.** The patient traces distortions directly on the lane screen with a finger, the examiner sees the tracing appear on the phone, and the doctor decides whether it enters the record. Saved grids show up on the consultation's **Charts → Amsler** tab with the previous visit behind them in grey, so a scotoma that grew reads as a change.
+
+## Printing
+
+Receipts and documents print through two separate paths, because they go to two
+different printers with two different page geometries.
+
+- **Till receipts** render into an isolated frame with its own `@page { size:
+  58mm auto | 80mm auto; margin: 0 }` rule and a monospace, single-column
+  layout. The clinic application's own stylesheet never reaches that document,
+  so nothing about the screen layout can widen a receipt.
+- **Everything else** — invoices, quotes, prescriptions, lab orders and
+  requisitions, patient summaries, reports — renders on the page inside a
+  `.print-area.document-print` element and prints at A4 or US Letter with
+  margins.
+
+Both paper choices are set under **System → Clinic → Printing**, independently:
+a clinic can have a thermal roll and no A4 printer, or the reverse. There is
+deliberately no single generic "print this page" call, because one page
+geometry cannot serve both without being wrong for one of them.
 
 ## Architecture
 

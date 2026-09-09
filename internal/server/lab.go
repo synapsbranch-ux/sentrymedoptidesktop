@@ -2,7 +2,9 @@ package server
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -205,4 +207,136 @@ func (s *Server) handleLabQualityControl(w http.ResponseWriter, r *http.Request)
 	}
 	s.audit(r.Context(), &user, "quality_control", "lab_order", id, "Completed optical quality control", "", "", r)
 	writeJSON(w, http.StatusCreated, map[string]any{"labOrderId": id, "completedAt": now})
+}
+
+type labBulkStatusPayload struct {
+	OrderIDs []string `json:"orderIds"`
+	Status   string   `json:"status"`
+	Notes    string   `json:"notes"`
+}
+
+// handleLabOrdersBulkStatus sends a batch of orders to the lab in one action.
+// A clinic sends a day's work together, and doing it one order at a time is
+// where orders get missed. The whole batch commits or none of it does, so the
+// operator never has to work out which half went.
+func (s *Server) handleLabOrdersBulkStatus(w http.ResponseWriter, r *http.Request) {
+	var input labBulkStatusPayload
+	if err := decodeJSON(r, &input); err != nil || len(input.OrderIDs) == 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Choose at least one lab order and a status.")
+		return
+	}
+	if len(input.OrderIDs) > 200 {
+		writeError(w, http.StatusUnprocessableEntity, "BATCH_TOO_LARGE", "Send at most 200 lab orders at a time.")
+		return
+	}
+	// Only the transitions a batch legitimately makes. Delivery and quality
+	// control are per-order decisions and stay per-order.
+	if !map[string]bool{"ordered": true, "at_lab": true, "received": true, "edging_mounting": true, "cancelled": true}[input.Status] {
+		writeError(w, http.StatusUnprocessableEntity, "INVALID_BULK_LAB_STATUS", "A batch can be marked ordered, at the lab, received, in edging/mounting, or cancelled.")
+		return
+	}
+	user, _ := userFromContext(r.Context())
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	updated := []string{}
+	err := s.db.WithTx(r.Context(), func(tx *sql.Tx) error {
+		seen := map[string]bool{}
+		for _, id := range input.OrderIDs {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			var fromStatus string
+			if err := tx.QueryRowContext(r.Context(), "SELECT status FROM lab_orders WHERE id=?", id).Scan(&fromStatus); err != nil {
+				return err
+			}
+			if fromStatus == "delivered" || fromStatus == "cancelled" {
+				return &APIError{Code: "LAB_ORDER_CLOSED", Message: "One of the selected orders is already delivered or cancelled. Remove it from the batch."}
+			}
+			orderedAt := any(nil)
+			if input.Status == "ordered" {
+				orderedAt = now
+			}
+			if _, err := tx.ExecContext(r.Context(), "UPDATE lab_orders SET status=?,ordered_at=COALESCE(ordered_at,?),version=version+1,updated_at=?,updated_by=? WHERE id=?", input.Status, orderedAt, now, user.ID, id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(r.Context(), `INSERT INTO lab_status_history(id,lab_order_id,from_status,to_status,notes,changed_at,changed_by) VALUES(?,?,?,?,?,?,?)`,
+				uuid.NewString(), id, fromStatus, input.Status, nilIfEmpty(strings.TrimSpace(input.Notes)), now, user.ID); err != nil {
+				return err
+			}
+			updated = append(updated, id)
+		}
+		return nil
+	})
+	if err != nil {
+		if apiErr, ok := err.(*APIError); ok {
+			writeJSON(w, http.StatusUnprocessableEntity, apiErr)
+			return
+		}
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusUnprocessableEntity, "LAB_ORDER_NOT_FOUND", "One of the selected lab orders no longer exists.")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "LAB_BULK_STATUS_FAILED", "No order was changed. The batch was rolled back.")
+		return
+	}
+	s.audit(r.Context(), &user, "update", "lab_order", strings.Join(updated, ","), fmt.Sprintf("Moved %d lab orders to %s", len(updated), input.Status), "", "", r)
+	s.broker.Publish(realtime.Event{Type: "lab.changed", EntityType: "lab_order", EntityID: ""})
+	writeJSON(w, http.StatusOK, map[string]any{"updated": len(updated), "orderIds": updated, "status": input.Status})
+}
+
+// handleLabRequisitionBatch builds the printed requisition for a batch of
+// orders: one document a courier can carry to the lab, rather than a stack
+// printed one screen at a time.
+func (s *Server) handleLabRequisitionBatch(w http.ResponseWriter, r *http.Request) {
+	ids := []string{}
+	for _, raw := range strings.Split(r.URL.Query().Get("orderIds"), ",") {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	if len(ids) == 0 || len(ids) > 200 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Choose between 1 and 200 lab orders to print.")
+		return
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(r.Context(), `SELECT l.id,l.order_number,p.medical_record_number,p.first_name||' '||p.last_name,COALESCE(p.phone,''),COALESCE(s.company,''),
+		COALESCE(f.name,''),COALESCE(le.name,''),COALESCE(l.lens_type,''),COALESCE(l.material,''),l.coatings_json,COALESCE(l.tint,''),l.treatments_json,l.measurements_json,COALESCE(l.notes,''),COALESCE(l.expected_at,''),l.status
+		FROM lab_orders l JOIN patients p ON p.id=l.patient_id
+		LEFT JOIN suppliers s ON s.id=l.supplier_id
+		LEFT JOIN inventory_items f ON f.id=l.frame_item_id
+		LEFT JOIN inventory_items le ON le.id=l.lens_item_id
+		WHERE l.id IN (`+placeholders+`) ORDER BY COALESCE(s.company,''), l.order_number`, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "LAB_REQUISITION_FAILED", "Could not build the lab requisition.")
+		return
+	}
+	defer rows.Close()
+	orders := []map[string]any{}
+	for rows.Next() {
+		var id, number, mrn, patientName, phone, supplier, frame, lens, lensType, material, coatings, tint, treatments, measurements, notes, expectedAt, status string
+		if err := rows.Scan(&id, &number, &mrn, &patientName, &phone, &supplier, &frame, &lens, &lensType, &material, &coatings, &tint, &treatments, &measurements, &notes, &expectedAt, &status); err != nil {
+			writeError(w, http.StatusInternalServerError, "LAB_REQUISITION_FAILED", "Could not build the lab requisition.")
+			return
+		}
+		orders = append(orders, map[string]any{"id": id, "orderNumber": number, "medicalRecordNumber": mrn, "patientName": patientName, "patientPhone": phone,
+			"supplierName": supplier, "frameName": frame, "lensName": lens, "lensType": lensType, "material": material,
+			"coatings": rawJSON(coatings), "tint": tint, "treatments": rawJSON(treatments), "measurements": rawJSON(measurements),
+			"notes": notes, "expectedAt": expectedAt, "status": status})
+	}
+	if len(orders) == 0 {
+		writeError(w, http.StatusNotFound, "LAB_ORDER_NOT_FOUND", "None of those lab orders were found.")
+		return
+	}
+	var clinicName, clinicAddress, clinicPhone string
+	_ = s.db.QueryRowContext(r.Context(), `SELECT COALESCE(json_extract(value_json,'$.name'),''),COALESCE(json_extract(value_json,'$.address'),''),COALESCE(json_extract(value_json,'$.phone'),'') FROM settings WHERE key='clinic'`).
+		Scan(&clinicName, &clinicAddress, &clinicPhone)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"clinic":      map[string]any{"name": clinicName, "address": clinicAddress, "phone": clinicPhone},
+		"generatedAt": time.Now().UTC().Format(time.RFC3339Nano),
+		"orders":      orders,
+	})
 }

@@ -340,7 +340,7 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
           </Button>
         </div>
       </DialogHeader>
-      <div className="print-area rounded-lg border p-5">
+      <div className="print-area document-print rounded-lg border p-5">
         <PrintHeader
           documentTitle="Invoice"
           number={invoice.invoiceNumber}

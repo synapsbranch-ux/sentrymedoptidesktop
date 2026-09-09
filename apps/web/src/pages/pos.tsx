@@ -11,6 +11,9 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Field, FieldGroup, Input, Select } from "../components/ui/input";
 import { PatientPicker } from "../components/patient-search";
+import { printReceipt } from "../components/printing";
+import { useClinicIdentity, usePrintingPreferences } from "../clinic";
+import { useAuth } from "../auth";
 
 /** A cart line carries its own discount, so a concession on one item does not have to be applied to the whole sale. */
 interface CartLine { item: InventoryItem; quantity: number; discountMinor: number }
@@ -45,6 +48,9 @@ export function POSPage() {
   const [saving, setSaving] = React.useState(false);
   const [showParked, setShowParked] = React.useState(false);
   const [prescription, setPrescription] = React.useState<PrescriptionCart | null>(null);
+  const clinic = useClinicIdentity();
+  const printing = usePrintingPreferences();
+  const { user } = useAuth();
 
   const visible = inventory.data?.items ?? [];
   const currency = cart[0]?.item.currency ?? "HTG";
@@ -76,6 +82,16 @@ export function POSPage() {
         payments,
       });
       toast.success(`${result.invoiceNumber} created${result.balanceMinor > 0 ? ` · ${money(result.balanceMinor, currency)} still owed` : ""}`);
+      // The receipt goes to the thermal roll, never through the document path:
+      // a till receipt on A4 wastes a sheet and looks nothing like a receipt.
+      printReceipt({
+        clinicName: clinic.name ?? "Clinic", clinicAddress: clinic.address, clinicPhone: clinic.phone,
+        invoiceNumber: result.invoiceNumber, issuedAt: new Date().toLocaleString(), cashier: user?.displayName,
+        currency, lines: cart.map((line) => ({ description: line.item.name, quantity: line.quantity, unitPriceMinor: line.item.salePriceMinor, discountMinor: line.discountMinor })),
+        discountMinor: orderDiscount, totalMinor: total,
+        payments: tenders.filter((tender) => tender.amountMinor > 0).map((tender) => ({ method: methods.data?.items.find((method) => method.id === tender.paymentMethodId)?.name ?? "Payment", amountMinor: tender.amountMinor })),
+        balanceMinor: result.balanceMinor,
+      }, printing.receiptWidth);
       clear();
       inventory.reload();
     } catch (reason) {

@@ -88,6 +88,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		defaults := map[string]string{
 			"clinic":         string(clinic),
 			"financial":      `{"currencies":["HTG","USD"],"baseCurrency":"` + strings.ToUpper(input.Currency) + `","exchangeRate":"1","taxRate":"0"}`,
+			"printing":       `{"documentPaper":"A4","receiptWidth":"80mm"}`,
 			"clinical":       `{"appointmentDuration":30,"pretestPolicy":"optional","enabledSections":["visual_acuity","refraction","iop","anterior_segment","posterior_segment"],"analytics":{"rapidMyopicShiftDPerYear":0.75,"significantAcuityLossLines":2,"elevatedIOPMmHg":21,"iopAsymmetryMmHg":4,"thinCorneaMicrons":510,"thickCorneaMicrons":570,"cctCorrectionEnabled":false,"cctReferenceMicrons":545,"cctMicronsPerMmHg":0}}`,
 			"backup":         marshalJSON(map[string]any{"intervalHours": 4, "retentionDays": 30, "directory": backupDirectory}),
 			"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,

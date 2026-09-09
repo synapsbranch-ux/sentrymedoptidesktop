@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { AuthProvider } from "../auth";
 import { I18nProvider } from "../i18n";
 import { POSPage } from "./pos";
 
@@ -16,17 +17,24 @@ function stubApi(overrides: Record<string, unknown> = {}) {
     if (path.startsWith("/payment-methods")) return Promise.resolve({ items: [{ id: "pm_cash", name: "Cash" }, { id: "pm_card", name: "Card" }] } as never);
     if (path.startsWith("/cash-register")) return Promise.resolve({ open: true, id: "reg-1" } as never);
     if (path.startsWith("/pos/parked")) return Promise.resolve({ items: [] } as never);
+    // The page reads the signed-in cashier and the clinic's paper sizes.
+    if (path.startsWith("/setup/status")) return Promise.resolve({ required: false } as never);
+    if (path.startsWith("/auth/me")) return Promise.resolve({ user: { id: "u1", username: "doctor", displayName: "Dr Joseph", role: "doctor" } } as never);
+    if (path.startsWith("/settings")) return Promise.resolve({ settings: { clinic: { name: "Clinique de Lunettes" }, printing: { documentPaper: "A4", receiptWidth: "80mm" } }, versions: {} } as never);
     return Promise.resolve((overrides[path] ?? { items: [] }) as never);
   });
 }
 
 async function renderPOS() {
-  render(<I18nProvider><POSPage /></I18nProvider>);
+  render(<I18nProvider><AuthProvider><POSPage /></AuthProvider></I18nProvider>);
   await waitFor(() => expect(screen.getByText("Classic frame")).toBeTruthy());
 }
 
 describe("Point of Sale", () => {
   beforeEach(() => {
+    // jsdom implements neither; the receipt path calls both on its own frame.
+    vi.spyOn(window, "print").mockImplementation(() => undefined);
+    vi.spyOn(window, "focus").mockImplementation(() => undefined);
     let counter = 0;
     Object.defineProperty(globalThis, "crypto", { value: { ...globalThis.crypto, randomUUID: () => `tender-${++counter}` }, configurable: true });
   });
@@ -91,5 +99,23 @@ describe("Point of Sale", () => {
     stubApi();
     await renderPOS();
     expect(screen.getByText("Eye examination")).toBeTruthy();
+  });
+
+  it("sends the receipt to the thermal roll, not through the document print path", async () => {
+    stubApi();
+    vi.spyOn(api, "post").mockResolvedValue({ invoiceNumber: "INV-3", balanceMinor: 0, payments: [] } as never);
+    await renderPOS();
+    await act(async () => { fireEvent.click(screen.getByText("Classic frame")); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Complete sale/ })); });
+    const frame = await waitFor(() => {
+      const found = document.body.querySelector("iframe");
+      if (!found) throw new Error("no receipt frame");
+      return found;
+    });
+    const markup = frame.contentDocument!.documentElement.innerHTML;
+    expect(markup).toContain("size: 80mm auto");
+    expect(markup).toContain("Classic frame");
+    // The on-page document paper rule is never involved in a receipt.
+    expect(document.head.querySelector("[data-print-paper]")).toBeNull();
   });
 });

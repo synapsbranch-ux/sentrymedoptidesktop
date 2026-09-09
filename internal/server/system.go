@@ -276,6 +276,7 @@ func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettingsList(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	defaults := map[string]string{
+		"printing":       `{"documentPaper":"A4","receiptWidth":"80mm"}`,
 		"appearance":     `{"baseColor":"zinc","accentColor":"zinc","mode":"light","radius":"medium"}`,
 		"localization":   `{"language":"en"}`,
 		"public_display": `{"enabled":false,"privacyMode":"ticket_only","showAppointments":true,"announcement":"Welcome. Please watch the screen for your queue number."}`,
@@ -315,7 +316,7 @@ type settingsUpdateRequest struct {
 
 func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
-	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "localization": true, "public_display": true}
+	allowed := map[string]bool{"clinic": true, "financial": true, "clinical": true, "backup": true, "appearance": true, "localization": true, "public_display": true, "printing": true}
 	if !allowed[key] {
 		writeError(w, http.StatusNotFound, "SETTING_NOT_FOUND", "This setting cannot be changed.")
 		return
@@ -392,6 +393,18 @@ func (s *Server) handleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusUnprocessableEntity, "INVALID_CLINICAL_THRESHOLDS", "Clinical alert thresholds or the optional CCT correction coefficient are invalid.")
 				return
 			}
+		}
+	}
+	if key == "printing" {
+		var value struct {
+			DocumentPaper string `json:"documentPaper"`
+			ReceiptWidth  string `json:"receiptWidth"`
+		}
+		// A till roll and a sheet of paper are separate settings because they are
+		// separate printers; neither default is inferred from the other.
+		if json.Unmarshal(raw, &value) != nil || !map[string]bool{"A4": true, "Letter": true}[value.DocumentPaper] || !map[string]bool{"58mm": true, "80mm": true}[value.ReceiptWidth] {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_PRINTING_SETTING", "Choose A4 or Letter for documents and a 58 mm or 80 mm receipt roll.")
+			return
 		}
 	}
 	if key == "backup" {

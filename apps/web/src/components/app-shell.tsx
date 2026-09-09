@@ -71,6 +71,7 @@ const nav = [
     items: [
       { to: "/insurance", label: "Insurance", icon: ShieldCheck },
       { to: "/finance", label: "Finance", icon: WalletCards, doctorOnly: true },
+      { to: "/hr", label: "Human resources", icon: Users, doctorOnly: true },
       { to: "/reports", label: "Reports", icon: BarChart3, doctorOnly: true },
     ],
   },

@@ -42,6 +42,7 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	s.registerIncomeRoutes(r)
 	s.registerQuoteRoutes(r)
 	s.registerImageRoutes(r)
+	s.registerHumanResourcesRoutes(r)
 	r.Get("/payment-methods", s.handlePaymentMethodsList)
 	r.Get("/cash-register", s.handleCashRegisterCurrent)
 	r.Post("/cash-register/open", s.handleCashRegisterOpen)

@@ -15,6 +15,7 @@ const ClinicalPage = React.lazy(() => import("./pages/clinical").then((module) =
 const DashboardPage = React.lazy(() => import("./pages/dashboard").then((module) => ({ default: module.DashboardPage })));
 const FinancePage = React.lazy(() => import("./pages/finance").then((module) => ({ default: module.FinancePage })));
 const QuotesPage = React.lazy(() => import("./pages/quotes").then((module) => ({ default: module.QuotesPage })));
+const HRPage = React.lazy(() => import("./pages/hr").then((module) => ({ default: module.HRPage })));
 const InventoryPage = React.lazy(() => import("./pages/inventory").then((module) => ({ default: module.InventoryPage })));
 const InsurancePage = React.lazy(() => import("./pages/insurance").then((module) => ({ default: module.InsurancePage })));
 const LabPage = React.lazy(() => import("./pages/lab").then((module) => ({ default: module.LabPage })));
@@ -98,6 +99,14 @@ export default function App() {
             element={
               <DoctorOnly>
                 <FinancePage />
+              </DoctorOnly>
+            }
+          />
+          <Route
+            path="hr"
+            element={
+              <DoctorOnly>
+                <HRPage />
               </DoctorOnly>
             }
           />

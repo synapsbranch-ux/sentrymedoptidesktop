@@ -24,6 +24,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - guided refunds, automatic credit notes and transactional product returns;
 - optical lab Kanban, advanced fitting values, QC gate and delivery status;
 - income ledger fed automatically from every payment, refund and insurer remittance, plus manual entries, quotes convertible to invoices, expenses, financial summaries, an end-to-end profit and loss view, live charts and branded report/CSV/PDF-print export;
+- staff records for employees and contractors, clock-in/out and manual attendance, payroll runs with per-employee payslips and templated contracts;
 - clinic-wide search, audit logs and configurable clinic identity;
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
 - installable, touch-first PWA with compact header, drawer and bottom navigation;

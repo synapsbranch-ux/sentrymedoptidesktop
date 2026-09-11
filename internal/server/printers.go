@@ -415,6 +415,7 @@ func (s *Server) printAndRecord(r *http.Request, p thermalPrinter, invoiceID, re
 	if err != nil {
 		status = "failed"
 		code = printerErrorCode(err)
+		s.logger.Warn("thermal print failed", "printer_id", p.ID, "transport", p.Transport, "error_code", code, "error", err)
 	}
 	_, _ = s.db.ExecContext(r.Context(), `INSERT INTO print_jobs(id,invoice_id,receipt_id,printer_id,printer_name,status,error_code,created_at) VALUES(?,NULLIF(?,''),?,?,?,?,?,?)`, uuid.NewString(), invoiceID, receiptID, p.ID, p.Name, status, code, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
@@ -481,6 +482,12 @@ func printerErrorCode(err error) string {
 		return "PRINTER_PERMISSION_DENIED"
 	case strings.Contains(text, "offline") || strings.Contains(text, "range"):
 		return "PRINTER_OFFLINE"
+	case strings.Contains(text, "busy"):
+		return "PRINTER_BUSY"
+	case strings.Contains(text, "timed out"):
+		return "PRINTER_TIMEOUT"
+	case strings.Contains(text, "rfcomm"):
+		return "PRINTER_CONNECTION_FAILED"
 	case strings.Contains(text, "open printer"):
 		return "PRINTER_CONNECTION_FAILED"
 	case strings.Contains(text, "write"):

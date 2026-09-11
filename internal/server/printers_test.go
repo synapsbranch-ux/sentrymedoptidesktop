@@ -48,11 +48,14 @@ func TestPrinterConfigurationValidationAndPersistence(t *testing.T) {
 
 func TestPrinterErrorCodes(t *testing.T) {
 	cases := map[string]string{
-		"permission denied":          "PRINTER_PERMISSION_DENIED",
-		"printer is offline":         "PRINTER_OFFLINE",
-		"cannot open printer device": "PRINTER_CONNECTION_FAILED",
-		"printer write failed":       "PRINTER_WRITE_FAILED",
-		"unknown":                    "PRINTER_UNAVAILABLE",
+		"permission denied":            "PRINTER_PERMISSION_DENIED",
+		"printer is offline":           "PRINTER_OFFLINE",
+		"printer connection is busy":   "PRINTER_BUSY",
+		"printer connection timed out": "PRINTER_TIMEOUT",
+		"RFCOMM connection failed":     "PRINTER_CONNECTION_FAILED",
+		"cannot open printer device":   "PRINTER_CONNECTION_FAILED",
+		"printer write failed":         "PRINTER_WRITE_FAILED",
+		"unknown":                      "PRINTER_UNAVAILABLE",
 	}
 	for message, want := range cases {
 		if got := printerErrorCode(errors.New(message)); got != want {

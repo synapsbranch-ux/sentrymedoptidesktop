@@ -557,7 +557,7 @@ func TestDefaultClinicBrandingIsAvailableBeforeCustomUpload(t *testing.T) {
 		t.Fatalf("public branding: %d %s", branding.Code, branding.Body.String())
 	}
 	identity := decodeResponse[map[string]string](t, branding)
-	if identity["name"] != DefaultClinicName || identity["logoUrl"] != "/api/v1/public/branding/logo" {
+	if identity["name"] != DefaultClinicName || identity["logoUrl"] != "/api/v1/public/branding/logo?v=clinique-branding-v2" {
 		t.Fatalf("unexpected default branding: %#v", identity)
 	}
 	manifest := a.request(http.MethodGet, "/manifest.webmanifest", nil, nil)

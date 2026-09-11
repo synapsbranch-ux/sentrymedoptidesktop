@@ -62,7 +62,7 @@ func (s *Server) handlePublicBranding(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"name":    s.clinicDisplayName(r.Context()),
-		"logoUrl": "/api/v1/public/branding/logo",
+		"logoUrl": "/api/v1/public/branding/logo?v=clinique-branding-v2",
 	})
 }
 
@@ -736,7 +736,7 @@ func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
 	var filename, mediaType string
 	if err := s.db.QueryRowContext(r.Context(), "SELECT filename,media_type FROM branding_assets WHERE key='clinic_logo'").Scan(&filename, &mediaType); err == sql.ErrNoRows {
 		w.Header().Set("Content-Type", "image/webp")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(defaultClinicLogo)
 		return
 	} else if err != nil {
@@ -753,7 +753,7 @@ func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", mediaType)
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("Cache-Control", "no-store")
 	http.ServeFile(w, r, path)
 }
 

@@ -118,7 +118,7 @@ export function AppShell() {
     <>
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">
         <div className="grid h-10 w-14 shrink-0 place-items-center overflow-hidden rounded-[var(--radius)] bg-white text-[var(--primary)]">
-          {logoAvailable ? <img className="h-full w-full object-contain" src={`${branding.logoUrl}?v=${realtime.brandingRevision}`} alt={i18n.t("Clinic logo")} onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
+          {logoAvailable ? <img className="h-full w-full object-contain" src={`${branding.logoUrl}${branding.logoUrl.includes("?") ? "&" : "?"}r=${realtime.brandingRevision}`} alt={i18n.t("Clinic logo")} onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
         </div>
         <div>
           <div className="max-w-40 truncate font-bold leading-none" title={branding.name} data-i18n-skip>{branding.name}</div>

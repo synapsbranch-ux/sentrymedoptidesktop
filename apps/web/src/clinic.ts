@@ -5,7 +5,7 @@ import type { DocumentPaper, ReceiptWidth } from "./components/printing";
 import { desktopBridge } from "./native";
 
 export const DEFAULT_CLINIC_NAME = "Clinique Le Bon Spécialiste";
-export const DEFAULT_CLINIC_LOGO_URL = "/api/v1/public/branding/logo";
+export const DEFAULT_CLINIC_LOGO_URL = "/api/v1/public/branding/logo?v=clinique-branding-v2";
 
 export interface PublicBranding {
   name: string;

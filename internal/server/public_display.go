@@ -139,7 +139,7 @@ func (s *Server) handlePublicDisplay(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"clinic": clinic, "settings": settings, "queue": queue, "appointments": appointments, "serverTime": time.Now().UTC().Format(time.RFC3339Nano), "logoUrl": "/api/v1/public/branding/logo"})
+	writeJSON(w, http.StatusOK, map[string]any{"clinic": clinic, "settings": settings, "queue": queue, "appointments": appointments, "serverTime": time.Now().UTC().Format(time.RFC3339Nano), "logoUrl": "/api/v1/public/branding/logo?v=clinique-branding-v2"})
 }
 
 func (s *Server) handlePublicEvents(w http.ResponseWriter, r *http.Request) {

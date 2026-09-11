@@ -33,7 +33,8 @@ func TestClinicBrandingUpgradePreservesCustomNameAndLogo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := "2026-09-11T00:00:00Z"
+	// This is a doctor change made after branding migration 025.
+	now := "2099-09-11T00:00:00Z"
 	if _, err := db.ExecContext(ctx, `INSERT INTO users(id,username,password_hash,display_name,role,created_at,updated_at) VALUES('doctor-upgrade','doctor-upgrade','hash','Doctor','doctor',?,?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
@@ -44,8 +45,9 @@ func TestClinicBrandingUpgradePreservesCustomNameAndLogo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Re-run migration 025 as if this data directory came from release 024.
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=25`); err != nil {
+	// Re-run migration 026 as if a branded build is being installed after the
+	// doctor has already chosen their own identity.
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=26`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(ctx); err != nil {
@@ -74,7 +76,7 @@ func TestClinicBrandingUpgradePreservesCustomNameAndLogo(t *testing.T) {
 	}
 }
 
-func TestClinicBrandingUpgradeReplacesOnlyPlaceholderName(t *testing.T) {
+func TestClinicBrandingUpgradeReplacesLegacyNameAndLogo(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dataDir, "database"), 0o750); err != nil {
@@ -86,10 +88,17 @@ func TestClinicBrandingUpgradeReplacesOnlyPlaceholderName(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := db.ExecContext(ctx, `INSERT INTO settings(key,value_json,updated_at) VALUES('clinic',json_object('name','SentryMed Opti'),'2026-09-11T00:00:00Z')`); err != nil {
+	const now = "2020-09-11T00:00:00Z"
+	if _, err := db.ExecContext(ctx, `INSERT INTO users(id,username,password_hash,display_name,role,created_at,updated_at) VALUES('doctor-legacy','doctor-legacy','hash','Doctor','doctor',?,?)`, now, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=25`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO settings(key,value_json,updated_at,updated_by) VALUES('clinic',json_object('name','Clinique historique'),'2020-09-11T00:00:00Z','doctor-legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO branding_assets(key,filename,media_type,size_bytes,checksum_sha256,updated_at,updated_by) VALUES('clinic_logo','legacy-logo.png','image/png',12,'legacy',?,'doctor-legacy')`, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=26`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Migrate(ctx); err != nil {
@@ -101,6 +110,13 @@ func TestClinicBrandingUpgradeReplacesOnlyPlaceholderName(t *testing.T) {
 		t.Fatal(err)
 	}
 	if name != "Clinique Le Bon Spécialiste" {
-		t.Fatalf("placeholder clinic name was not upgraded: got %q", name)
+		t.Fatalf("legacy clinic name was not upgraded: got %q", name)
+	}
+	var logos int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM branding_assets WHERE key='clinic_logo'`).Scan(&logos); err != nil {
+		t.Fatal(err)
+	}
+	if logos != 0 {
+		t.Fatalf("legacy logo metadata was not removed: %d", logos)
 	}
 }

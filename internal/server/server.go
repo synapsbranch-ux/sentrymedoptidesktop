@@ -34,13 +34,15 @@ type Server struct {
 	patientAccess      *patientAccessLog
 	loginSlots         chan struct{}
 	transcriptionSlots chan struct{}
+	// One physical receipt printer, one job at a time.
+	printSlots chan struct{}
 	// The bundled diagnosis reference is loaded into the database the first time
 	// it is searched, per server instance.
 	diagnosisReference sync.Once
 }
 
 func New(db *database.DB, config app.Config, logger *slog.Logger, webAssets ...fs.FS) *Server {
-	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog(), loginSlots: make(chan struct{}, 2), transcriptionSlots: make(chan struct{}, 1)}
+	server := &Server{db: db, config: config, broker: realtime.New(), logger: logger, patientAccess: newPatientAccessLog(), loginSlots: make(chan struct{}, 2), transcriptionSlots: make(chan struct{}, 1), printSlots: make(chan struct{}, 1)}
 	if len(webAssets) > 0 {
 		server.web = webAssets[0]
 	}

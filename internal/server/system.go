@@ -39,6 +39,7 @@ func (s *Server) registerSystemRoutes(r chi.Router) {
 	r.With(s.requireDoctor).Put("/settings/{key}", s.handleSettingsUpdate)
 	r.Get("/branding/logo", s.handleClinicLogoGet)
 	r.With(s.requireDoctor).Post("/branding/logo", s.handleClinicLogoUpload)
+	s.registerPrinterRoutes(r)
 	r.With(s.requireDoctor).Get("/users", s.handleUsersList)
 	r.With(s.requireDoctor).Post("/users", s.handleUsersCreate)
 	r.With(s.requireDoctor).Patch("/users/{id}", s.handleUsersUpdate)

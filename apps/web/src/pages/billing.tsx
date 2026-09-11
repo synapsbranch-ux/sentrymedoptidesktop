@@ -265,6 +265,8 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
   const [refundAmount, setRefundAmount] = React.useState(0);
   const [refundReason, setRefundReason] = React.useState("");
   const [restock, setRestock] = React.useState<string[]>([]);
+  const [printingReceipt, setPrintingReceipt] = React.useState(false);
+  const printThermalReceipt = async () => { setPrintingReceipt(true); try { await api.post(`/printers/default/print-invoice/${id}`, {}); toast.success("Thermal receipt printed"); } catch(reason) { toast.error(reason instanceof Error ? reason.message : "Thermal printer is unavailable"); } finally { setPrintingReceipt(false); } };
   const refund = async () => {
     if (!refundPayment) return;
     try {
@@ -334,10 +336,7 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
             </div>
             <DialogTitle>Invoice for {invoice.patientName}</DialogTitle>
           </div>
-          <Button variant="outline" onClick={triggerPrint}>
-            <Printer className="h-4 w-4" />
-            Print / PDF
-          </Button>
+          <div className="flex flex-wrap gap-2"><Button disabled={printingReceipt} onClick={printThermalReceipt}><Receipt className="h-4 w-4" />{printingReceipt ? "Printing…" : "Print receipt"}</Button><Button variant="outline" onClick={triggerPrint}><Printer className="h-4 w-4" />Print / PDF</Button></div>
         </div>
       </DialogHeader>
       <div className="print-area document-print rounded-lg border p-5">

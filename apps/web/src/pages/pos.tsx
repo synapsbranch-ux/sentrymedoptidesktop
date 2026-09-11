@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Barcode, ClipboardList, Minus, PauseCircle, Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
+import { Barcode, CheckCircle2, ClipboardList, Minus, PauseCircle, Plus, Printer, Search, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, APIError } from "../api";
 import { useDebouncedValue, useLoad } from "../hooks";
@@ -11,9 +11,7 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Field, FieldGroup, Input, Select } from "../components/ui/input";
 import { PatientPicker } from "../components/patient-search";
-import { printReceipt } from "../components/printing";
-import { useClinicIdentity, usePrintingPreferences } from "../clinic";
-import { useAuth } from "../auth";
+import { useI18n } from "../i18n";
 
 /** A cart line carries its own discount, so a concession on one item does not have to be applied to the whole sale. */
 interface CartLine { item: InventoryItem; quantity: number; discountMinor: number }
@@ -26,11 +24,13 @@ interface PrescriptionCart {
 }
 interface ResumedLine { inventoryItemId: string; sku: string; barcode: string; category: string; name: string; brand: string; salePriceMinor: number; currency: string; quantity: number; trackStock: boolean; procedureCode: string; cartQuantity: number; discountMinor: number; inStock: boolean }
 interface ParkedSale { id: string; label: string; patientId: string; patientName: string; currency: string; totalMinor: number; note: string; createdAt: string; parkedBy: string }
+interface PrinterState { configured: boolean; default: null | { id: string; name: string; status: string }; platform: string; serverManaged: boolean }
 
 const lineGross = (line: CartLine) => line.item.salePriceMinor * line.quantity;
 const lineTotal = (line: CartLine) => Math.max(0, lineGross(line) - line.discountMinor);
 
 export function POSPage() {
+	const i18n = useI18n();
   const [query, setQuery] = React.useState("");
   // The catalogue is searched on the server: a POS that filtered a preloaded
   // list would quietly stop showing items once the catalogue outgrew one page.
@@ -40,6 +40,7 @@ export function POSPage() {
   const methods = useLoad(() => api.get<{ items: { id: string; name: string }[] }>("/payment-methods"), []);
   const register = useLoad(() => api.get<{ open: boolean; id?: string }>("/cash-register"), []);
   const parked = useLoad(() => api.get<{ items: ParkedSale[] }>("/pos/parked"), []);
+  const printer = useLoad(() => api.get<PrinterState>("/printers"), []);
 
   const [cart, setCart] = React.useState<CartLine[]>([]);
   const [patientId, setPatientId] = React.useState("");
@@ -48,9 +49,8 @@ export function POSPage() {
   const [saving, setSaving] = React.useState(false);
   const [showParked, setShowParked] = React.useState(false);
   const [prescription, setPrescription] = React.useState<PrescriptionCart | null>(null);
-  const clinic = useClinicIdentity();
-  const printing = usePrintingPreferences();
-  const { user } = useAuth();
+	const [completed, setCompleted] = React.useState<{ invoiceId: string; invoiceNumber: string; printed: boolean } | null>(null);
+	const [printingReceipt, setPrintingReceipt] = React.useState(false);
 
   const visible = inventory.data?.items ?? [];
   const currency = cart[0]?.item.currency ?? "HTG";
@@ -69,12 +69,18 @@ export function POSPage() {
   const change = (id: string, delta: number) => setCart((current) => current.map((line) => line.item.id === id ? { ...line, quantity: Math.max(0, line.quantity + delta) } : line).filter((line) => line.quantity > 0));
   const discountLine = (id: string, value: number) => setCart((current) => current.map((line) => line.item.id === id ? { ...line, discountMinor: Math.max(0, Math.min(value, lineGross(line))) } : line));
   const clear = () => { setCart([]); setTenders([]); setOrderDiscount(0); setPrescription(null); };
+	const printInvoice = async (invoiceId: string) => {
+		setPrintingReceipt(true);
+		try { await api.post(`/printers/default/print-invoice/${invoiceId}`, {}); setCompleted((value) => value ? { ...value, printed: true } : value); printer.reload(); toast.success(i18n.t("Thermal receipt printed")); return true; }
+		catch { toast.warning(i18n.t("The payment is saved, but the printer is unavailable.")); printer.reload(); return false; }
+		finally { setPrintingReceipt(false); }
+	};
 
   const checkout = async () => {
     setSaving(true);
     try {
       const payments = tenders.filter((tender) => tender.amountMinor > 0).map((tender) => ({ paymentMethodId: tender.paymentMethodId, registerSessionId: register.data?.id ?? "", amountMinor: tender.amountMinor, currency, exchangeRate: "1", reference: "", notes: "" }));
-      const result = await api.post<{ invoiceNumber: string; balanceMinor: number; payments: { receiptNumber: string }[] }>("/pos/checkout", {
+      const result = await api.post<{ invoiceId: string; invoiceNumber: string; balanceMinor: number; payments: { receiptNumber: string }[] }>("/pos/checkout", {
         invoice: {
           patientId, currency, exchangeRate: "1", discountMinor: orderDiscount, taxMinor: 0, dueAt: "", notes: "POS sale",
           items: cart.map((line) => ({ inventoryItemId: line.item.id, description: line.item.name, quantity: line.quantity, unitPriceMinor: line.item.salePriceMinor, discountMinor: line.discountMinor, taxMinor: 0 })),
@@ -82,18 +88,10 @@ export function POSPage() {
         payments,
       });
       toast.success(`${result.invoiceNumber} created${result.balanceMinor > 0 ? ` · ${money(result.balanceMinor, currency)} still owed` : ""}`);
-      // The receipt goes to the thermal roll, never through the document path:
-      // a till receipt on A4 wastes a sheet and looks nothing like a receipt.
-      printReceipt({
-        clinicName: clinic.name ?? "Clinic", clinicAddress: clinic.address, clinicPhone: clinic.phone,
-        invoiceNumber: result.invoiceNumber, issuedAt: new Date().toLocaleString(), cashier: user?.displayName,
-        currency, lines: cart.map((line) => ({ description: line.item.name, quantity: line.quantity, unitPriceMinor: line.item.salePriceMinor, discountMinor: line.discountMinor })),
-        discountMinor: orderDiscount, totalMinor: total,
-        payments: tenders.filter((tender) => tender.amountMinor > 0).map((tender) => ({ method: methods.data?.items.find((method) => method.id === tender.paymentMethodId)?.name ?? "Payment", amountMinor: tender.amountMinor })),
-        balanceMinor: result.balanceMinor,
-      }, printing.receiptWidth);
-      clear();
-      inventory.reload();
+      setCompleted({ invoiceId: result.invoiceId, invoiceNumber: result.invoiceNumber, printed: false });
+		clear();
+		inventory.reload();
+		if (printer.data?.configured) void printInvoice(result.invoiceId);
     } catch (reason) {
       toast.error(reason instanceof APIError ? reason.body.message : "Checkout failed");
     } finally { setSaving(false); }
@@ -139,7 +137,8 @@ export function POSPage() {
   return <div className="page">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="section-title">Transactional checkout</p><h1 className="page-title">Point of Sale</h1><p className="page-description">Invoice, payment and stock deduction commit together or roll back together.</p></div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+		<Badge tone={printer.data?.default?.status === "ready" || printer.data?.default?.status === "connected" ? "success" : printer.data?.configured ? "warning" : "neutral"}><Printer className="mr-1 inline h-3 w-3" />{printer.data?.default ? <><span data-i18n-skip>{printer.data.default.name}</span> · {i18n.t(printer.data.default.status)}</> : i18n.t("Printer not configured")}</Badge>
         <Button variant="outline" onClick={() => setShowParked(true)}><PauseCircle className="h-4 w-4" />Parked sales{parked.data?.items.length ? ` (${parked.data.items.length})` : ""}</Button>
       </div>
     </div>
@@ -219,6 +218,7 @@ export function POSPage() {
         ))}</div> : <EmptyState title="Nothing parked" description="Use “Park this sale” to set a cart aside and pick it up later." />}
       </DialogContent>
     </Dialog>
+	<Dialog open={Boolean(completed)} onOpenChange={(open) => { if (!open) setCompleted(null); }}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-green-600" />{i18n.t("Payment completed")}</DialogTitle><DialogDescription><span data-i18n-skip>{completed?.invoiceNumber}</span> {i18n.t("was saved successfully. Printing is independent and can be retried safely.")}</DialogDescription></DialogHeader><div className="grid gap-2 sm:grid-cols-2"><Button disabled={printingReceipt} onClick={() => completed && void printInvoice(completed.invoiceId)}><Printer className="h-4 w-4" />{printingReceipt ? i18n.t("Printing…") : i18n.t(completed?.printed ? "Reprint receipt" : "Print receipt")}</Button><Button variant="outline" onClick={() => setCompleted(null)}>{i18n.t("New sale")}</Button></div></DialogContent></Dialog>
   </div>;
 }
 

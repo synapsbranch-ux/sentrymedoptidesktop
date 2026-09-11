@@ -26,6 +26,31 @@ The certificate must cover the chosen name/IP and be trusted by the clients. `SE
 
 Verify HTTPS, certificate trust, Secure/HttpOnly/SameSite cookies, login/logout, uploads and live updates from a clinic phone before use. Public display should use ticket codes; initials/first names are explicit clinic privacy choices.
 
+## Thermal receipt printer
+
+Keep the printer paired with the computer that runs the clinic server. Browser
+and mobile clients submit authenticated print jobs to that server; do not expose
+a separate print service or Bluetooth bridge on the network.
+
+On Fedora, enable Bluetooth, pair/trust the printer as the same standard account
+that runs SentryMed, and install the BlueZ command-line utilities used for
+discovery (`bluetoothctl` and, where available, `sdptool`). Do not launch the app
+with `sudo`. **System → Printers → Search for printers** inspects BlueZ data and
+opens the validated RFCOMM destination directly. The installed PT280_6E27 has
+been physically confirmed as ESC/POS over Serial Port Profile, RFCOMM channel 1.
+
+On Windows, pair the printer in **Settings → Bluetooth & devices**, open the
+device's Bluetooth COM-port properties, note the outgoing port (for example
+`COM3`), then save that port under **System → Printers**. The server only accepts
+the strict `COM1`–`COM999` form and opens the Windows device path directly.
+
+Print a test page, then a real paid POS receipt. Verify text, 58 mm wrapping,
+totals, logo dithering and paper feed on the actual device. If logo bitmap
+printing is unsupported, the receipt text still prints. Printer errors are
+recorded without patient or medical details and never undo a completed payment.
+The selected printer lives in the SQLite settings database and is preserved by
+normal upgrades and complete backups.
+
 ## Transcription and uploaded documents
 
 Remote settings can enable transcription but can no longer select an executable. An administrator must install a trusted local tool and set `SENTRYMED_TRANSCRIPTION_COMMAND_JSON` to a JSON array of executable plus fixed arguments. For example:

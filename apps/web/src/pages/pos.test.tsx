@@ -17,6 +17,7 @@ function stubApi(overrides: Record<string, unknown> = {}) {
     if (path.startsWith("/payment-methods")) return Promise.resolve({ items: [{ id: "pm_cash", name: "Cash" }, { id: "pm_card", name: "Card" }] } as never);
     if (path.startsWith("/cash-register")) return Promise.resolve({ open: true, id: "reg-1" } as never);
     if (path.startsWith("/pos/parked")) return Promise.resolve({ items: [] } as never);
+    if (path.startsWith("/printers")) return Promise.resolve({ configured: true, default: { id: "bluetooth:10:22:33:90:6E:27", name: "PT280_6E27", status: "ready" }, platform: "linux", serverManaged: true } as never);
     // The page reads the signed-in cashier and the clinic's paper sizes.
     if (path.startsWith("/setup/status")) return Promise.resolve({ required: false } as never);
     if (path.startsWith("/auth/me")) return Promise.resolve({ user: { id: "u1", username: "doctor", displayName: "Dr Joseph", role: "doctor" } } as never);
@@ -32,9 +33,6 @@ async function renderPOS() {
 
 describe("Point of Sale", () => {
   beforeEach(() => {
-    // jsdom implements neither; the receipt path calls both on its own frame.
-    vi.spyOn(window, "print").mockImplementation(() => undefined);
-    vi.spyOn(window, "focus").mockImplementation(() => undefined);
     let counter = 0;
     Object.defineProperty(globalThis, "crypto", { value: { ...globalThis.crypto, randomUUID: () => `tender-${++counter}` }, configurable: true });
   });
@@ -103,19 +101,14 @@ describe("Point of Sale", () => {
 
   it("sends the receipt to the thermal roll, not through the document print path", async () => {
     stubApi();
-    vi.spyOn(api, "post").mockResolvedValue({ invoiceNumber: "INV-3", balanceMinor: 0, payments: [] } as never);
+    const post = vi.spyOn(api, "post").mockImplementation((path: string) => path === "/pos/checkout"
+      ? Promise.resolve({ invoiceId: "invoice-3", invoiceNumber: "INV-3", balanceMinor: 0, payments: [] } as never)
+      : Promise.resolve({ status: "printed", invoiceNumber: "INV-3" } as never));
     await renderPOS();
     await act(async () => { fireEvent.click(screen.getByText("Classic frame")); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Complete sale/ })); });
-    const frame = await waitFor(() => {
-      const found = document.body.querySelector("iframe");
-      if (!found) throw new Error("no receipt frame");
-      return found;
-    });
-    const markup = frame.contentDocument!.documentElement.innerHTML;
-    expect(markup).toContain("size: 80mm auto");
-    expect(markup).toContain("Classic frame");
-    // The on-page document paper rule is never involved in a receipt.
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/printers/default/print-invoice/invoice-3", {}));
+    expect(document.body.querySelector("iframe")).toBeNull();
     expect(document.head.querySelector("[data-print-paper]")).toBeNull();
   });
 });

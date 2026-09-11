@@ -1,6 +1,7 @@
 import * as React from "react";
 import { api } from "./api";
 import { completeTranslations } from "./locale-packs";
+import { printerTranslationCatalog, printerTranslations } from "./printer-translations";
 
 export const supportedLanguages = [
   { code: "en", label: "English", nativeLabel: "English" },
@@ -120,11 +121,11 @@ const starterTranslations: Record<Exclude<LanguageCode, "en">, Messages> = {
 const translations: Record<Exclude<LanguageCode, "en">, Messages> = Object.fromEntries(
   Object.entries(completeTranslations).map(([language, messages]) => [
     language,
-    { ...messages, ...starterTranslations[language as Exclude<LanguageCode, "en">] },
+    { ...messages, ...starterTranslations[language as Exclude<LanguageCode, "en">], ...printerTranslations[language as Exclude<LanguageCode, "en">] },
   ]),
 ) as unknown as Record<Exclude<LanguageCode, "en">, Messages>;
 
-export const translationCatalog = Object.freeze(Object.keys(completeTranslations.fr));
+export const translationCatalog = Object.freeze([...new Set([...Object.keys(completeTranslations.fr), ...printerTranslationCatalog])]);
 const englishMessages = new Set(translationCatalog);
 const originalText = new WeakMap<Text, string>();
 const originalAttributes = new WeakMap<Element, Map<string, string>>();

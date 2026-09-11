@@ -99,10 +99,10 @@ The same session also runs two other tests on the lane screen:
 Receipts and documents print through two separate paths, because they go to two
 different printers with two different page geometries.
 
-- **Till receipts** render into an isolated frame with its own `@page { size:
-  58mm auto | 80mm auto; margin: 0 }` rule and a monospace, single-column
-  layout. The clinic application's own stylesheet never reaches that document,
-  so nothing about the screen layout can widen a receipt.
+- **Till receipts** use a dedicated 58 mm ESC/POS renderer in the Go server.
+  It lays out aligned 32-column text independently of PDF/browser printing,
+  converts the clinic logo to a compact monochrome raster, and writes directly
+  to the selected Bluetooth RFCOMM or serial printer.
 - **Everything else** — invoices, quotes, prescriptions, lab orders and
   requisitions, patient summaries, reports — renders on the page inside a
   `.print-area.document-print` element and prints at A4 or US Letter with
@@ -112,6 +112,19 @@ Both paper choices are set under **System → Clinic → Printing**, independent
 a clinic can have a thermal roll and no A4 printer, or the reverse. There is
 deliberately no single generic "print this page" call, because one page
 geometry cannot serve both without being wrong for one of them.
+
+The physical printer is configured under **System → Printers**. Linux discovery
+uses BlueZ and SDP, validates Bluetooth addresses, and connects through an
+RFCOMM socket without `sudo` or a shell command. The commissioned PT280UB was
+verified as ESC/POS over SPP/RFCOMM channel 1; other printer channels are still
+detected rather than assumed. On Windows, pair the device in Settings and enter
+its outgoing Bluetooth COM port. Web and mobile clients never connect to the
+printer directly: their authenticated print request goes to the clinic server,
+so all clients share one remembered printer and one technical print history.
+
+Completing a sale commits the invoice and payment before printing. A printer
+failure therefore never rolls back or blocks the payment; the cashier can retry
+from the completion dialog or reprint from the invoice.
 
 ## Architecture
 

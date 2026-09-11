@@ -213,8 +213,12 @@ Reports support `from`, `to`, and `format=csv`. Available report keys are `sales
 | GET, POST | `/backups` | Doctor |
 | POST | `/backups/restore` | Doctor; maintenance lock |
 | POST | `/backups/validate-destination` | Doctor |
+| GET | `/printers`, `/printers/discover`, `/printers/jobs` | Doctor, nurse |
+| PUT | `/printers/default` | Doctor |
+| POST | `/printers/default/test` | Doctor |
+| POST | `/printers/default/print-invoice/{id}` | Doctor, nurse |
 
-Writable setting keys are explicitly allow-listed. `printing` sets the document paper (A4 or Letter) and the receipt roll width (58 mm or 80 mm) independently, because they are two different printers. `clinical.pretestPolicy` decides whether staff may skip the nurse pre-test on a consultation. `appearance` accepts supported shadcn base/accent palettes, mode and radius. `public_display` controls enablement, privacy mode, appointment visibility and the waiting-room announcement. The public-display response never includes patient IDs, record numbers, clinical data, contact details or billing data.
+Writable setting keys are explicitly allow-listed. `printing` sets the document paper (A4 or Letter) and the receipt roll width (58 mm or 80 mm) independently, because they are two different printers. The printer endpoints store one validated server-side thermal-printer selection, render invoice data from the database rather than accepting financial values from a client, and retain only technical job metadata. `clinical.pretestPolicy` decides whether staff may skip the nurse pre-test on a consultation. `appearance` accepts supported shadcn base/accent palettes, mode and radius. `public_display` controls enablement, privacy mode, appointment visibility and the waiting-room announcement. The public-display response never includes patient IDs, record numbers, clinical data, contact details or billing data.
 
 Every list endpoint pages on the server: `page` and `limit` are read from the query string, a limit past an endpoint's ceiling falls back to its default rather than being honoured, and nonsense values read as a request for the default page. Paged responses carry `page`, `limit`, `total` and `hasMore` alongside `items`.
 

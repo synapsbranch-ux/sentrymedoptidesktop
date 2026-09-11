@@ -1,5 +1,6 @@
 import * as React from "react";
 import { api } from "./api";
+import { completeTranslations } from "./locale-packs";
 
 export const supportedLanguages = [
   { code: "en", label: "English", nativeLabel: "English" },
@@ -27,7 +28,7 @@ type Messages = Record<string, string>;
 
 // English text is the stable message key and fallback. This lets domain modules
 // migrate incrementally without ever rendering a missing-key token to staff.
-const translations: Record<Exclude<LanguageCode, "en">, Messages> = {
+const starterTranslations: Record<Exclude<LanguageCode, "en">, Messages> = {
   fr: {
     "Optical Clinic Management System": "Système de gestion de clinique optique",
     "Clinic Management": "Gestion de clinique",
@@ -116,6 +117,90 @@ const translations: Record<Exclude<LanguageCode, "en">, Messages> = {
   },
 };
 
+const translations: Record<Exclude<LanguageCode, "en">, Messages> = Object.fromEntries(
+  Object.entries(completeTranslations).map(([language, messages]) => [
+    language,
+    { ...messages, ...starterTranslations[language as Exclude<LanguageCode, "en">] },
+  ]),
+) as unknown as Record<Exclude<LanguageCode, "en">, Messages>;
+
+export const translationCatalog = Object.freeze(Object.keys(completeTranslations.fr));
+const englishMessages = new Set(translationCatalog);
+const originalText = new WeakMap<Text, string>();
+const originalAttributes = new WeakMap<Element, Map<string, string>>();
+const translatableAttributes = ["alt", "aria-label", "placeholder", "title"] as const;
+
+export function translateMessage(language: LanguageCode, message: string) {
+  return language === "en" ? message : translations[language][message] ?? message;
+}
+
+export function missingTranslations(language: Exclude<LanguageCode, "en">) {
+  return translationCatalog.filter((message) => !translations[language][message]?.trim());
+}
+
+function preserveWhitespace(source: string, replacement: string) {
+  const leading = source.match(/^\s*/)?.[0] ?? "";
+  const trailing = source.match(/\s*$/)?.[0] ?? "";
+  return `${leading}${replacement}${trailing}`;
+}
+
+function skipped(element: Element | null) {
+  return !element || Boolean(element.closest("[data-i18n-skip],script,style,code,pre,[contenteditable='true']"));
+}
+
+/**
+ * Localizes legacy JSX text while pages are progressively migrated to t().
+ * The source English is retained in WeakMaps, so switching language repeatedly
+ * never translates a translation or alters patient-entered form values.
+ */
+export function localizeDOM(root: ParentNode, _language: LanguageCode, t: (message: string) => string) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let current = walker.nextNode();
+  while (current) {
+    const node = current as Text;
+    if (!skipped(node.parentElement)) {
+      const visible = node.data.trim();
+      let source = originalText.get(node);
+      if (source && visible !== t(source) && englishMessages.has(visible)) {
+        source = visible;
+        originalText.set(node, source);
+      } else if (!source && englishMessages.has(visible)) {
+        source = visible;
+        originalText.set(node, source);
+      }
+      if (source) {
+        const next = preserveWhitespace(node.data, t(source));
+        if (node.data !== next) node.data = next;
+      }
+    }
+    current = walker.nextNode();
+  }
+
+  const elements = root instanceof Element ? [root, ...root.querySelectorAll("*")] : [...root.querySelectorAll("*")];
+  for (const element of elements) {
+    if (skipped(element)) continue;
+    let originals = originalAttributes.get(element);
+    for (const attribute of translatableAttributes) {
+      const value = element.getAttribute(attribute)?.trim();
+      if (!value) continue;
+      let source = originals?.get(attribute);
+      if (source && value !== t(source) && englishMessages.has(value)) {
+        source = value;
+        originals?.set(attribute, source);
+      } else if (!source && englishMessages.has(value)) {
+        source = value;
+        originals ??= new Map<string, string>();
+        originals.set(attribute, source);
+        originalAttributes.set(element, originals);
+      }
+      if (source) {
+        const next = t(source);
+        if (element.getAttribute(attribute) !== next) element.setAttribute(attribute, next);
+      }
+    }
+  }
+}
+
 interface I18nValue {
   language: LanguageCode;
   apply(language: LanguageCode): void;
@@ -142,7 +227,24 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     if (isLanguageCode(response.language)) apply(response.language);
   }, [apply]);
   React.useEffect(() => { document.documentElement.lang = language; void refresh().catch(() => undefined); }, [language, refresh]);
-  const t = React.useCallback((message: string) => language === "en" ? message : translations[language][message] ?? message, [language]);
+  const t = React.useCallback((message: string) => translateMessage(language, message), [language]);
+  React.useLayoutEffect(() => {
+    const root = document.body;
+    const applyTranslations = (node: Node = root) => {
+      if (node instanceof Text) localizeDOM(node.parentNode ?? root, language, t);
+      else if (node instanceof Element || node instanceof DocumentFragment || node === root) localizeDOM(node as ParentNode, language, t);
+    };
+    applyTranslations();
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "characterData") applyTranslations(mutation.target);
+        else if (mutation.type === "attributes") applyTranslations(mutation.target);
+        else for (const node of mutation.addedNodes) applyTranslations(node);
+      }
+    });
+    observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatableAttributes] });
+    return () => observer.disconnect();
+  }, [language, t]);
   const value = React.useMemo(() => ({ language, apply, refresh, t }), [language, apply, refresh, t]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

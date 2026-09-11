@@ -35,6 +35,7 @@ import { useI18n } from "../i18n";
 import { cn } from "../lib";
 import { CommandPalette } from "./command-palette";
 import { Button } from "./ui/button";
+import { usePublicBranding } from "../clinic";
 
 const nav = [
   {
@@ -96,6 +97,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [search, setSearch] = React.useState(false);
   const [logoAvailable, setLogoAvailable] = React.useState(true);
+  const branding = usePublicBranding(realtime.revision);
   React.useEffect(() => { void theme.refresh().catch(() => undefined); }, [theme.refresh, realtime.revision]);
   React.useEffect(() => { void i18n.refresh().catch(() => undefined); }, [i18n.refresh, realtime.revision]);
   React.useEffect(() => setLogoAvailable(true), [realtime.brandingRevision]);
@@ -115,11 +117,11 @@ export function AppShell() {
   const sidebar = (
     <>
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">
-        <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[var(--radius)] bg-[var(--primary)] text-[var(--primary-foreground)]">
-          {logoAvailable ? <img className="h-full w-full bg-white object-contain p-1" src={`/api/v1/public/branding/logo?v=${realtime.brandingRevision}`} alt="Clinic logo" onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
+        <div className="grid h-10 w-14 shrink-0 place-items-center overflow-hidden rounded-[var(--radius)] bg-white text-[var(--primary)]">
+          {logoAvailable ? <img className="h-full w-full object-contain" src={`${branding.logoUrl}?v=${realtime.brandingRevision}`} alt={i18n.t("Clinic logo")} onError={() => setLogoAvailable(false)} /> : <Glasses className="h-5 w-5" />}
         </div>
         <div>
-          <div className="font-bold leading-none">SentryMed Opti</div>
+          <div className="max-w-40 truncate font-bold leading-none" title={branding.name} data-i18n-skip>{branding.name}</div>
           <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
             {i18n.t("Clinic Management")}
           </div>

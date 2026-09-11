@@ -39,7 +39,7 @@ func SeedDevelopment(ctx context.Context, db *database.DB) error {
 				return err
 			}
 		}
-		clinic, _ := json.Marshal(map[string]any{"name": "Development Eye Clinic", "address": "Local development only", "phone": "", "email": "", "timezone": "America/Port-au-Prince", "currency": "HTG"})
+		clinic, _ := json.Marshal(map[string]any{"name": DefaultClinicName, "address": "Local development only", "phone": "", "email": "", "timezone": "America/Port-au-Prince", "currency": "HTG"})
 		settings := map[string]string{
 			"clinic":         string(clinic),
 			"financial":      `{"currencies":["HTG","USD"],"baseCurrency":"HTG","exchangeRate":"1","taxRate":"0"}`,

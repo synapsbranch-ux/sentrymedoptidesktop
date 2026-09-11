@@ -23,7 +23,7 @@ type publicClinic struct {
 
 func (s *Server) publicDisplayConfiguration(ctx context.Context) (publicDisplaySettings, publicClinic, error) {
 	settings := publicDisplaySettings{PrivacyMode: "ticket_only", ShowAppointments: true, Announcement: "Welcome. Please watch the screen for your queue number."}
-	clinic := publicClinic{Name: "SentryMed Opti", Timezone: "America/Port-au-Prince"}
+	clinic := publicClinic{Name: DefaultClinicName, Timezone: "America/Port-au-Prince"}
 	var raw string
 	if err := s.db.QueryRowContext(ctx, "SELECT value_json FROM settings WHERE key='public_display'").Scan(&raw); err != nil && err != sql.ErrNoRows {
 		return settings, clinic, err

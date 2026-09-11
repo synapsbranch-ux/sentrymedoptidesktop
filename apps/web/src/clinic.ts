@@ -1,6 +1,37 @@
+import * as React from "react";
 import { api } from "./api";
 import { useLoad } from "./hooks";
 import type { DocumentPaper, ReceiptWidth } from "./components/printing";
+import { desktopBridge } from "./native";
+
+export const DEFAULT_CLINIC_NAME = "Clinique Le Bon Spécialiste";
+export const DEFAULT_CLINIC_LOGO_URL = "/api/v1/public/branding/logo";
+
+export interface PublicBranding {
+  name: string;
+  logoUrl: string;
+}
+
+export function usePublicBranding(revision = 0) {
+  const [branding, setBranding] = React.useState<PublicBranding>({
+    name: DEFAULT_CLINIC_NAME,
+    logoUrl: DEFAULT_CLINIC_LOGO_URL,
+  });
+  React.useEffect(() => {
+    let active = true;
+    api.get<Partial<PublicBranding>>("/public/branding")
+      .then((value) => {
+        if (!active) return;
+        const name = value.name?.trim() || DEFAULT_CLINIC_NAME;
+        setBranding({ name, logoUrl: value.logoUrl || DEFAULT_CLINIC_LOGO_URL });
+        document.title = name;
+        void desktopBridge()?.SetWindowTitle(name);
+      })
+      .catch(() => { document.title = DEFAULT_CLINIC_NAME; });
+    return () => { active = false; };
+  }, [revision]);
+  return branding;
+}
 
 export interface ClinicIdentity {
   name: string;

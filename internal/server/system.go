@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,6 +21,14 @@ import (
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/backup"
 	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/realtime"
 )
+
+const DefaultClinicName = "Clinique Le Bon Spécialiste"
+
+// The clinic's supplied logo is bundled in the server so a fresh install and
+// restored database are branded before the doctor uploads any replacement.
+//
+//go:embed assets/clinique-le-bon-specialiste.webp
+var defaultClinicLogo []byte
 
 func (s *Server) registerSystemRoutes(r chi.Router) {
 	r.Get("/dashboard", s.handleDashboard)
@@ -37,6 +47,39 @@ func (s *Server) registerSystemRoutes(r chi.Router) {
 	r.With(s.requireDoctor).Get("/backups", s.handleBackupsList)
 	r.With(s.requireDoctor).Post("/backups", s.handleBackupCreate)
 	r.With(s.requireDoctor).Post("/backups/validate-destination", s.handleBackupDestinationValidate)
+}
+
+func (s *Server) clinicDisplayName(ctx context.Context) string {
+	name := DefaultClinicName
+	var stored string
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(json_extract(value_json,'$.name'),'') FROM settings WHERE key='clinic'`).Scan(&stored); err == nil && strings.TrimSpace(stored) != "" {
+		name = strings.TrimSpace(stored)
+	}
+	return name
+}
+
+func (s *Server) handlePublicBranding(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{
+		"name":    s.clinicDisplayName(r.Context()),
+		"logoUrl": "/api/v1/public/branding/logo",
+	})
+}
+
+func (s *Server) handleWebManifest(w http.ResponseWriter, r *http.Request) {
+	name := s.clinicDisplayName(r.Context())
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"name": name, "short_name": name, "description": "Local-first optical clinic management system",
+		"id": "/", "start_url": "/", "scope": "/", "display": "standalone",
+		"background_color": "#ffffff", "theme_color": "#000000",
+		"icons": []map[string]string{
+			{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+			{"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+		},
+	})
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -633,7 +676,7 @@ func (s *Server) handleClinicLogoUpload(w http.ResponseWriter, r *http.Request) 
 	}
 	file, header, err := r.FormFile("logo")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "LOGO_REQUIRED", "Choose a PNG or JPEG logo.")
+		writeError(w, http.StatusBadRequest, "LOGO_REQUIRED", "Choose a PNG, JPEG or WebP logo.")
 		return
 	}
 	defer file.Close()
@@ -645,10 +688,10 @@ func (s *Server) handleClinicLogoUpload(w http.ResponseWriter, r *http.Request) 
 	}
 	prefix = prefix[:count]
 	mediaType := http.DetectContentType(prefix)
-	extensions := map[string]string{"image/png": ".png", "image/jpeg": ".jpg"}
+	extensions := map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 	extension, allowed := extensions[mediaType]
 	if !allowed {
-		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_LOGO_TYPE", "Clinic logo must be PNG or JPEG.")
+		writeError(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_LOGO_TYPE", "Clinic logo must be PNG, JPEG or WebP.")
 		return
 	}
 	directory := filepath.Join(s.config.DataDir, "branding")
@@ -692,13 +735,23 @@ func (s *Server) handleClinicLogoUpload(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleClinicLogoGet(w http.ResponseWriter, r *http.Request) {
 	var filename, mediaType string
 	if err := s.db.QueryRowContext(r.Context(), "SELECT filename,media_type FROM branding_assets WHERE key='clinic_logo'").Scan(&filename, &mediaType); err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "LOGO_NOT_FOUND", "No clinic logo has been uploaded.")
+		w.Header().Set("Content-Type", "image/webp")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(defaultClinicLogo)
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "LOGO_LOAD_FAILED", "Could not load clinic logo.")
 		return
 	}
 	path := filepath.Join(s.config.DataDir, "branding", filepath.Base(filename))
+	if _, err := os.Stat(path); err != nil {
+		// A missing custom file must not leave login, printing or the public
+		// display without branding. Backups may restore metadata before assets.
+		w.Header().Set("Content-Type", "image/webp")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(defaultClinicLogo)
+		return
+	}
 	w.Header().Set("Content-Type", mediaType)
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	http.ServeFile(w, r, path)

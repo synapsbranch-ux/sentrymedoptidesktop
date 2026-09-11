@@ -8,11 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/
 import { Field, Input, Select } from "./ui/input";
 import { desktopBridge } from "../native";
 import { supportedLanguages, useI18n } from "../i18n";
+import { DEFAULT_CLINIC_NAME, usePublicBranding } from "../clinic";
 
 function Brand() {
   const [logo, setLogo] = React.useState(true);
   const { t } = useI18n();
-  return <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center overflow-hidden rounded-[var(--radius)] bg-[var(--primary)] text-[var(--primary-foreground)]">{logo ? <img className="h-full w-full bg-white object-contain p-1" src="/api/v1/public/branding/logo" alt={t("Clinic logo")} onError={() => setLogo(false)} /> : <Server className="h-5 w-5" />}</div><div><div className="font-bold tracking-tight">SentryMed Opti</div><div className="text-xs text-zinc-500">{t("Optical Clinic Management System")}</div></div></div>;
+  const branding = usePublicBranding();
+  return <div className="flex items-center gap-3"><div className="grid h-12 w-16 place-items-center overflow-hidden rounded-[var(--radius)] bg-white text-[var(--primary)]">{logo ? <img className="h-full w-full object-contain" src={branding.logoUrl} alt={t("Clinic logo")} onError={() => setLogo(false)} /> : <Server className="h-5 w-5" />}</div><div><div className="font-bold tracking-tight" data-i18n-skip>{branding.name}</div><div className="text-xs text-zinc-500">{t("Optical Clinic Management System")}</div></div></div>;
 }
 
 export function LoginScreen() {
@@ -55,7 +57,7 @@ export function SetupScreen() {
   const i18n = useI18n();
   const [step, setStep] = React.useState(1);
   const [submitting, setSubmitting] = React.useState(false);
-  const [form, setForm] = React.useState({ clinicName: "", address: "", phone: "", email: "", doctorName: "", doctorUsername: "", doctorEmail: "", password: "", currency: "HTG", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Port-au-Prince", backupDirectory: "", language: i18n.language });
+  const [form, setForm] = React.useState({ clinicName: DEFAULT_CLINIC_NAME, address: "", phone: "", email: "", doctorName: "", doctorUsername: "", doctorEmail: "", password: "", currency: "HTG", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Port-au-Prince", backupDirectory: "", language: i18n.language });
   const update = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => { const value = event.target.value; setForm({ ...form, [key]: value }); if (key === "language" && supportedLanguages.some(({ code }) => code === value)) i18n.apply(value as typeof i18n.language); };
   const finish = async () => { setSubmitting(true); try { await completeSetup(form); toast.success(i18n.t("Clinic setup complete. Sign in with the doctor account.")); } catch (reason) { toast.error(i18n.t(reason instanceof Error ? reason.message : "Setup failed")); } finally { setSubmitting(false); } };
   return <main className="min-h-screen bg-zinc-50 p-4 sm:p-10"><div className="mx-auto max-w-2xl rounded-xl border border-zinc-200 bg-white p-6 shadow-sm sm:p-10"><Brand /><div className="mt-10"><div className="font-mono text-xs text-zinc-500">{i18n.t("STEP")} {step} / 3</div><h1 className="mt-2 text-2xl font-bold tracking-tight">{i18n.t(step === 1 ? "Clinic information" : step === 2 ? "Doctor account" : "Local defaults")}</h1></div>

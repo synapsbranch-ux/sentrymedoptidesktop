@@ -1,13 +1,15 @@
 import * as React from "react";
 import { CalendarCheck, CheckCircle2, Glasses, Loader2 } from "lucide-react";
+import { usePublicBranding } from "../clinic";
+import { isLanguageCode, supportedLanguages, translateMessage, type LanguageCode } from "../i18n";
 
 // The kiosk deliberately does not use the shared clinic i18n context: that context's
 // `language` is the clinic-wide default (staff devices, the waiting-room display) and
 // switching it triggers a refetch of `/public/localization` that would immediately
 // snap back over a visitor's one-off choice here. A kiosk visitor's language pick is
-// local to this browser session only, so it gets its own tiny, self-contained dictionary.
-const kioskStrings = {
-  en: {
+// local to this browser session only. It still uses the complete shared catalog,
+// so visitors can choose any of the clinic's eleven supported languages.
+const kioskEnglish = {
     selfServiceCheckIn: "Self-service check-in",
     welcomeTitle: "Welcome. Let's find your appointment.",
     welcomeBody: "Enter the phone number and last name on file to check yourself in.",
@@ -25,29 +27,9 @@ const kioskStrings = {
     checkedInTitle: "You're checked in!",
     checkedInBody: "Please have a seat. You'll be called shortly.",
     done: "Done",
-  },
-  fr: {
-    selfServiceCheckIn: "Enregistrement libre-service",
-    welcomeTitle: "Bienvenue. Retrouvons votre rendez-vous.",
-    welcomeBody: "Entrez le numéro de téléphone et le nom de famille au dossier pour vous enregistrer.",
-    phone: "Numéro de téléphone",
-    lastName: "Nom de famille",
-    findAppointment: "Trouver mon rendez-vous",
-    needHelp: "Besoin d'aide ? Demandez à la réception.",
-    hello: "Bonjour",
-    alreadyCheckedIn: "Vous êtes déjà enregistré. Merci de patienter en salle d'attente.",
-    confirmArrival: "Confirmez votre arrivée pour le rendez-vous d'aujourd'hui :",
-    appointment: "Rendez-vous",
-    walkInInstead: "Aucun de ceux-ci — m'enregistrer sans rendez-vous",
-    checkInWalkIn: "M'enregistrer sans rendez-vous",
-    startOver: "Recommencer",
-    checkedInTitle: "Vous êtes enregistré !",
-    checkedInBody: "Merci de patienter. On vous appellera bientôt.",
-    done: "Terminé",
-  },
 } as const;
 
-type KioskLanguage = keyof typeof kioskStrings;
+type KioskLanguage = LanguageCode;
 
 async function kioskFetch<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
@@ -75,8 +57,10 @@ interface LookupResult {
 type Screen = "welcome" | "confirm" | "success";
 
 export function KioskPage() {
-  const [lang, setLang] = React.useState<KioskLanguage>("en");
-  const s = kioskStrings[lang];
+  const branding = usePublicBranding();
+  const [logoAvailable, setLogoAvailable] = React.useState(true);
+  const [lang, setLang] = React.useState<KioskLanguage>(() => isLanguageCode(document.documentElement.lang) ? document.documentElement.lang : "en");
+  const s = React.useMemo(() => Object.fromEntries(Object.entries(kioskEnglish).map(([key, message]) => [key, translateMessage(lang, message)])) as Record<keyof typeof kioskEnglish, string>, [lang]);
   const [screen, setScreen] = React.useState<Screen>("welcome");
   const [phone, setPhone] = React.useState("");
   const [lastName, setLastName] = React.useState("");
@@ -133,23 +117,15 @@ export function KioskPage() {
       <div className="w-full max-w-lg rounded-2xl border bg-white p-8 shadow-xl">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-black text-white"><Glasses className="h-6 w-6" /></div>
+            <div className="grid h-12 w-16 place-items-center overflow-hidden rounded-xl bg-white text-black">{logoAvailable ? <img className="h-full w-full object-contain" src={branding.logoUrl} alt="" onError={() => setLogoAvailable(false)} /> : <Glasses className="h-6 w-6" />}</div>
             <div>
-              <div className="text-lg font-bold leading-none">SentryMed Opti</div>
+              <div className="text-lg font-bold leading-none" data-i18n-skip>{branding.name}</div>
               <div className="mt-1 text-xs text-zinc-500">{s.selfServiceCheckIn}</div>
             </div>
           </div>
-          <div className="flex overflow-hidden rounded-md border text-xs font-semibold">
-            {(Object.keys(kioskStrings) as KioskLanguage[]).map((code) => (
-              <button
-                key={code}
-                onClick={() => setLang(code)}
-                className={lang === code ? "bg-black px-2.5 py-1.5 text-white" : "bg-white px-2.5 py-1.5 text-zinc-500"}
-              >
-                {code.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          <select aria-label={translateMessage(lang, "Application language")} value={lang} onChange={(event) => setLang(event.target.value as KioskLanguage)} className="h-10 max-w-40 rounded-md border bg-white px-2 text-xs font-semibold">
+            {supportedLanguages.map((language) => <option key={language.code} value={language.code}>{language.nativeLabel}</option>)}
+          </select>
         </div>
 
         {screen === "welcome" && (
@@ -177,7 +153,7 @@ export function KioskPage() {
                 onChange={(event) => setLastName(event.target.value)}
               />
             </label>
-            {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+            {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{translateMessage(lang, error)}</p>}
             <button
               type="submit"
               disabled={loading}
@@ -193,7 +169,7 @@ export function KioskPage() {
         {screen === "confirm" && result && (
           <div className="grid gap-4">
             <h1 className="text-xl font-bold">{s.hello}, {result.firstName} {result.lastInitial}</h1>
-            {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+            {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{translateMessage(lang, error)}</p>}
             {result.alreadyCheckedIn ? (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{s.alreadyCheckedIn}</div>
             ) : result.appointments.length > 0 ? (

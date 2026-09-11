@@ -5,6 +5,7 @@ interface DesktopBridge {
   OpenInBrowser(path: string): Promise<void>;
   OpenMobileAccess(): Promise<void>;
   SelectBackupFolder(): Promise<string>;
+  SetWindowTitle(title: string): Promise<void>;
 }
 
 declare global {

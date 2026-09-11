@@ -9,12 +9,12 @@
   "frontend:dev:watcher": "npm --prefix apps/web run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "SentryMed Opti",
+    "name": "Clinique Le Bon Spécialiste",
     "email": ""
   },
   "info": {
     "companyName": "SentryMed",
-    "productName": "SentryMed Opti",
+    "productName": "Clinique Le Bon Spécialiste",
     "productVersion": "0.2.0",
     "copyright": "Copyright 2026 SentryMed",
     "comments": "Local-first Optical Clinic Management System"

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { CalendarClock, Clock3, Glasses, Maximize2, RefreshCw, Users } from "lucide-react";
 import { useI18n } from "../i18n";
+import { usePublicBranding } from "../clinic";
 
 interface DisplayQueueItem { code: string; patientLabel: string; stage: string; arrivedAt: string; doctor: string; priority: number; estimatedWaitMinutes: number | null; waitEstimateSamples: number }
 interface DisplayAppointment { code: string; patientLabel: string; startsAt: string; status: string }
@@ -28,6 +29,7 @@ function formatTime(value: string) {
 
 export function PublicDisplayPage() {
   const i18n = useI18n();
+  const branding = usePublicBranding();
   const [data, setData] = React.useState<DisplayData | null>(null);
   const [error, setError] = React.useState("");
   const [connected, setConnected] = React.useState(false);
@@ -58,7 +60,7 @@ export function PublicDisplayPage() {
   }, [load, i18n.refresh]);
 
   if (!data) {
-    return <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-[var(--foreground)]"><div className="max-w-md text-center"><Glasses className="mx-auto h-12 w-12" /><h1 className="mt-5 text-2xl font-bold">SentryMed Opti</h1><p className="mt-2 text-[var(--muted-foreground)]">{i18n.t(error || "Connecting to the clinic display…")}</p><button className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-[var(--radius)] bg-[var(--primary)] px-5 font-semibold text-[var(--primary-foreground)]" onClick={() => void load()}><RefreshCw className="h-4 w-4" />{i18n.t("Try again")}</button></div></main>;
+    return <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-[var(--foreground)]"><div className="max-w-md text-center"><img className="mx-auto h-24 w-40 object-contain" src={branding.logoUrl} alt="" /><h1 className="mt-5 text-2xl font-bold" data-i18n-skip>{branding.name}</h1><p className="mt-2 text-[var(--muted-foreground)]">{i18n.t(error || "Connecting to the clinic display…")}</p><button className="mt-6 inline-flex min-h-12 items-center gap-2 rounded-[var(--radius)] bg-[var(--primary)] px-5 font-semibold text-[var(--primary-foreground)]" onClick={() => void load()}><RefreshCw className="h-4 w-4" />{i18n.t("Try again")}</button></div></main>;
   }
 
   const nowServing = data.queue.filter((item) => ["pre_test", "in_consultation", "checkout"].includes(item.stage));
@@ -67,7 +69,7 @@ export function PublicDisplayPage() {
     <header className="flex flex-wrap items-center justify-between gap-5 border-b border-white/15 pb-5">
       <div className="flex min-w-0 items-center gap-4">
         <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-white text-black">{data.logoUrl ? <img className="h-full w-full object-contain p-1" src={data.logoUrl} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Glasses className="h-7 w-7" />}</div>
-        <div><h1 className="truncate text-xl font-bold sm:text-2xl">{data.clinic.name || "SentryMed Opti"}</h1><p className="text-sm text-zinc-400">{i18n.t("Patient flow · Live clinic display")}</p></div>
+        <div><h1 className="truncate text-xl font-bold sm:text-2xl" data-i18n-skip>{data.clinic.name || "Clinique Le Bon Spécialiste"}</h1><p className="text-sm text-zinc-400">{i18n.t("Patient flow · Live clinic display")}</p></div>
       </div>
       <div className="flex items-center gap-5"><div className="text-right"><div className="font-mono text-2xl font-bold sm:text-3xl">{clock.toLocaleTimeString(i18n.language, { hour: "2-digit", minute: "2-digit" })}</div><div className="text-xs text-zinc-400">{clock.toLocaleDateString(i18n.language, { weekday: "long", month: "long", day: "numeric" })}</div></div><button aria-label={i18n.t("Enter fullscreen")} className="grid h-12 w-12 place-items-center rounded-lg border border-white/20 hover:bg-white/10" onClick={() => void document.documentElement.requestFullscreen?.()}><Maximize2 className="h-5 w-5" /></button></div>
     </header>

@@ -550,6 +550,29 @@ func TestClinicLogoUploadPersistsMetadataAndFile(t *testing.T) {
 	}
 }
 
+func TestDefaultClinicBrandingIsAvailableBeforeCustomUpload(t *testing.T) {
+	a := newTestApp(t)
+	branding := a.request(http.MethodGet, "/api/v1/public/branding", nil, nil)
+	if branding.Code != http.StatusOK {
+		t.Fatalf("public branding: %d %s", branding.Code, branding.Body.String())
+	}
+	identity := decodeResponse[map[string]string](t, branding)
+	if identity["name"] != DefaultClinicName || identity["logoUrl"] != "/api/v1/public/branding/logo" {
+		t.Fatalf("unexpected default branding: %#v", identity)
+	}
+	manifest := a.request(http.MethodGet, "/manifest.webmanifest", nil, nil)
+	if manifest.Code != http.StatusOK || manifest.Header().Get("Content-Type") != "application/manifest+json; charset=utf-8" {
+		t.Fatalf("manifest: status=%d content-type=%q", manifest.Code, manifest.Header().Get("Content-Type"))
+	}
+	if value := decodeResponse[map[string]any](t, manifest); value["name"] != DefaultClinicName {
+		t.Fatalf("manifest did not use clinic name: %#v", value)
+	}
+	logo := a.request(http.MethodGet, "/api/v1/public/branding/logo", nil, nil)
+	if logo.Code != http.StatusOK || logo.Header().Get("Content-Type") != "image/webp" || logo.Body.Len() < 1024 {
+		t.Fatalf("default logo: status=%d content-type=%q bytes=%d", logo.Code, logo.Header().Get("Content-Type"), logo.Body.Len())
+	}
+}
+
 func TestPublicDisplayIsDisabledByDefaultAndPrivacyFiltered(t *testing.T) {
 	a := newTestApp(t)
 	if response := a.request(http.MethodGet, "/api/v1/public/display", nil, nil); response.Code != http.StatusNotFound {

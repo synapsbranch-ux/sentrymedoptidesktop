@@ -60,10 +60,12 @@ func (s *Server) routes() chi.Router {
 	r.Use(middleware.RequestID, middleware.Recoverer, s.timeoutRequests)
 	r.Use(s.securityHeaders, s.protectBrowserRequests, s.guardDatabase)
 	r.Get("/health", s.handleHealth)
+	r.Get("/manifest.webmanifest", s.handleWebManifest)
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/setup/status", s.handleSetupStatus)
 		api.Post("/setup/complete", s.handleSetupComplete)
 		api.Post("/auth/login", s.handleLogin)
+		api.Get("/public/branding", s.handlePublicBranding)
 		api.Get("/public/branding/logo", s.handleClinicLogoGet)
 		api.Get("/public/localization", s.handlePublicLocalization)
 		api.Get("/public/display", s.handlePublicDisplay)

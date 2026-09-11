@@ -15,10 +15,11 @@ var trayIcon []byte
 
 func startTray(bridge *DesktopBridge) {
 	go systray.Run(func() {
+		clinicName := bridge.ClinicName()
 		systray.SetIcon(trayIcon)
-		systray.SetTitle("SentryMed Opti")
-		systray.SetTooltip("SentryMed Opti clinic server")
-		open := systray.AddMenuItem("Open SentryMed", "Open the desktop window")
+		systray.SetTitle(clinicName)
+		systray.SetTooltip(clinicName + " — clinic server")
+		open := systray.AddMenuItem("Open "+clinicName, "Open the desktop window")
 		status := systray.AddMenuItem("Server: Running", "")
 		status.Disable()
 		clients := systray.AddMenuItem("Connected users: 0", "")
@@ -48,6 +49,12 @@ func startTray(bridge *DesktopBridge) {
 					bridge.Exit()
 					return
 				case <-ticker.C:
+					if nextName := bridge.ClinicName(); nextName != clinicName {
+						clinicName = nextName
+						systray.SetTitle(clinicName)
+						systray.SetTooltip(clinicName + " — clinic server")
+						open.SetTitle("Open " + clinicName)
+					}
 					clients.SetTitle(fmt.Sprintf("Connected users: %d", bridge.ConnectedClients()))
 				}
 			}
@@ -55,5 +62,5 @@ func startTray(bridge *DesktopBridge) {
 	}, func() {})
 }
 
-func stopTray() { systray.Quit() }
+func stopTray()           { systray.Quit() }
 func trayAvailable() bool { return true }

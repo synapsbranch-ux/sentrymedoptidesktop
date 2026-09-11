@@ -2,6 +2,12 @@
 
 **Local-first Optical Clinic Management System**
 
+The commissioned default identity is **Clinique Le Bon Spécialiste**. Its
+optimized transparent logo is bundled for first launch, printing, kiosk,
+waiting-room display, desktop and PWA icons. A doctor can replace the logo or
+clinic/application name at any time from **System → Clinic**; those saved values
+then take priority everywhere without translating the clinic's proper name.
+
 SentryMed Opti is a modular-monolith clinic application built for a small optical/ophthalmology practice. One Go process owns the SQLite database, serves the responsive PWA to the clinic LAN, streams live changes, and powers the Wails desktop shell. Desktop and mobile clients use the same HTTP API and business rules.
 
 > Release status: functional alpha. The persisted arrival → examination → prescription → sale/payment → lab delivery workflow is implemented and tested, but this repository still requires deployment-specific security review and the items documented in [Implementation status](docs/IMPLEMENTATION_STATUS.md) before clinical production use. The software does not claim automatic HIPAA or jurisdictional compliance.

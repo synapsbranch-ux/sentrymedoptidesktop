@@ -68,6 +68,22 @@ func (d *DesktopBridge) SelectBackupFolder() (string, error) {
 	})
 }
 
+func (d *DesktopBridge) SetWindowTitle(title string) {
+	if strings.TrimSpace(title) == "" {
+		title = clinicserver.DefaultClinicName
+	}
+	runtime.WindowSetTitle(d.ctx, title)
+}
+
+func (d *DesktopBridge) ClinicName() string {
+	name := clinicserver.DefaultClinicName
+	_ = d.db.QueryRow(`SELECT COALESCE(json_extract(value_json,'$.name'),'') FROM settings WHERE key='clinic'`).Scan(&name)
+	if strings.TrimSpace(name) == "" {
+		return clinicserver.DefaultClinicName
+	}
+	return strings.TrimSpace(name)
+}
+
 func (d *DesktopBridge) MinimizeServer() { runtime.WindowMinimise(d.ctx) }
 func (d *DesktopBridge) Show()           { runtime.WindowShow(d.ctx); runtime.WindowUnminimise(d.ctx) }
 func (d *DesktopBridge) BackupNow() error {
@@ -135,7 +151,7 @@ func main() {
 	bridge := &DesktopBridge{config: config, server: httpServer, clinic: server, db: db}
 	startTray(bridge)
 	err = wails.Run(&options.App{
-		Title:            "SentryMed Opti",
+		Title:            clinicserver.DefaultClinicName,
 		Width:            1440,
 		Height:           920,
 		MinWidth:         1024,

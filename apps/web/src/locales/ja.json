@@ -1168,7 +1168,6 @@
   "Local certificate authority file was not found.": "ローカル認証局ファイルが見つかりませんでした。",
   "Local defaults": "ローカルのデフォルト",
   "Local file storage": "ローカルファイルストレージ",
-  "Local-first clinic access. Your operational data remains on the SentryMed server.": "地域第一のクリニックへのアクセス。あなたの運用データは SentryMed サーバーに残ります。",
   "Local-first clinic workspace": "地域第一のクリニックワークスペース",
   "Logo file could not be read.": "ロゴファイルを読み取れませんでした。",
   "Logo was not saved to clinic settings.": "ロゴがクリニック設定に保存されませんでした。",

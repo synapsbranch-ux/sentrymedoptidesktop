@@ -28,7 +28,7 @@ func TestRasterizeLogoProducesBoundedESCPOSBitmap(t *testing.T) {
 	}
 	widthBytes := int(data[4]) | int(data[5])<<8
 	height := int(data[6]) | int(data[7])<<8
-	if widthBytes > 48 || height > 192 || len(data) != 8+widthBytes*height {
+	if widthBytes > 48 || height > maxLogoDotRows || len(data) != 8+widthBytes*height {
 		t.Fatalf("unexpected raster dimensions %dx%d, bytes=%d", widthBytes*8, height, len(data))
 	}
 }

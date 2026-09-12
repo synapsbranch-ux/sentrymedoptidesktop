@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/synapsbranch-ux/sentrymedoptidesktop/internal/thermal"
 )
 
 func TestParseBluetoothDevicesFindsPT280AndIgnoresInvalidRows(t *testing.T) {
@@ -98,4 +101,53 @@ func TestPrintJobsAreSerialisedAcrossClients(t *testing.T) {
 		t.Fatalf("printer stayed locked after the first job finished: %v", err)
 	}
 	<-a.server.printSlots
+}
+
+// The receipt handed to a customer at the till has to be the sale they just
+// paid for. A clinic logo is a bitmap: slow on a 58 mm head and large enough to
+// fill a portable printer's buffer, which leaves the transaction unprinted.
+func TestSaleReceiptCarriesTheTransactionAndNoBitmap(t *testing.T) {
+	a := newTestApp(t)
+	patient := a.createPatient(a.doctor, "Receipt", "Customer")
+	itemID := a.createInventoryItem(map[string]any{"sku": "FR-RCPT", "category": "frame", "name": "Monture Aviator", "salePriceMinor": 125000, "currency": "HTG", "quantity": 4, "trackStock": true})
+	checkout := a.request(http.MethodPost, "/api/v1/pos/checkout", map[string]any{
+		"invoice":  map[string]any{"patientId": patient.ID, "currency": "HTG", "items": []map[string]any{{"inventoryItemId": itemID, "description": "Monture Aviator", "quantity": 2, "unitPriceMinor": 125000}}},
+		"payments": []map[string]any{{"paymentMethodId": a.cashMethodID(t), "amountMinor": 250000, "currency": "HTG"}},
+	}, a.doctor)
+	if checkout.Code != http.StatusCreated {
+		t.Fatalf("checkout: %d %s", checkout.Code, checkout.Body.String())
+	}
+	invoiceID, _ := decodeResponse[map[string]any](t, checkout)["invoiceId"].(string)
+
+	receipt, invoiceNumber, err := a.server.receiptForInvoice(t.Context(), invoiceID)
+	if err != nil {
+		t.Fatalf("could not build the receipt for the sale: %v", err)
+	}
+	printed := string(thermal.Render58mm(receipt, 32))
+	for _, expected := range []string{invoiceNumber, "Monture Aviator", "2 x 1250.00 HTG", "2500.00 HTG", "PAID"} {
+		if !strings.Contains(printed, expected) {
+			t.Fatalf("the receipt does not show %q:\n%s", expected, printed)
+		}
+	}
+	if strings.Contains(printed, "\x1dv0") {
+		t.Fatalf("a sale receipt carried a bitmap:\n%q", printed)
+	}
+	// Text only: a receipt this size reaches the head in about a second.
+	if len(printed) > 2000 {
+		t.Fatalf("receipt is %d bytes, far past what its text needs", len(printed))
+	}
+}
+
+// The test page is the one place a bitmap belongs: it is what proves the
+// printer renders one at all.
+func TestPrinterTestPageStillProvesBitmapSupport(t *testing.T) {
+	a := newTestApp(t)
+	raster := a.server.brandingRaster(t.Context(), 384)
+	if len(raster) < 8 || !strings.HasPrefix(string(raster), "\x1dv0") {
+		t.Fatalf("the test page lost its bitmap: %d bytes", len(raster))
+	}
+	page := string(thermal.RenderTestPage("Clinic", "PT280_6E27", "PT280UB", "fr", raster, 32))
+	if !strings.Contains(page, "\x1dv0") || !strings.Contains(page, "TEST REUSSI") {
+		t.Fatal("the test page no longer exercises both the bitmap and the text path")
+	}
 }

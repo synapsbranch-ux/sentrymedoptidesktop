@@ -268,9 +268,8 @@ func (s *Server) handlePrinterTest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "PRINTER_NOT_CONFIGURED", "Choose a default printer first.")
 		return
 	}
-	receipt := thermal.Receipt{ClinicName: s.clinicDisplayName(r.Context()), Locale: s.receiptLocale(r.Context())}
-	s.attachReceiptLogo(r.Context(), &receipt, p.PrintableWidthDots)
-	err := s.printAndRecord(r, p, "", "test", thermal.RenderTestPage(receipt.ClinicName, p.Name, p.Model, receipt.Locale, receipt.LogoRaster, p.CharactersPerLine))
+	clinic, locale := s.clinicDisplayName(r.Context()), s.receiptLocale(r.Context())
+	err := s.printAndRecord(r, p, "", "test", thermal.RenderTestPage(clinic, p.Name, p.Model, locale, s.brandingRaster(r.Context(), p.PrintableWidthDots), p.CharactersPerLine))
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, printerErrorCode(err), err.Error())
 		return
@@ -293,7 +292,6 @@ func (s *Server) handlePrinterInvoice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "RECEIPT_LOAD_FAILED", "Could not prepare the receipt.")
 		return
 	}
-	s.attachReceiptLogo(r.Context(), &receipt, p.PrintableWidthDots)
 	if err = s.printAndRecord(r, p, chi.URLParam(r, "id"), invoiceNumber, thermal.Render58mm(receipt, p.CharactersPerLine)); err != nil {
 		writeError(w, http.StatusServiceUnavailable, printerErrorCode(err), err.Error())
 		return
@@ -301,7 +299,15 @@ func (s *Server) handlePrinterInvoice(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "printed", "invoiceNumber": invoiceNumber})
 }
 
-func (s *Server) attachReceiptLogo(ctx context.Context, receipt *thermal.Receipt, maximumWidth int) {
+// brandingRaster renders the clinic logo as an ESC/POS bitmap for the test page.
+//
+// A sale receipt deliberately does not carry it. A 58 mm head prints a bitmap
+// far slower than text, and a portable printer’s receive buffer is small
+// enough that a full-width logo can fill it and leave the transaction that
+// follows unprinted — a customer waiting at the till would be handed a picture
+// instead of what they just paid for. The clinic name, address and phone are
+// printed as text at the top of every receipt instead.
+func (s *Server) brandingRaster(ctx context.Context, maximumWidth int) []byte {
 	logo := defaultClinicLogo
 	var filename string
 	if err := s.db.QueryRowContext(ctx, "SELECT filename FROM branding_assets WHERE key='clinic_logo'").Scan(&filename); err == nil {
@@ -309,9 +315,11 @@ func (s *Server) attachReceiptLogo(ctx context.Context, receipt *thermal.Receipt
 			logo = stored
 		}
 	}
-	if raster, err := thermal.RasterizeLogo(logo, maximumWidth); err == nil {
-		receipt.LogoRaster = raster
+	raster, err := thermal.RasterizeLogo(logo, maximumWidth)
+	if err != nil {
+		return nil
 	}
+	return raster
 }
 
 func (s *Server) receiptForInvoice(ctx context.Context, id string) (thermal.Receipt, string, error) {
@@ -417,6 +425,12 @@ func formatMinor(amount int64, currency string) string {
 const (
 	printJobTimeout = 60 * time.Second
 	printQueueWait  = 25 * time.Second
+	// A portable thermal printer holds only a few kilobytes and discards what
+	// arrives once that is full, so every transport feeds it in small pieces.
+	// Roughly 12 kB/s: below what a 58 mm head consumes, and imperceptible on a
+	// receipt that is under a kilobyte of text.
+	printerChunkBytes = 256
+	printerChunkPause = 20 * time.Millisecond
 )
 
 // acquirePrinter serialises jobs. The clinic has one physical printer and it
@@ -485,7 +499,7 @@ func printThermal(ctx context.Context, p thermalPrinter, payload []byte) error {
 		return printerFailure("PRINTER_UNAVAILABLE", "The saved printer configuration is invalid. Select the printer again under System \u2192 Printers.", nil)
 	}
 	if p.DevicePath != "" {
-		return writePrinterDevice(p.DevicePath, payload)
+		return writePrinterDevice(ctx, p.DevicePath, payload)
 	}
 	return writeBluetoothRFCOMM(ctx, p.Address, p.Channel, payload)
 }
@@ -496,7 +510,7 @@ func normalizedDevicePath(path string) string {
 	}
 	return filepath.Clean(path)
 }
-func writePrinterDevice(path string, payload []byte) error {
+func writePrinterDevice(ctx context.Context, path string, payload []byte) error {
 	if !validDevicePath(path) {
 		return printerFailure("PRINTER_UNAVAILABLE", "The saved printer configuration is invalid. Select the printer again under System \u2192 Printers.", nil)
 	}
@@ -505,8 +519,22 @@ func writePrinterDevice(path string, payload []byte) error {
 		return describeDeviceError(err)
 	}
 	defer file.Close()
-	if _, err = file.Write(payload); err != nil {
-		return printerFailure("PRINTER_WRITE_FAILED", "The printer dropped the connection while the receipt was being sent. Check the paper roll and print again.", err)
+	for len(payload) > 0 {
+		chunk := payload
+		if len(chunk) > printerChunkBytes {
+			chunk = chunk[:printerChunkBytes]
+		}
+		if _, err = file.Write(chunk); err != nil {
+			return printerFailure("PRINTER_WRITE_FAILED", "The printer dropped the connection while the receipt was being sent. Check the paper roll and print again.", err)
+		}
+		payload = payload[len(chunk):]
+		if len(payload) > 0 {
+			select {
+			case <-ctx.Done():
+				return printerFailure("PRINTER_TIMEOUT", "The printer did not answer in time. Check that it is switched on, has paper and is within Bluetooth range.", ctx.Err())
+			case <-time.After(printerChunkPause):
+			}
+		}
 	}
 	return nil
 }

@@ -14,6 +14,12 @@ import (
 
 const maxLogoSourceBytes = 3 << 20
 
+// A thermal head prints a bitmap one dot row at a time. Ninety-six rows is
+// about twelve millimetres of paper: enough for a recognisable mark, short
+// enough that the printer is not still working on it when the operator expects
+// the page to be finished.
+const maxLogoDotRows = 96
+
 // RasterizeLogo converts PNG, JPEG or WebP artwork to an ESC/POS GS v 0
 // monochrome raster. Dithering keeps gradients readable on a thermal head.
 func RasterizeLogo(source []byte, maximumWidth int) ([]byte, error) {
@@ -36,8 +42,8 @@ func RasterizeLogo(source []byte, maximumWidth int) ([]byte, error) {
 	}
 	width := min(maximumWidth, bounds.Dx())
 	height := max(1, bounds.Dy()*width/bounds.Dx())
-	if height > 192 {
-		height = 192
+	if height > maxLogoDotRows {
+		height = maxLogoDotRows
 		width = max(1, bounds.Dx()*height/bounds.Dy())
 	}
 	gray := image.NewGray(image.Rect(0, 0, width, height))

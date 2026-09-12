@@ -15,6 +15,11 @@ import (
 func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.Get("/inventory", s.handleInventoryList)
 	r.Post("/inventory", s.handleInventoryCreate)
+	r.Get("/inventory/{id}", s.handleInventoryGet)
+	r.Put("/inventory/{id}", s.handleInventoryUpdate)
+	r.With(s.requireDoctor).Delete("/inventory/{id}", s.handleInventoryArchive)
+	r.With(s.requireDoctor).Post("/inventory/{id}/reactivate", s.handleInventoryReactivate)
+	r.With(s.requireDoctor).Post("/inventory/{id}/permanent-delete", s.handleInventoryDelete)
 	r.Post("/inventory/{id}/movements", s.handleStockMovement)
 	r.Get("/inventory/{id}/movements", s.handleStockMovementsList)
 	r.Get("/suppliers", s.handleSuppliersList)

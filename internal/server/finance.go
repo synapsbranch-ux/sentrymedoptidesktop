@@ -178,6 +178,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		query = `SELECT substr(r.refunded_at,1,10)||' · '||p.currency,COUNT(*),SUM(r.amount_minor) FROM refunds r JOIN payments p ON p.id=r.payment_id WHERE substr(r.refunded_at,1,10)>=? AND substr(r.refunded_at,1,10)<=? GROUP BY substr(r.refunded_at,1,10),p.currency ORDER BY 1`
 	case "inventory":
 		query = `SELECT category||' · '||currency,COUNT(*),SUM(quantity*cost_minor) FROM inventory_items WHERE archived_at IS NULL GROUP BY category,currency ORDER BY category,currency`
+	case "low-stock":
+		query = `SELECT sku||' — '||name,quantity,reorder_level FROM inventory_items WHERE archived_at IS NULL AND track_stock=1 AND quantity<=reorder_level ORDER BY name`
+	case "stock-movements":
+		query = `SELECT movement_type||' · '||substr(m.created_at,1,10),COUNT(*),SUM(ABS(quantity_change)) FROM stock_movements m WHERE substr(m.created_at,1,10)>=? AND substr(m.created_at,1,10)<=? GROUP BY movement_type,substr(m.created_at,1,10) ORDER BY 1`
 	case "lab":
 		query = `SELECT status,COUNT(*),0 FROM lab_orders WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? GROUP BY status ORDER BY status`
 	case "patients":
@@ -195,7 +199,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		Err() error
 	}
 	var err error
-	if report == "inventory" {
+	if report == "inventory" || report == "low-stock" {
 		rows, err = s.db.QueryContext(r.Context(), query)
 	} else {
 		rows, err = s.db.QueryContext(r.Context(), query, from, to)

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -409,15 +410,49 @@ func formatMinor(amount int64, currency string) string {
 	return fmt.Sprintf("%s%d.%02d %s", sign, amount/100, amount%100, currency)
 }
 
+// Printing is a physical act: once the head starts moving, abandoning the job
+// because the browser tab closed leaves half a receipt on the roll. The job
+// therefore runs on the request's values but on its own deadline, and the
+// attempt is recorded either way.
+const (
+	printJobTimeout = 60 * time.Second
+	printQueueWait  = 25 * time.Second
+)
+
+// acquirePrinter serialises jobs. The clinic has one physical printer and it
+// accepts one connection at a time, so desktop, browser and phone clients queue
+// here instead of racing each other into a BlueZ "busy" refusal.
+func (s *Server) acquirePrinter(ctx context.Context) error {
+	select {
+	case s.printSlots <- struct{}{}:
+		return nil
+	default:
+	}
+	wait, cancel := context.WithTimeout(ctx, printQueueWait)
+	defer cancel()
+	select {
+	case s.printSlots <- struct{}{}:
+		return nil
+	case <-wait.Done():
+		return printerFailure("PRINTER_BUSY", "Another receipt is still printing. Wait for it to finish, then print again.", wait.Err())
+	}
+}
+
 func (s *Server) printAndRecord(r *http.Request, p thermalPrinter, invoiceID, receiptID string, payload []byte) error {
-	err := printThermal(r.Context(), p, payload)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), printJobTimeout)
+	defer cancel()
+	err := s.acquirePrinter(ctx)
+	if err == nil {
+		defer func() { <-s.printSlots }()
+		err = printThermal(ctx, p, payload)
+	}
 	status, code := "printed", ""
 	if err != nil {
 		status = "failed"
 		code = printerErrorCode(err)
-		s.logger.Warn("thermal print failed", "printer_id", p.ID, "transport", p.Transport, "error_code", code, "error", err)
+		s.logger.Warn("thermal print failed", "printer_id", p.ID, "transport", p.Transport, "error_code", code, "error", err, "cause", printerCause(err))
 	}
-	_, _ = s.db.ExecContext(r.Context(), `INSERT INTO print_jobs(id,invoice_id,receipt_id,printer_id,printer_name,status,error_code,created_at) VALUES(?,NULLIF(?,''),?,?,?,?,?,?)`, uuid.NewString(), invoiceID, receiptID, p.ID, p.Name, status, code, time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = s.db.ExecContext(ctx, `INSERT INTO print_jobs(id,invoice_id,receipt_id,printer_id,printer_name,status,error_code,created_at) VALUES(?,NULLIF(?,''),?,?,?,?,?,?)`, uuid.NewString(), invoiceID, receiptID, p.ID, p.Name, status, code, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 
@@ -447,7 +482,7 @@ func printerStatus(ctx context.Context, p thermalPrinter) string {
 
 func printThermal(ctx context.Context, p thermalPrinter, payload []byte) error {
 	if !validPrinter(p) {
-		return errors.New("printer configuration is invalid")
+		return printerFailure("PRINTER_UNAVAILABLE", "The saved printer configuration is invalid. Select the printer again under System \u2192 Printers.", nil)
 	}
 	if p.DevicePath != "" {
 		return writePrinterDevice(p.DevicePath, payload)
@@ -463,19 +498,62 @@ func normalizedDevicePath(path string) string {
 }
 func writePrinterDevice(path string, payload []byte) error {
 	if !validDevicePath(path) {
-		return errors.New("printer device path is invalid")
+		return printerFailure("PRINTER_UNAVAILABLE", "The saved printer configuration is invalid. Select the printer again under System \u2192 Printers.", nil)
 	}
 	file, err := os.OpenFile(normalizedDevicePath(path), os.O_WRONLY, 0)
 	if err != nil {
-		return fmt.Errorf("cannot open printer device: %w", err)
+		return describeDeviceError(err)
 	}
 	defer file.Close()
 	if _, err = file.Write(payload); err != nil {
-		return fmt.Errorf("printer write failed: %w", err)
+		return printerFailure("PRINTER_WRITE_FAILED", "The printer dropped the connection while the receipt was being sent. Check the paper roll and print again.", err)
 	}
 	return nil
 }
+
+func describeDeviceError(err error) error {
+	switch {
+	case errors.Is(err, os.ErrPermission):
+		return printerFailure("PRINTER_PERMISSION_DENIED", "This computer does not allow the clinic server to open the printer port. Grant the account that runs SentryMed access to the port, then print again.", err)
+	case errors.Is(err, os.ErrNotExist):
+		return printerFailure("PRINTER_OFFLINE", "The printer port no longer exists. Switch the printer on, reconnect it, then print again.", err)
+	case errors.Is(err, syscall.EBUSY):
+		return printerFailure("PRINTER_BUSY", "The printer port is held by another program. Close it, then print again.", err)
+	default:
+		return printerFailure("PRINTER_CONNECTION_FAILED", "Could not open the connection to the printer.", err)
+	}
+}
+
+// printerError carries the code the clients switch on together with the remedy
+// the clinic can act on, so the reason a receipt did not print survives the trip
+// from the Bluetooth stack to the cashier's screen and the print history.
+type printerError struct {
+	code    string
+	message string
+	cause   error
+}
+
+func (e *printerError) Error() string { return e.message }
+func (e *printerError) Unwrap() error { return e.cause }
+
+func printerFailure(code, message string, cause error) error {
+	return &printerError{code: code, message: message, cause: cause}
+}
+
+// printerCause is the underlying system error, kept for the server log only.
+func printerCause(err error) string {
+	var typed *printerError
+	if errors.As(err, &typed) && typed.cause != nil {
+		return typed.cause.Error()
+	}
+	return ""
+}
+
 func printerErrorCode(err error) string {
+	var typed *printerError
+	if errors.As(err, &typed) {
+		return typed.code
+	}
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, "permission"):

@@ -13,13 +13,25 @@ export function setDesktopSessionToken(token: string) {
   desktopSessionToken = token;
 }
 
+/**
+ * How long to wait for the clinic server. Most calls are quick; verified backups
+ * copy the whole database, and a print job drives a physical Bluetooth printer
+ * that may have to be woken, so giving up on those at the usual twenty seconds
+ * would report a failure while the work is still running.
+ */
+function requestTimeout(path: string) {
+  if (path === "/backups" || path === "/backups/restore") return 600000;
+  if (path.startsWith("/printers/default/")) return 90000;
+  return 20000;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
   if (desktopSessionToken) headers.set("Authorization", `SentryMed ${desktopSessionToken}`);
   const controller = options.signal ? null : new AbortController();
-  const timer = controller ? window.setTimeout(() => controller.abort(), path === "/backups" || path === "/backups/restore" ? 600000 : 20000) : 0;
+  const timer = controller ? window.setTimeout(() => controller.abort(), requestTimeout(path)) : 0;
   let response: Response;
   try {
     response = await fetch(`/api/v1${path}`, { ...options, headers, credentials: "same-origin", signal: options.signal ?? controller?.signal });

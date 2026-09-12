@@ -39,6 +39,24 @@ with `sudo`. **System → Printers → Search for printers** inspects BlueZ data
 opens the validated RFCOMM destination directly. The installed PT280_6E27 has
 been physically confirmed as ESC/POS over Serial Port Profile, RFCOMM channel 1.
 
+Pairing alone is not enough: BlueZ asks a registered agent to authorize the
+Serial Port service, and a clinic server has no agent to answer, so an untrusted
+printer answers with `PRINTER_PERMISSION_DENIED`. The server repairs this itself
+once per job (`bluetoothctl trust` then `connect` on the one configured
+address); to do it by hand, run `bluetoothctl` and then `pair 10:22:33:90:6E:27`
+(PIN 0000), `trust 10:22:33:90:6E:27`. A `PRINTER_PERMISSION_DENIED` raised
+before any connection is attempted means the computer refuses the Bluetooth
+socket itself — a sandboxed (Flatpak/Snap) build or an account without access to
+the adapter — and no amount of pairing will fix it.
+
+A mobile thermal printer accepts one connection at a time. The server therefore
+prints one job at a time, waits for the previous data link to close and retries
+briefly when the printer reports `PRINTER_BUSY`, so a double-click or two
+clients printing at once no longer fails. A `PRINTER_BUSY` that survives the
+retries means something else on the computer holds the printer: check for a
+stale binding with `rfcomm show all` and release it with `rfcomm release <dev>`,
+or close the other program using it.
+
 On Windows, pair the printer in **Settings → Bluetooth & devices**, open the
 device's Bluetooth COM-port properties, note the outgoing port (for example
 `COM3`), then save that port under **System → Printers**. The server only accepts

@@ -72,7 +72,7 @@ export function POSPage() {
 	const printInvoice = async (invoiceId: string) => {
 		setPrintingReceipt(true);
 		try { await api.post(`/printers/default/print-invoice/${invoiceId}`, {}); setCompleted((value) => value ? { ...value, printed: true } : value); printer.reload(); toast.success(i18n.t("Thermal receipt printed")); return true; }
-		catch { toast.warning(i18n.t("The payment is saved, but the printer is unavailable.")); printer.reload(); return false; }
+		catch (reason) { toast.warning(i18n.t("The payment is saved, but the printer is unavailable."), reason instanceof APIError ? { description: i18n.t(reason.body.message) } : undefined); printer.reload(); return false; }
 		finally { setPrintingReceipt(false); }
 	};
 

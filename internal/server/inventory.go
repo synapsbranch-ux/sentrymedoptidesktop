@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -240,7 +241,15 @@ func (s *Server) handleInventoryReactivate(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) setInventoryArchived(w http.ResponseWriter, r *http.Request, archived bool) {
 	var input struct{ Version int }
-	if decodeJSON(r, &input) != nil || input.Version < 1 {
+	// DELETE (archive) carries no body, matching every other archive route in
+	// this codebase (e.g. suppliers); POST (reactivate) takes a JSON body,
+	// matching every other POST action route.
+	if r.Method == http.MethodDelete {
+		input.Version, _ = strconv.Atoi(r.URL.Query().Get("version"))
+	} else {
+		_ = decodeJSON(r, &input)
+	}
+	if input.Version < 1 {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Current item version is required.")
 		return
 	}

@@ -36,11 +36,11 @@ func TestInventoryItemFullCRUD(t *testing.T) {
 		t.Fatalf("update did not persist (or touched quantity): %v", detail)
 	}
 
-	forbiddenArchive := a.request(http.MethodDelete, "/api/v1/inventory/"+id, map[string]any{"version": 2}, a.nurse)
+	forbiddenArchive := a.request(http.MethodDelete, "/api/v1/inventory/"+id+"?version=2", nil, a.nurse)
 	if forbiddenArchive.Code != http.StatusForbidden {
 		t.Fatalf("nurse archive status = %d, want 403", forbiddenArchive.Code)
 	}
-	archived := a.request(http.MethodDelete, "/api/v1/inventory/"+id, map[string]any{"version": 2}, a.doctor)
+	archived := a.request(http.MethodDelete, "/api/v1/inventory/"+id+"?version=2", nil, a.doctor)
 	if archived.Code != http.StatusOK {
 		t.Fatalf("archive: %d %s", archived.Code, archived.Body.String())
 	}

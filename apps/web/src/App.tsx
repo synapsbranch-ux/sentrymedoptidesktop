@@ -8,6 +8,7 @@ import { RealtimeProvider } from "./realtime";
 import { PublicDisplayPage } from "./pages/public-display";
 import { KioskPage } from "./pages/kiosk";
 import { useI18n } from "./i18n";
+import { featureVisible } from "./features";
 
 const AuditPage = React.lazy(() => import("./pages/audit").then((module) => ({ default: module.AuditPage })));
 const BillingPage = React.lazy(() => import("./pages/billing").then((module) => ({ default: module.BillingPage })));
@@ -70,13 +71,13 @@ export default function App() {
     <RealtimeProvider>
       <React.Suspense fallback={<div className="page"><div className="h-8 w-48 animate-pulse rounded bg-[var(--muted)]" /><div className="mt-6 h-80 animate-pulse rounded-[var(--radius)] bg-[var(--muted)]" /></div>}>
       <Routes>
-        <Route path="vision-display/:id" element={<VisionDisplayPage />} />
+        {featureVisible("visionTesting") && <Route path="vision-display/:id" element={<VisionDisplayPage />} />}
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
           <Route path="patients" element={<PatientsPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="clinical" element={<ClinicalPage />} />
-          <Route path="vision-test" element={<VisionTestPage />} />
+          {featureVisible("visionTesting") && <Route path="vision-test" element={<VisionTestPage />} />}
           <Route path="prescriptions" element={<PrescriptionsPage />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="inventory" element={<InventoryPage />} />
@@ -91,7 +92,7 @@ export default function App() {
           />
           <Route path="pos" element={<POSPage />} />
           <Route path="billing" element={<BillingPage />} />
-          <Route path="quotes" element={<QuotesPage />} />
+          {featureVisible("quotes") && <Route path="quotes" element={<QuotesPage />} />}
           <Route path="insurance" element={<InsurancePage />} />
           <Route path="lab" element={<LabPage />} />
           <Route
@@ -126,14 +127,16 @@ export default function App() {
               </DoctorOnly>
             }
           />
-          <Route
-            path="audit"
-            element={
-              <DoctorOnly>
-                <AuditPage />
-              </DoctorOnly>
-            }
-          />
+          {featureVisible("auditLog") && (
+            <Route
+              path="audit"
+              element={
+                <DoctorOnly>
+                  <AuditPage />
+                </DoctorOnly>
+              }
+            />
+          )}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

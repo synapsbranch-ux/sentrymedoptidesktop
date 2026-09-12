@@ -7,9 +7,9 @@ import { expect, test, type ConsoleMessage, type Page } from "@playwright/test";
  */
 
 const routes = [
-  "/", "/patients", "/schedule", "/clinical", "/vision-test", "/prescriptions", "/documents",
+  "/", "/patients", "/schedule", "/clinical", "/prescriptions", "/documents",
   "/inventory", "/stock-takes", "/purchasing", "/pos", "/billing", "/insurance", "/lab",
-  "/finance", "/reports", "/system", "/audit",
+  "/finance", "/reports", "/system",
 ];
 
 // Failures that come from the test environment rather than the application.

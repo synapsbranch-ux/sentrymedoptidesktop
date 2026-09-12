@@ -36,6 +36,7 @@ import { cn } from "../lib";
 import { CommandPalette } from "./command-palette";
 import { Button } from "./ui/button";
 import { usePublicBranding } from "../clinic";
+import { featureVisible, type FeatureName } from "../features";
 
 const nav = [
   {
@@ -50,7 +51,7 @@ const nav = [
   {
     section: "Clinical",
     items: [
-      { to: "/vision-test", label: "Vision testing", icon: MonitorPlay },
+      { to: "/vision-test", label: "Vision testing", icon: MonitorPlay, feature: "visionTesting" },
       { to: "/prescriptions", label: "Prescriptions", icon: Glasses },
       { to: "/lab", label: "Optical / Lab", icon: FlaskConical },
       { to: "/documents", label: "Documents", icon: FileText },
@@ -63,7 +64,7 @@ const nav = [
       { to: "/stock-takes", label: "Stock takes", icon: ClipboardCheck },
       { to: "/purchasing", label: "Purchasing", icon: Truck, doctorOnly: true },
       { to: "/pos", label: "Point of Sale", icon: ShoppingCart },
-      { to: "/quotes", label: "Quotes", icon: FileCheck2 },
+      { to: "/quotes", label: "Quotes", icon: FileCheck2, feature: "quotes" },
       { to: "/billing", label: "Billing", icon: Receipt },
     ],
   },
@@ -81,10 +82,29 @@ const nav = [
     doctorOnly: true,
     items: [
       { to: "/system", label: "System", icon: Settings },
-      { to: "/audit", label: "Audit log", icon: Archive },
+      { to: "/audit", label: "Audit log", icon: Archive, feature: "auditLog" },
     ],
   },
 ];
+
+/**
+ * The destinations this role is actually offered: a section the role may not
+ * open is dropped, so is an entry belonging to a feature the clinic has
+ * withheld, and a section left with nothing in it does not draw a heading.
+ */
+export function visibleNav(role: string | undefined) {
+  return nav
+    .filter((group) => !group.doctorOnly || role === "doctor")
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          (!("doctorOnly" in item && item.doctorOnly) || role === "doctor") &&
+          (!("feature" in item) || featureVisible(item.feature as FeatureName)),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export function AppShell() {
   const { user, signOut } = useAuth();
@@ -105,15 +125,7 @@ export function AppShell() {
     await signOut();
     navigate("/");
   };
-  const links = nav
-    .filter((group) => !group.doctorOnly || user?.role === "doctor")
-    .map((group) => ({
-      ...group,
-      items: group.items.filter(
-        (item) =>
-          !("doctorOnly" in item && item.doctorOnly) || user?.role === "doctor",
-      ),
-    }));
+  const links = visibleNav(user?.role);
   const sidebar = (
     <>
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">

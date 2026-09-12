@@ -9,6 +9,7 @@ import { useLoad } from "../hooks";
 import { cn } from "../lib";
 import { AnteriorBackdrop, FundusBackdrop, fieldCells, fundusClockHour, motilityCells, type ChartCell, type Eye } from "./chart-backdrops";
 import { AmslerSurface } from "./vision-surfaces";
+import { featureVisible } from "../features";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge, EmptyState, ErrorState, Skeleton } from "./ui/data";
@@ -51,11 +52,17 @@ const motilityGrades: Grade[] = [
   { value: "+4", label: "+4", color: "#7c3aed" },
 ];
 
+// The Amsler grid is drawn by the patient in Vision testing and only read back
+// here, so while that feature is withheld from the interface the tab would be a
+// dead end in every consultation. It returns with it; the charts themselves are
+// still recorded and still rendered below.
 const chartTabs: { type: ChartType; label: string; description: string }[] = [
   { type: "anterior", label: "Anterior segment", description: "Click the eye to mark a finding on the lids, cornea, iris or lens." },
   { type: "fundus", label: "Fundus", description: "Click the retina to record a finding with automatic clock-hour notation." },
   { type: "field", label: "Confrontation fields", description: "Tap a zone to cycle full, reduced or absent; toggle the grey N−1 overlay." },
-  { type: "amsler", label: "Amsler", description: "What the patient traced during the vision test, with the previous visit behind it." },
+  ...(featureVisible("visionTesting")
+    ? [{ type: "amsler" as const, label: "Amsler", description: "What the patient traced during the vision test, with the previous visit behind it." }]
+    : []),
   { type: "motility", label: "Motility & cover test", description: "Grade the 3×3 positions from −4 underaction to +4 overaction and record cover testing." },
 ];
 

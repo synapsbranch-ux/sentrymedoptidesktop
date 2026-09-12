@@ -134,14 +134,12 @@ A service is an inventory item with `durationMinutes` and `bookable`, so a price
 
 | GET, POST | `/income` | Doctor |
 | GET | `/finance/profit-and-loss` | Doctor |
-| GET, POST | `/quotes` | Doctor, nurse |
-| GET | `/quotes/{id}` | Doctor, nurse |
-| PATCH | `/quotes/{id}/status` | Doctor, nurse |
-| POST | `/quotes/{id}/convert` | Doctor, nurse |
 
 Refund requests accept `amountMinor`, `reason`, and optional `restockItemIds`. The refund, credit note, invoice status and selected stock returns commit atomically.
 
-Sales, refunds and insurer remittances are written into the income ledger by database triggers as they happen, so it cannot drift from the till; a refund is a negative entry rather than a second table to reconcile. `POST /income` records money the till never saw. A quote converts to an invoice exactly once — a unique index on `converted_invoice_id` makes a double click harmless — and converting raises the debt without moving stock.
+Sales, refunds and insurer remittances are written into the income ledger by database triggers as they happen, so it cannot drift from the till; a refund is a negative entry rather than a second table to reconcile. `POST /income` records money the till never saw.
+
+> The billing flow does not include a quote/quotation step. An estimate given before a sale is a clinic conversation, not a system record; billing works directly with invoices, POS transactions, insurance claims and payments.
 
 ## Point of sale
 

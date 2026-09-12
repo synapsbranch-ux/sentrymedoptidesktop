@@ -10,8 +10,6 @@
  * written or read.
  */
 export const featureVisibility = {
-  /** Quotes: the estimate a patient is given before committing to a sale. */
-  quotes: false,
   /** Vision testing: the acuity/colour/Amsler screens driven from a second display. */
   visionTesting: false,
   /**

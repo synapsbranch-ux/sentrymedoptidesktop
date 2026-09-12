@@ -20,7 +20,7 @@ The following areas have a responsive UI, Go API, SQLite persistence, server-sid
 - laboratory and optical orders in one section: spectacle orders raised from a prescription that carry the powers, the consultation and the till sale to the glazing company, examination requests raised from an editable test list, advanced fitting measurements, a completed QC checklist gating optical delivery, and a branded printed document with the frame photograph on it;
 - live doctor/nurse dashboards, visit/revenue/status/sales charts, finance reports, CSV and branded browser PDF/print output;
 - searchable diagnosis reference of 502 ophthalmology ICD-10 codes with lay-language synonyms, browsable by category and extendable by CSV import;
-- income ledger generated from every payment, refund and insurer remittance, manual income entries, quotes convertible to invoices, and an end-to-end profit and loss view;
+- income ledger generated from every payment, refund and insurer remittance, manual income entries, and an end-to-end profit and loss view;
 - POS service types shared with scheduling, prescription-to-cart lookup, split tenders, parked sales, barcode scanning, sales history and the register Z-report;
 - human resources: staff records, positions, attendance, payroll runs, payslips and templated contract generation;
 - images on stock items and lab orders, batch lab dispatch and a batched printed requisition;

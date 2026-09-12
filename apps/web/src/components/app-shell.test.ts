@@ -7,10 +7,8 @@ const destinations = (role: string | undefined) => visibleNav(role).flatMap((gro
 describe("sidebar", () => {
   it("offers no way into a feature the clinic has withheld", () => {
     const doctor = destinations("doctor");
-    expect(featureVisibility.quotes).toBe(false);
     expect(featureVisibility.visionTesting).toBe(false);
     expect(featureVisibility.auditLog).toBe(false);
-    expect(doctor).not.toContain("/quotes");
     expect(doctor).not.toContain("/vision-test");
     expect(doctor).not.toContain("/audit");
     // Withholding two entries must not take their neighbours with them.

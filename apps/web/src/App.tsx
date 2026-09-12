@@ -15,7 +15,6 @@ const BillingPage = React.lazy(() => import("./pages/billing").then((module) => 
 const ClinicalPage = React.lazy(() => import("./pages/clinical").then((module) => ({ default: module.ClinicalPage })));
 const DashboardPage = React.lazy(() => import("./pages/dashboard").then((module) => ({ default: module.DashboardPage })));
 const FinancePage = React.lazy(() => import("./pages/finance").then((module) => ({ default: module.FinancePage })));
-const QuotesPage = React.lazy(() => import("./pages/quotes").then((module) => ({ default: module.QuotesPage })));
 const HRPage = React.lazy(() => import("./pages/hr").then((module) => ({ default: module.HRPage })));
 const InventoryPage = React.lazy(() => import("./pages/inventory").then((module) => ({ default: module.InventoryPage })));
 const InsurancePage = React.lazy(() => import("./pages/insurance").then((module) => ({ default: module.InsurancePage })));
@@ -92,7 +91,6 @@ export default function App() {
           />
           <Route path="pos" element={<POSPage />} />
           <Route path="billing" element={<BillingPage />} />
-          {featureVisible("quotes") && <Route path="quotes" element={<QuotesPage />} />}
           <Route path="insurance" element={<InsurancePage />} />
           <Route path="lab" element={<LabPage />} />
           <Route

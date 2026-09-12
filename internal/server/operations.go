@@ -40,7 +40,6 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.Post("/pos/checkout", s.handlePOSCheckout)
 	s.registerPOSRoutes(r)
 	s.registerIncomeRoutes(r)
-	s.registerQuoteRoutes(r)
 	s.registerImageRoutes(r)
 	s.registerHumanResourcesRoutes(r)
 	r.Get("/payment-methods", s.handlePaymentMethodsList)

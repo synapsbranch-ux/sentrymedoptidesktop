@@ -29,7 +29,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - manual offline insurance claims, insurer payments and receivable aging;
 - guided refunds, automatic credit notes and transactional product returns;
 - optical lab Kanban, advanced fitting values, QC gate and delivery status;
-- income ledger fed automatically from every payment, refund and insurer remittance, plus manual entries, quotes convertible to invoices, expenses, financial summaries, an end-to-end profit and loss view, live charts and branded report/CSV/PDF-print export;
+- income ledger fed automatically from every payment, refund and insurer remittance, plus manual entries, expenses, financial summaries, an end-to-end profit and loss view, live charts and branded report/CSV/PDF-print export;
 - staff records for employees and contractors, clock-in/out and manual attendance, payroll runs with per-employee payslips and templated contracts;
 - clinic-wide search, audit logs and configurable clinic identity;
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
@@ -103,10 +103,10 @@ different printers with two different page geometries.
   It lays out aligned 32-column text independently of PDF/browser printing,
   converts the clinic logo to a compact monochrome raster, and writes directly
   to the selected Bluetooth RFCOMM or serial printer.
-- **Everything else** — invoices, quotes, prescriptions, lab orders and
-  requisitions, patient summaries, reports — renders on the page inside a
-  `.print-area.document-print` element and prints at A4 or US Letter with
-  margins.
+- **Everything else** — invoices, prescriptions, lab orders and
+  requisitions, patient summaries, insurance claims and forms, inventory
+  reports — renders on the page inside a `.print-area.document-print`
+  element and prints at A4 or US Letter with margins.
 
 Both paper choices are set under **System → Clinic → Printing**, independently:
 a clinic can have a thermal roll and no A4 printer, or the reverse. There is

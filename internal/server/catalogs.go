@@ -16,7 +16,15 @@ import (
 // deployment. Entries are deactivated rather than deleted so a record that
 // already refers to one keeps its meaning.
 
-var catalogNames = map[string]bool{"appointment_reason": true, "prescription_item": true}
+// Since migration 028 this map, not a CHECK constraint, decides which catalogs
+// exist: adding one costs a line here and a seed row, not a table rebuild.
+var catalogNames = map[string]bool{
+	"appointment_reason": true, "prescription_item": true,
+	// What a glazing company needs spelled out on an order, and the exams a
+	// laboratory can be asked for.
+	"lens_type": true, "lens_material": true, "lens_coating": true, "lens_tint": true, "lens_treatment": true,
+	"lab_test": true,
+}
 
 type catalogPayload struct {
 	Label     string            `json:"label"`

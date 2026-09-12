@@ -52,6 +52,9 @@ func (s *Server) registerOperationsRoutes(r chi.Router) {
 	r.Patch("/lab-orders/{id}/status", s.handleLabOrderStatus)
 	r.Post("/lab-orders/bulk-status", s.handleLabOrdersBulkStatus)
 	r.Get("/lab-orders/requisition", s.handleLabRequisitionBatch)
+	// Registered after the literal path above; chi matches a static segment
+	// before a parameter, so "requisition" is never read as an order id.
+	r.Get("/lab-orders/{id}", s.handleLabOrderDocument)
 	r.Post("/lab-orders/{id}/quality-control", s.handleLabQualityControl)
 	r.With(s.requireDoctor).Get("/expenses", s.handleExpensesList)
 	r.With(s.requireDoctor).Post("/expenses", s.handleExpenseCreate)

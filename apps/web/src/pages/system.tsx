@@ -90,6 +90,36 @@ function CatalogSettings() {
       description="Selecting an entry fills a medication prescription with its defaults, which the doctor can still change. Deliberately empty until clinic staff confirm the starting list."
       detailFields={prescriptionItemFields}
     />
+    <CatalogManager
+      catalog="lab_test"
+      title="Laboratory examinations"
+      description="The examinations this clinic orders from an outside laboratory. Deliberately empty until clinic staff confirm the list, so every request names a test the same way."
+    />
+    <CatalogManager
+      catalog="lens_type"
+      title="Lens types"
+      description="Offered on an optical order. Seeded with the three types the application previously hardcoded."
+    />
+    <CatalogManager
+      catalog="lens_material"
+      title="Lens materials and indices"
+      description="What the glazing company is told to make the lens from."
+    />
+    <CatalogManager
+      catalog="lens_tint"
+      title="Lens tints"
+      description="Photogray, solid and gradient tints, as this clinic names them to its supplier."
+    />
+    <CatalogManager
+      catalog="lens_coating"
+      title="Lens coatings"
+      description="Chosen together on an order — anti-reflective, hard coat, UV and the rest."
+    />
+    <CatalogManager
+      catalog="lens_treatment"
+      title="Lens treatments"
+      description="Photochromic, polarised and other work done to the lens itself."
+    />
   </div>;
 }
 

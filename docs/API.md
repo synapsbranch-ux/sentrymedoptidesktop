@@ -99,14 +99,19 @@ Search terms are quoted before they reach FTS5, so punctuation in a code — or 
 | PUT | `/stock-takes/{id}/items/{itemId}` | Doctor, nurse; count/versioned |
 | POST | `/stock-takes/{id}/finalize` | Doctor; transactional adjustments |
 | GET, POST | `/lab-orders` | Doctor, nurse |
+| GET | `/lab-orders/{id}` | Doctor, nurse; the printed document |
 | PATCH | `/lab-orders/{id}/status` | Doctor, nurse; versioned |
 | POST | `/lab-orders/{id}/quality-control` | Doctor, nurse |
 | POST | `/lab-orders/bulk-status` | Doctor, nurse; all-or-nothing |
 | GET | `/lab-orders/requisition` | Doctor, nurse |
 
-Marking a lab order `ready` fails until a QC row exists.
+An order carries a `kind`: `optical` — a frame and lenses sent to the company that glazes and mounts them — or `medical`, a list of examinations sent to a laboratory as `tests`. A medical order without at least one exam is refused with `LAB_TESTS_REQUIRED`, and an unknown kind with `INVALID_LAB_ORDER_KIND`. Both kinds share the number series, the status board and the batch dispatch; `GET /lab-orders?kind=` filters the board. An order may name the `prescriptionId`, `encounterId` and `invoiceId` it came from; none is required, and one belonging to a different patient is refused.
 
-A batch moves together or not at all: `bulk-status` accepts up to 200 order ids and rolls the whole batch back if any of them is already delivered or cancelled. Delivery and quality control stay per-order decisions and cannot be done in bulk. `/lab-orders/requisition?orderIds=` builds one printed requisition covering the batch, grouped by lab.
+Marking an **optical** order `ready` or `delivered` fails until a QC row exists. A laboratory exam request has no lens to inspect and is not gated. Delivery records `receivedByName`, and correcting the status afterwards no longer clears who collected the work.
+
+`GET /lab-orders/{id}` assembles the whole printed document in one call: the order, the patient, the prescription powers, the consultation, the glazing company or laboratory, the frame and lens stock items, the till sale with its lines, the exams, the ids of the attached photographs and the status history. The clients render it and print through the browser, which is also how it is saved as PDF; there is no server-side PDF.
+
+A batch moves together or not at all: `bulk-status` accepts up to 200 order ids and rolls the whole batch back if any of them is already delivered or cancelled. Delivery and quality control stay per-order decisions and cannot be done in bulk. `/lab-orders/requisition?orderIds=` builds one printed requisition covering the batch, grouped by kind and by lab, carrying each order's prescription powers and exam lines.
 
 A service is an inventory item with `durationMinutes` and `bookable`, so a price set once is what the schedule quotes and the till charges. Only a service can be made bookable.
 

@@ -53,7 +53,7 @@ const nav = [
     items: [
       { to: "/vision-test", label: "Vision testing", icon: MonitorPlay, feature: "visionTesting" },
       { to: "/prescriptions", label: "Prescriptions", icon: Glasses },
-      { to: "/lab", label: "Optical / Lab", icon: FlaskConical },
+      { to: "/lab", label: "Laboratory & optical", icon: FlaskConical },
       { to: "/documents", label: "Documents", icon: FileText },
     ],
   },

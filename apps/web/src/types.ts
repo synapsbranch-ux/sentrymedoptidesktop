@@ -20,4 +20,23 @@ export interface StockTakeSummary { id: string; stockTakeNumber: string; status:
 export interface StockTakeLine { id: string; inventoryItemId: string; sku: string; name: string; category: string; expectedQuantity: number; countedQuantity: number | null; difference: number | null; reason: string; version: number; countedAt: string; countedBy: string }
 export interface StockTake extends Omit<StockTakeSummary, "itemCount" | "countedCount" | "differenceCount"> { items: StockTakeLine[] }
 export interface Invoice { id: string; invoiceNumber: string; patientId: string; patientName: string; status: string; currency: string; exchangeRate: string; subtotalMinor: number; discountMinor: number; taxMinor: number; totalMinor: number; paidMinor: number; balanceMinor: number; dueAt: string; version: number; createdAt: string; updatedAt: string }
-export interface LabOrder { id: string; orderNumber: string; patientId: string; patientName: string; prescriptionId: string; invoiceId: string; supplierName: string; frameName: string; lensName: string; lensType: string; material: string; coatings: string[]; treatments: string[]; measurements: Record<string, unknown>; notes: string; orderedAt: string; expectedAt: string; status: string; deliveredAt: string; version: number; createdAt: string; updatedAt: string }
+/** An order leaving the clinic: glasses to a glazing company, or exams to a laboratory. */
+export type LabOrderKind = "optical" | "medical";
+export type LabOrderStatus = "draft" | "ordered" | "at_lab" | "received" | "edging_mounting" | "quality_control" | "ready" | "delivered" | "cancelled";
+export interface LabOrder { id: string; kind: LabOrderKind; orderNumber: string; patientId: string; medicalRecordNumber: string; patientName: string; prescriptionId: string; invoiceId: string; supplierId: string; supplierName: string; frameItemId: string; frameName: string; lensItemId: string; lensName: string; lensType: string; material: string; coatings: string[]; tint: string; treatments: string[]; measurements: Record<string, unknown>; notes: string; orderedAt: string; expectedAt: string; costMinor: number; salePriceMinor: number; status: LabOrderStatus; deliveredAt: string; version: number; createdAt: string; updatedAt: string }
+
+export interface LabOrderTest { id?: string; label: string; code: string; specimen: string; notes: string }
+/** Everything one order's printed document needs, assembled by the server. */
+export interface LabOrderDocument {
+  order: { id: string; kind: LabOrderKind; orderNumber: string; status: LabOrderStatus; notes: string; orderedAt: string; expectedAt: string; deliveredAt: string; receivedByName: string; lensType: string; material: string; coatings: string[]; tint: string; treatments: string[]; measurements: Record<string, string>; costMinor: number; salePriceMinor: number; version: number };
+  patient: { name: string; medicalRecordNumber: string; phone: string; dateOfBirth: string };
+  prescription: { id: string; prescriptionNumber: string; type: string; od: Record<string, string>; os: Record<string, string>; details: Record<string, string>; notes: string; issuedAt: string; expiresAt: string; doctor: string } | null;
+  encounter: { id: string; encounterNumber: string; visitReason: string; status: string; date: string; doctor: string } | null;
+  supplier: { id: string; company: string; contactPerson: string; phone: string; email: string; address: string } | null;
+  frame: { id: string; sku: string; name: string; brand: string; model: string } | null;
+  lens: { id: string; sku: string; name: string; brand: string; model: string } | null;
+  invoice: { id: string; invoiceNumber: string; currency: string; status: string; date: string; totalMinor: number; paidMinor: number; balanceMinor: number; lines: { description: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[] } | null;
+  tests: LabOrderTest[];
+  imageIds: string[];
+  statusHistory: { fromStatus: string; toStatus: string; notes: string; changedAt: string; changedBy: string }[];
+}

@@ -10,12 +10,13 @@ import { Badge, EmptyState, ErrorState, Skeleton } from "./ui/data";
 import { Field, Input, Select } from "./ui/input";
 
 /**
- * D2: the appointment-reason and prescription-item lists are edited here rather
- * than compiled into the application. Retiring an entry deactivates it, so a
+ * D2: the clinic's own lists are edited here rather than compiled into the
+ * application — appointment reasons, prescription items, and what a glazing
+ * company or a laboratory has to be told. Retiring an entry deactivates it, so a
  * record that already refers to it keeps its meaning.
  */
 
-export type CatalogName = "appointment_reason" | "prescription_item";
+export type CatalogName = "appointment_reason" | "prescription_item" | "lens_type" | "lens_material" | "lens_coating" | "lens_tint" | "lens_treatment" | "lab_test";
 
 export interface CatalogEntry {
   id: string;

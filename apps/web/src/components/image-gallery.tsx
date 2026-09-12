@@ -60,7 +60,12 @@ export function ImageGallery({ entityType, entityId, canEdit, emptyHint }: { ent
   </div>;
 }
 
-function StoredImageView({ id, alt }: { id: string; alt: string }) {
+/**
+ * One stored image, fetched through the authenticated client. Exported because
+ * the lab order document prints the frame photograph, and a third copy of this
+ * effect is a third place for the object URL to leak.
+ */
+export function StoredImageView({ id, alt, className }: { id: string; alt: string; className?: string }) {
   const [source, setSource] = React.useState("");
   React.useEffect(() => {
     let url = "";
@@ -70,7 +75,7 @@ function StoredImageView({ id, alt }: { id: string; alt: string }) {
       .catch(() => undefined);
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [id]);
-  return <div className="grid aspect-square place-items-center bg-zinc-50">{source ? <img className="h-full w-full object-contain" src={source} alt={alt} /> : <span className="text-xs text-zinc-400">Loading…</span>}</div>;
+  return <div className={className ?? "grid aspect-square place-items-center bg-zinc-50"}>{source ? <img className="h-full w-full object-contain" src={source} alt={alt} /> : <span className="text-xs text-zinc-400">Loading…</span>}</div>;
 }
 
 /** A single thumbnail for a list row, with no gallery around it. */

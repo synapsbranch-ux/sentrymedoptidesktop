@@ -67,7 +67,7 @@ func LoadConfig(dev bool) (Config, error) {
 		return resolved
 	}
 	dataDir = abs(dataDir)
-	for _, directory := range []string{"database", "documents", "images", "backups", "logs"} {
+	for _, directory := range []string{"database", "documents", "images", "insurance-cards", "insurance-documents", "backups", "logs"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, directory), 0o750); err != nil {
 			return Config{}, fmt.Errorf("create %s directory: %w", directory, err)
 		}

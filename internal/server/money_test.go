@@ -12,10 +12,10 @@ func TestApplyPercentMinorRoundsHalfUp(t *testing.T) {
 		want    int64
 	}{
 		{100, 50, 50},
-		{65000, 80, 52000},   // 650.00 HTG at 80% = 520.00 HTG, exact
+		{65000, 80, 52000},     // 650.00 HTG at 80% = 520.00 HTG, exact
 		{100000, 33.33, 33330}, // 1,000.00 HTG at 33.33% = 333.30 HTG
-		{1, 50, 1},            // 0.01 at 50% rounds up to 0.01, never to 0
-		{3, 50, 2},            // 1.5 rounds half-up to 2
+		{1, 50, 1},             // 0.01 at 50% rounds up to 0.01, never to 0
+		{3, 50, 2},             // 1.5 rounds half-up to 2
 		{0, 80, 0},
 		{100, 0, 0},
 		{100, 100, 100},

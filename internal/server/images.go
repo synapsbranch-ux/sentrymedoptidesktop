@@ -26,6 +26,9 @@ const maxImageBytes = 8 << 20
 var imageOwners = map[string]string{
 	"inventory_item": "SELECT COUNT(*) FROM inventory_items WHERE id=? AND archived_at IS NULL",
 	"lab_order":      "SELECT COUNT(*) FROM lab_orders WHERE id=?",
+	// A provider's logo/photos reuse this same gallery rather than a
+	// dedicated single-logo column — one fewer upload path to maintain.
+	"payer": "SELECT COUNT(*) FROM payers WHERE id=?",
 }
 
 func (s *Server) registerImageRoutes(r chi.Router) {

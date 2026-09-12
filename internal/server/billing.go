@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"math/big"
 	"net/http"
@@ -49,6 +50,16 @@ type paymentPayload struct {
 	Notes             string `json:"notes"`
 }
 
+// insurerPaidJoin is a reusable LEFT JOIN fragment: how much has actually
+// been received from an insurer against each invoice, through any of its
+// non-cancelled claims. Joined into every query that reports an invoice's
+// paid/balance figures, so an insurer remittance recorded against a claim
+// (insurance_claim_payments) — which never creates its own `payments` row —
+// still counts toward the invoice being settled. Without this, an invoice
+// stayed "partially_paid" forever once the patient's own portion was paid,
+// even after the insurer had fully paid the rest; see docs/API.md.
+const insurerPaidJoin = `LEFT JOIN (SELECT c.invoice_id inv, SUM(cp.amount_minor) amt FROM insurance_claim_payments cp JOIN insurance_claims c ON c.id=cp.claim_id WHERE c.status<>'cancelled' GROUP BY c.invoice_id) ins ON ins.inv=i.id`
+
 func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 	status, patientID := r.URL.Query().Get("status"), r.URL.Query().Get("patientId")
 	where, args := "i.archived_at IS NULL", []any{}
@@ -66,10 +77,11 @@ func (s *Server) handleInvoicesList(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
 		return
 	}
-	rows, err := s.db.QueryContext(r.Context(), `SELECT i.id,i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)),COALESCE(i.due_at,''),i.version,i.created_at,i.updated_at
+	rows, err := s.db.QueryContext(r.Context(), `SELECT i.id,i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)+COALESCE(ins.amt,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)+COALESCE(ins.amt,0)),COALESCE(i.due_at,''),i.version,i.created_at,i.updated_at
 		FROM invoices i LEFT JOIN patients p ON p.id=i.patient_id
 		LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) pay ON pay.invoice_id=i.id
 		LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id
+		`+insurerPaidJoin+`
 		WHERE `+where+` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`, paging.Args(args...)...)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INVOICE_LIST_FAILED", "Could not load invoices.")
@@ -95,7 +107,7 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 	var number, patientID, patientName, status, currency, exchangeRate, dueAt, notes, createdAt, updatedAt string
 	var subtotal, discount, tax, total, paid, balance int64
 	var version int
-	err := s.db.QueryRowContext(r.Context(), `SELECT i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)),COALESCE(i.due_at,''),COALESCE(i.notes,''),i.version,i.created_at,i.updated_at FROM invoices i LEFT JOIN patients p ON p.id=i.patient_id LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) pay ON pay.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id WHERE i.id=? AND i.archived_at IS NULL`, id).
+	err := s.db.QueryRowContext(r.Context(), `SELECT i.invoice_number,COALESCE(i.patient_id,''),COALESCE(p.first_name||' '||p.last_name,'Retail customer'),i.status,i.currency,i.exchange_rate,i.subtotal_minor,i.discount_minor,i.tax_minor,i.total_minor,COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)+COALESCE(ins.amt,0),i.total_minor-(COALESCE(pay.paid,0)-COALESCE(ref.refunded,0)+COALESCE(ins.amt,0)),COALESCE(i.due_at,''),COALESCE(i.notes,''),i.version,i.created_at,i.updated_at FROM invoices i LEFT JOIN patients p ON p.id=i.patient_id LEFT JOIN (SELECT invoice_id,SUM(amount_minor) paid FROM payments GROUP BY invoice_id) pay ON pay.invoice_id=i.id LEFT JOIN (SELECT p.invoice_id,SUM(r.amount_minor) refunded FROM refunds r JOIN payments p ON p.id=r.payment_id GROUP BY p.invoice_id) ref ON ref.invoice_id=i.id `+insurerPaidJoin+` WHERE i.id=? AND i.archived_at IS NULL`, id).
 		Scan(&number, &patientID, &patientName, &status, &currency, &exchangeRate, &subtotal, &discount, &tax, &total, &paid, &balance, &dueAt, &notes, &version, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "INVOICE_NOT_FOUND", "Invoice was not found.")
@@ -161,7 +173,95 @@ func (s *Server) handleInvoiceGet(w http.ResponseWriter, r *http.Request) {
 			credits = append(credits, map[string]any{"creditNumber": creditNumber, "amountMinor": amount, "reason": reason, "restocked": restocked, "createdAt": created})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments, "creditNotes": credits})
+	// The insurance split: what is expected from an insurer versus what the
+	// patient is left owing, and what has actually been received from each
+	// side so far. Cancelled claims never counted as either an expectation or
+	// a receipt of insurer money.
+	var insuranceExpected, insuranceReceived int64
+	claims := []map[string]any{}
+	claimRows, claimRowsErr := s.db.QueryContext(r.Context(), `SELECT c.id,py.name,c.status,c.payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=c.id),0) FROM insurance_claims c JOIN payers py ON py.id=c.payer_id WHERE c.invoice_id=? ORDER BY c.created_at`, id)
+	if claimRowsErr != nil {
+		writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load the invoice's insurance claims.")
+		return
+	}
+	if claimRows != nil {
+		defer claimRows.Close()
+		for claimRows.Next() {
+			var claimID, payerName, claimStatus string
+			var payerPortion, claimPaid int64
+			if err := claimRows.Scan(&claimID, &payerName, &claimStatus, &payerPortion, &claimPaid); err != nil {
+				writeError(w, http.StatusInternalServerError, "INVOICE_LOAD_FAILED", "Could not load the invoice's insurance claims.")
+				return
+			}
+			if claimStatus != "cancelled" {
+				insuranceExpected += payerPortion
+				insuranceReceived += claimPaid
+			}
+			claims = append(claims, map[string]any{"id": claimID, "payerName": payerName, "status": claimStatus, "payerPortionMinor": payerPortion, "paidMinor": claimPaid})
+		}
+	}
+	patientResponsibility := total - insuranceExpected
+	if patientResponsibility < 0 {
+		patientResponsibility = 0
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "invoiceNumber": number, "patientId": patientID, "patientName": patientName, "status": status, "currency": currency, "exchangeRate": exchangeRate, "subtotalMinor": subtotal, "discountMinor": discount, "taxMinor": tax, "totalMinor": total, "paidMinor": paid, "balanceMinor": balance, "dueAt": dueAt, "notes": notes, "version": version, "createdAt": createdAt, "updatedAt": updatedAt, "items": items, "payments": payments, "creditNotes": credits,
+		"insuranceClaims": claims, "insuranceExpectedMinor": insuranceExpected, "insuranceReceivedMinor": insuranceReceived, "patientResponsibilityMinor": patientResponsibility})
+}
+
+// invoiceSettledMinor is how much of an invoice has been settled from any
+// source — the patient's own tenders (net of refunds) plus every non-
+// cancelled claim's insurer remittances. This is the one place that sum is
+// computed, so the invoice's own paid/balance fields (above) and the status
+// this drives (below) can never disagree.
+func (s *Server) invoiceSettledMinor(ctx context.Context, tx *sql.Tx, invoiceID string) (int64, error) {
+	var patientNet, insurerNet int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(p.amount_minor),0)-COALESCE((SELECT SUM(r.amount_minor) FROM refunds r JOIN payments p2 ON p2.id=r.payment_id WHERE p2.invoice_id=?),0) FROM payments p WHERE p.invoice_id=?`, invoiceID, invoiceID).Scan(&patientNet); err != nil {
+		return 0, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(cp.amount_minor),0) FROM insurance_claim_payments cp JOIN insurance_claims c ON c.id=cp.claim_id WHERE c.invoice_id=? AND c.status<>'cancelled'`, invoiceID).Scan(&insurerNet); err != nil {
+		return 0, err
+	}
+	return patientNet + insurerNet, nil
+}
+
+// syncInvoiceStatusAfterInsurancePayment recomputes an invoice's status right
+// after an insurer payment is recorded against one of its claims. It never
+// inserts a `payments` row for that money — insurance_claim_payments already
+// feeds the income ledger through its own trigger, and adding a second
+// payments row for the same remittance would double-count it there — this
+// only updates the invoice's own status so "fully settled" reflects reality
+// per docs/API.md's billing-split rules.
+func (s *Server) syncInvoiceStatusAfterInsurancePayment(ctx context.Context, tx *sql.Tx, invoiceID, userID, now string) error {
+	if invoiceID == "" {
+		return nil
+	}
+	var total int64
+	var status string
+	if err := tx.QueryRowContext(ctx, "SELECT total_minor,status FROM invoices WHERE id=? AND archived_at IS NULL", invoiceID).Scan(&total, &status); err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	if status == "cancelled" || status == "refunded" {
+		return nil
+	}
+	settled, err := s.invoiceSettledMinor(ctx, tx, invoiceID)
+	if err != nil {
+		return err
+	}
+	next := status
+	switch {
+	case settled >= total:
+		next = "paid"
+	case settled > 0:
+		next = "partially_paid"
+	}
+	if next == status {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE invoices SET status=?,version=version+1,updated_at=?,updated_by=? WHERE id=?", next, now, userID, invoiceID)
+	return err
 }
 
 // Keep every amount exact in both SQLite integers and JavaScript numbers.

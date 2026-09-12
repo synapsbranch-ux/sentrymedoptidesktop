@@ -33,7 +33,7 @@ type testApp struct {
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 	dataDir := t.TempDir()
-	for _, directory := range []string{"database", "documents", "images", "backups", "logs"} {
+	for _, directory := range []string{"database", "documents", "images", "insurance-cards", "insurance-documents", "backups", "logs"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, directory), 0o750); err != nil {
 			t.Fatal(err)
 		}

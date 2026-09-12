@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-var assetDirectories = []string{"documents", "branding", "signatures", "images"}
+var assetDirectories = []string{"documents", "branding", "signatures", "images", "insurance-cards", "insurance-documents"}
 
 type assetEntry struct {
 	Path   string `json:"path"`

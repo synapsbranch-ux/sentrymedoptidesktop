@@ -28,8 +28,16 @@ export function printDocument(paper: DocumentPaper = "A4") {
   style.textContent = `@page { size: ${paper}; margin: 12mm; }`;
   document.head.append(style);
   window.setTimeout(() => {
-    window.print();
-    style.remove();
+    // window.print() blocks until the native print/save dialog closes on
+    // most platforms; if it throws instead (a webview with no print handler
+    // configured can reject rather than silently no-op), the paper-size rule
+    // must still be removed or it corrupts the geometry of every print after
+    // it, including ones from a page the user has since navigated away to.
+    try {
+      window.print();
+    } finally {
+      style.remove();
+    }
   }, 50);
 }
 

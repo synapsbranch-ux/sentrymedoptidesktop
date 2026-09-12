@@ -68,6 +68,48 @@ func (d *DesktopBridge) SelectBackupFolder() (string, error) {
 	})
 }
 
+// SaveFile hands a generated document to the operating system's own "Save
+// As" dialog and writes it, entirely through Wails' well-supported
+// OS-native-dialog bridge (the same one SelectBackupFolder already uses).
+//
+// This exists because the desktop window's embedded webview cannot be
+// trusted to broker a browser-style "<a download>" click into a real save
+// dialog on every platform: on the Linux/WebKitGTK build in particular there
+// is no download delegate registered at all (no `Linux:` options block, no
+// `decide-policy` handler — see docs/ARCHITECTURE.md), so a blob-URL download
+// click can leave the single-threaded GTK/JS event loop unable to make
+// progress, which reads to a user as "the application needs to be
+// restarted". Routing every desktop download through this bound method
+// instead means the browser/webview download machinery is never invoked at
+// all: it is an ordinary Wails method call that returns a plain path or
+// error, identical in shape to SelectBackupFolder.
+//
+// The frontend still uses the standard browser download (Blob + temporary
+// <a download> element) when it is not running inside this desktop shell —
+// that path is well supported by real browsers and by the mobile/LAN PWA,
+// which do not share the GTK single-window failure mode.
+func (d *DesktopBridge) SaveFile(suggestedName string, data []byte) (string, error) {
+	suggestedName = filepath.Base(strings.TrimSpace(suggestedName))
+	if suggestedName == "" || suggestedName == "." || suggestedName == string(filepath.Separator) {
+		suggestedName = "download"
+	}
+	path, err := runtime.SaveFileDialog(d.ctx, runtime.SaveDialogOptions{
+		Title:           "Save file",
+		DefaultFilename: suggestedName,
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		// The user cancelled the dialog; that is not an error.
+		return "", nil
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func (d *DesktopBridge) SetWindowTitle(title string) {
 	if strings.TrimSpace(title) == "" {
 		title = clinicserver.DefaultClinicName

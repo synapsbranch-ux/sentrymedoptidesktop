@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Download, FileWarning, Loader2, Minus, Plus, Printer, RotateCw } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "../api";
+import { saveBlob } from "../download";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { ErrorState } from "./ui/data";
@@ -37,8 +39,10 @@ const zoomSteps = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 export function DocumentViewer({ document: item, onClose }: { document: ViewableDocument | null; onClose(): void }) {
   const { t } = useI18n();
   const [objectURL, setObjectURL] = React.useState("");
+  const [fileBlob, setFileBlob] = React.useState<Blob | null>(null);
   const [error, setError] = React.useState<Error | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [zoomIndex, setZoomIndex] = React.useState(2);
   const [rotation, setRotation] = React.useState(0);
   const frameRef = React.useRef<HTMLIFrameElement | null>(null);
@@ -57,12 +61,14 @@ export function DocumentViewer({ document: item, onClose }: { document: Viewable
         if (!active) return;
         url = URL.createObjectURL(blob);
         setObjectURL(url);
+        setFileBlob(blob);
       })
       .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason : new Error(String(reason))); })
       .finally(() => { if (active) setLoading(false); });
     return () => {
       active = false;
       setObjectURL("");
+      setFileBlob(null);
       if (url) URL.revokeObjectURL(url);
     };
   }, [id]);
@@ -71,23 +77,30 @@ export function DocumentViewer({ document: item, onClose }: { document: Viewable
   const kind = previewKind(item.mediaType);
   const zoom = zoomSteps[zoomIndex];
 
-  const download = () => {
-    if (!objectURL) return;
-    const link = window.document.createElement("a");
-    link.href = objectURL;
-    link.download = item.displayName || "document";
-    window.document.body.append(link);
-    link.click();
-    link.remove();
+  const download = async () => {
+    if (!fileBlob || saving) return;
+    setSaving(true);
+    try {
+      const outcome = await saveBlob(fileBlob, item.displayName || "document");
+      if (outcome === "saved") toast.success("Downloaded");
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Could not save the file");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const print = () => {
-    if (kind === "pdf") {
-      // The embedded viewer owns the rendered pages, so printing is delegated to it.
-      const frame = frameRef.current?.contentWindow;
-      if (frame) { frame.focus(); frame.print(); return; }
+    try {
+      if (kind === "pdf") {
+        // The embedded viewer owns the rendered pages, so printing is delegated to it.
+        const frame = frameRef.current?.contentWindow;
+        if (frame) { frame.focus(); frame.print(); return; }
+      }
+      window.print();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Could not print this document");
     }
-    window.print();
   };
 
   return (
@@ -109,7 +122,7 @@ export function DocumentViewer({ document: item, onClose }: { document: Viewable
               <Button aria-label="Rotate" size="icon" variant="outline" onClick={() => setRotation((value) => (value + 90) % 360)}><RotateCw className="h-4 w-4" /></Button>
             </>
           )}
-          <Button className="ml-auto" size="sm" variant="outline" disabled={!objectURL} onClick={download}><Download className="h-3.5 w-3.5" />Download</Button>
+          <Button className="ml-auto" size="sm" variant="outline" disabled={!fileBlob || saving} onClick={() => void download()}><Download className="h-3.5 w-3.5" />{saving ? "Saving…" : "Download"}</Button>
           {kind !== "none" && <Button size="sm" variant="outline" disabled={!objectURL} onClick={print}><Printer className="h-3.5 w-3.5" />Print</Button>}
         </div>
         <div className="mt-3 min-h-[60vh] overflow-auto rounded-lg border bg-[var(--muted)]">
@@ -136,7 +149,7 @@ export function DocumentViewer({ document: item, onClose }: { document: Viewable
                 <p className="mt-1 max-w-sm text-sm text-[var(--muted-foreground)]">
                   {t("Download it to open in the application that handles this format. The file itself is intact.")}
                 </p>
-                <Button className="mt-4" disabled={!objectURL} onClick={download}><Download className="h-4 w-4" />Download</Button>
+                <Button className="mt-4" disabled={!fileBlob || saving} onClick={() => void download()}><Download className="h-4 w-4" />{saving ? "Saving…" : "Download"}</Button>
               </div>
             </div>
           )}

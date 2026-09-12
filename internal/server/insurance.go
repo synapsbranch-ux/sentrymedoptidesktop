@@ -410,7 +410,7 @@ func (s *Server) handleClaimProposal(w http.ResponseWriter, r *http.Request) {
 	if remaining < 0 {
 		remaining = 0
 	}
-	payerPortion := int64(float64(remaining) * coverage / 100)
+	payerPortion, _ := splitMinor(remaining, coverage)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"invoiceId": invoiceID, "invoiceItemId": invoiceItemID, "lineDescription": lineDescription,
 		"currency": currency, "exchangeRate": exchangeRate,

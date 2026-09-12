@@ -42,6 +42,7 @@ import {
   Th,
 } from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
+import { MoneyInput } from "../components/ui/money-input";
 
 interface InvoiceDetail extends Invoice {
   notes: string;
@@ -487,15 +488,11 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field
-                label={`Refund amount (${refundPayment.currency} minor units)`}
-              >
-                <Input
-                  type="number"
-                  min={1}
-                  max={refundPayment.amountMinor - refundPayment.refundedMinor}
+              <Field label="Refund amount">
+                <MoneyInput
+                  currency={refundPayment.currency}
                   value={refundAmount}
-                  onChange={(e) => setRefundAmount(Number(e.target.value))}
+                  onValueChange={setRefundAmount}
                 />
               </Field>
               <Field label="Reason">
@@ -587,13 +584,11 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
                 ))}
               </Select>
             </Field>
-            <Field label={`Amount (${invoice.currency} minor units)`}>
-              <Input
-                type="number"
-                min={1}
-                max={invoice.balanceMinor}
+            <Field label="Amount">
+              <MoneyInput
+                currency={invoice.currency}
                 value={amount}
-                onChange={(event) => setAmount(Number(event.target.value))}
+                onValueChange={setAmount}
               />
             </Field>
             <Button
@@ -667,18 +662,11 @@ function RegisterForm({
         </DialogDescription>
       </DialogHeader>
       <form className="grid gap-4" onSubmit={submit}>
-        <Field
-          label={
-            current.open
-              ? "Counted cash (minor units)"
-              : "Opening float (minor units)"
-          }
-        >
-          <Input
-            type="number"
-            min={0}
+        <Field label={current.open ? "Counted cash" : "Opening float"}>
+          <MoneyInput
+            currency={current.currency ?? "HTG"}
             value={amount}
-            onChange={(event) => setAmount(Number(event.target.value))}
+            onValueChange={setAmount}
           />
         </Field>
         <Field label="Notes">

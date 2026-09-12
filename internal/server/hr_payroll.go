@@ -179,7 +179,7 @@ func applyDeductions(gross int64, raw string) (int64, []map[string]any) {
 	for _, deduction := range configured {
 		amount := int64(deduction.Value)
 		if deduction.Type == "percent" {
-			amount = int64(float64(gross) * deduction.Value / 100)
+			amount = applyPercentMinor(gross, deduction.Value)
 		}
 		if amount < 0 {
 			amount = 0

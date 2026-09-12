@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge, EmptyState, ErrorState, Skeleton } from "../components/ui/data";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Field, FieldGroup, Input, Select } from "../components/ui/input";
+import { MoneyInput } from "../components/ui/money-input";
 import { PatientPicker } from "../components/patient-search";
 import { useI18n } from "../i18n";
 
@@ -186,11 +187,12 @@ export function POSPage() {
                 </div>
                 <label className="flex items-center justify-between gap-2 text-xs text-zinc-500">
                   Line discount
-                  <span className="flex items-center gap-2"><Input aria-label={`Discount on ${line.item.name}`} className="h-9 w-28" type="number" min={0} max={lineGross(line)} value={line.discountMinor} onChange={(event) => discountLine(line.item.id, Number(event.target.value))} /><span className="font-mono font-bold text-[var(--foreground)]">{money(lineTotal(line), currency)}</span></span>
+                  <span className="flex w-40 items-center gap-2"><MoneyInput aria-label={`Discount on ${line.item.name}`} className="h-9" currency={line.item.currency} value={line.discountMinor} onValueChange={(value) => discountLine(line.item.id, Math.max(0, Math.min(value, lineGross(line))))} /></span>
                 </label>
+                <div className="text-right font-mono text-sm font-bold text-[var(--foreground)]">{money(lineTotal(line), currency)}</div>
               </div>
             ))}
-            <Field label={`Order discount (${currency} minor units)`}><Input type="number" min={0} max={subtotal} value={orderDiscount} onChange={(event) => setOrderDiscount(Math.max(0, Math.min(Number(event.target.value), subtotal)))} /></Field>
+            <Field label="Order discount"><MoneyInput currency={currency} value={orderDiscount} onValueChange={(value) => setOrderDiscount(Math.max(0, Math.min(value, subtotal)))} /></Field>
             <TenderList tenders={tenders} setTenders={setTenders} methods={methods.data?.items ?? []} defaultMethod={defaultMethod} total={total} currency={currency} />
             <div className="flex items-center justify-between border-y py-4"><span className="font-semibold">Total</span><span className="font-mono text-2xl font-bold">{money(total, currency)}</span></div>
             <div className="grid gap-2">
@@ -297,7 +299,7 @@ function TenderList({ tenders, setTenders, methods, defaultMethod, total, curren
     {tenders.map((tender) => (
       <div key={tender.id} className="grid grid-cols-[1fr_130px_auto] items-end gap-2">
         <Field label="Method"><Select value={tender.paymentMethodId} onChange={(event) => update(tender.id, { paymentMethodId: event.target.value })}>{methods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}</Select></Field>
-        <Field label={`Amount (${currency})`}><Input type="number" min={0} value={tender.amountMinor} onChange={(event) => update(tender.id, { amountMinor: Math.max(0, Number(event.target.value)) })} /></Field>
+        <Field label="Amount"><MoneyInput currency={currency} value={tender.amountMinor} onValueChange={(value) => update(tender.id, { amountMinor: Math.max(0, value) })} /></Field>
         <Button aria-label="Remove tender" size="icon" variant="ghost" type="button" onClick={() => setTenders(tenders.filter((candidate) => candidate.id !== tender.id))}><Trash2 className="h-4 w-4" /></Button>
       </div>
     ))}

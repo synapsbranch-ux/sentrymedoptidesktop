@@ -61,7 +61,8 @@ describe("Point of Sale", () => {
     await renderPOS();
     await act(async () => { fireEvent.click(screen.getByText("Classic frame")); });
     const discount = await screen.findByLabelText("Discount on Classic frame");
-    await act(async () => { fireEvent.change(discount, { target: { value: "50000" } }); });
+    // A 500 HTG discount is typed in major units and converts to 50000 minor.
+    await act(async () => { fireEvent.change(discount, { target: { value: "500" } }); });
     // 150000 minor units less a 50000 discount leaves 100000 — one thousand.
     await waitFor(() => expect(screen.getByRole("button", { name: /1,000\.00/ })).toBeTruthy());
   });
@@ -73,9 +74,12 @@ describe("Point of Sale", () => {
     await act(async () => { fireEvent.click(screen.getByText("Classic frame")); });
     await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Add tender/ })); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Add tender/ })); });
-    const amounts = screen.getAllByLabelText(/Amount \(HTG\)/);
-    await act(async () => { fireEvent.change(amounts[0], { target: { value: "100000" } }); });
-    await act(async () => { fireEvent.change(amounts[1], { target: { value: "50000" } }); });
+    // The field's accessible label now reads "Amount" followed by the money
+    // input's own currency badge ("Amount HTG"), so match it as a substring.
+    const amounts = screen.getAllByLabelText(/Amount/);
+    // Typed in major units (1,000 and 500 HTG); the sale asserts minor units below.
+    await act(async () => { fireEvent.change(amounts[0], { target: { value: "1000" } }); });
+    await act(async () => { fireEvent.change(amounts[1], { target: { value: "500" } }); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Complete sale/ })); });
     await waitFor(() => expect(post).toHaveBeenCalled());
     const body = post.mock.calls[0][1] as { payments: { amountMinor: number }[] };

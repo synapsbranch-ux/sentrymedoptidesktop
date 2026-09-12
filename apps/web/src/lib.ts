@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { formatMoney } from "./money";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -9,9 +10,8 @@ function applicationLocale() {
   return typeof document === "undefined" ? undefined : document.documentElement.lang || undefined;
 }
 
-export function money(minor: number, currency = "HTG") {
-  return new Intl.NumberFormat(applicationLocale(), { style: "currency", currency }).format(minor / 100);
-}
+/** @deprecated import { formatMoney } from "../money" instead — kept here so existing imports keep working. */
+export const money = formatMoney;
 
 export function dateTime(value?: string) {
   if (!value) return "—";

@@ -14,7 +14,7 @@ interface StoredImage { id: string; displayName: string; mediaType: string; size
  * object URL: a plain <img src> cannot carry the desktop shell's in-memory
  * session header, so a direct URL would show a broken image there.
  */
-export function ImageGallery({ entityType, entityId, canEdit, emptyHint }: { entityType: "inventory_item" | "lab_order"; entityId: string; canEdit: boolean; emptyHint: string }) {
+export function ImageGallery({ entityType, entityId, canEdit, emptyHint }: { entityType: "inventory_item" | "lab_order" | "payer"; entityId: string; canEdit: boolean; emptyHint: string }) {
   const images = useLoad(() => api.get<{ items: StoredImage[] }>(`/images?entityType=${entityType}&entityId=${encodeURIComponent(entityId)}`), [entityType, entityId]);
   const [uploading, setUploading] = React.useState(false);
 
@@ -79,7 +79,7 @@ export function StoredImageView({ id, alt, className }: { id: string; alt: strin
 }
 
 /** A single thumbnail for a list row, with no gallery around it. */
-export function FirstImageThumbnail({ entityType, entityId }: { entityType: "inventory_item" | "lab_order"; entityId: string }) {
+export function FirstImageThumbnail({ entityType, entityId }: { entityType: "inventory_item" | "lab_order" | "payer"; entityId: string }) {
   const images = useLoad(() => api.get<{ items: StoredImage[] }>(`/images?entityType=${entityType}&entityId=${encodeURIComponent(entityId)}`), [entityType, entityId]);
   const first = images.data?.items[0];
   if (!first) return null;

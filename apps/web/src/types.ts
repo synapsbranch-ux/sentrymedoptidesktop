@@ -20,6 +20,45 @@ export interface StockTakeSummary { id: string; stockTakeNumber: string; status:
 export interface StockTakeLine { id: string; inventoryItemId: string; sku: string; name: string; category: string; expectedQuantity: number; countedQuantity: number | null; difference: number | null; reason: string; version: number; countedAt: string; countedBy: string }
 export interface StockTake extends Omit<StockTakeSummary, "itemCount" | "countedCount" | "differenceCount"> { items: StockTakeLine[] }
 export interface Invoice { id: string; invoiceNumber: string; patientId: string; patientName: string; status: string; currency: string; exchangeRate: string; subtotalMinor: number; discountMinor: number; taxMinor: number; totalMinor: number; paidMinor: number; balanceMinor: number; dueAt: string; version: number; createdAt: string; updatedAt: string }
+
+export interface InvoiceInsuranceClaimSummary { id: string; payerName: string; status: string; payerPortionMinor: number; paidMinor: number }
+export interface InvoiceInsurance { insuranceClaims: InvoiceInsuranceClaimSummary[]; insuranceExpectedMinor: number; insuranceReceivedMinor: number; patientResponsibilityMinor: number }
+
+export type VerificationStatus = "not_verified" | "pending_verification" | "verified" | "expired" | "rejected";
+
+export interface Payer {
+  id: string; name: string; contactName: string; phone: string; email: string; address: string;
+  website: string; notes: string; acceptedCoverage: string; billingInfo: string; claimInstructions: string;
+  defaultCoveragePercent: number; active: boolean; version: number; createdAt: string; updatedAt: string;
+}
+
+export interface PatientPolicy {
+  id: string; patientId: string; payerId: string; payerName: string; memberNumber: string; policyNumber: string;
+  groupNumber: string; subscriberName: string; relationshipToSubscriber: string; authorization: string;
+  coveragePercent: number; effectiveDate: string; expirationDate: string; coverageNotes: string; notes: string;
+  verificationStatus: VerificationStatus; verifiedBy: string; verifiedAt: string; verificationReference: string;
+  verificationContact: string; verificationNotes: string;
+  isPrimary: boolean; isActive: boolean; expired: boolean; version: number; createdAt: string; updatedAt: string;
+}
+
+export interface InsuranceCard { id: string; side: "front" | "back"; mediaType: string; sizeBytes: number; uploadedAt: string; uploadedBy: string }
+
+export type InsuranceDocumentStatus = "required" | "requested" | "received" | "completed" | "submitted" | "rejected" | "expired";
+export interface InsuranceDocument {
+  id: string; payerId: string; patientId: string; claimId: string; patientInsuranceId: string;
+  documentType: string; status: InsuranceDocumentStatus; hasFile: boolean; displayName: string; mediaType: string; sizeBytes: number;
+  existingDocumentId: string; requestedBy: string; requestedAt: string; receivedAt: string; expirationDate: string; notes: string;
+  version: number; createdAt: string; updatedAt: string;
+}
+
+export interface InsuranceClaimDetail {
+  id: string; medicalRecordNumber: string; patientName: string; patientId: string; payerName: string; payerId: string;
+  invoiceNumber: string; invoiceId: string; invoiceItemId: string; encounterId: string; appointmentId: string; prescriptionId: string;
+  authorization: string; memberNumber: string; policyNumber: string; currency: string; exchangeRate: string;
+  claimAmountMinor: number; patientPortionMinor: number; payerPortionMinor: number; approvedAmountMinor: number | null; partiallyApproved: boolean;
+  paidMinor: number; outstandingMinor: number; status: string; submittedAt: string; responseDate: string; notes: string;
+  version: number; createdAt: string; updatedAt: string; documents: InsuranceDocument[];
+}
 /** An order leaving the clinic: glasses to a glazing company, or exams to a laboratory. */
 export type LabOrderKind = "optical" | "medical";
 export type LabOrderStatus = "draft" | "ordered" | "at_lab" | "received" | "edging_mounting" | "quality_control" | "ready" | "delivered" | "cancelled";

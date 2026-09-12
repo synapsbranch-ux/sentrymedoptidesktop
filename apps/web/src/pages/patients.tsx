@@ -1,12 +1,13 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight, FileUp, Plus, Printer, Search, SlidersHorizontal, UserRound, X } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Download, FileUp, ImageOff, Plus, Printer, Search, ShieldCheck, SlidersHorizontal, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { api, APIError } from "../api";
 import { useAuth } from "../auth";
+import { saveBlob } from "../download";
 import { useDebouncedValue, useLoad, usePagedList } from "../hooks";
 import { dateTime } from "../lib";
 import { useRealtime } from "../realtime";
-import type { Patient } from "../types";
+import type { Patient, Payer, PatientPolicy, VerificationStatus } from "../types";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
@@ -108,46 +109,220 @@ function TriState({ label, value, onChange }: { label: string; value: boolean | 
 
 function ConflictNotice() { return <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><strong>This history changed on another device.</strong><p>Close, reload and review the latest history before saving.</p></div>; }
 
-interface PatientPolicy { id: string; payerId: string; payerName: string; memberNumber: string; policyNumber: string; authorization: string; coveragePercent: number; isPrimary: boolean }
+const verificationTone = (status: VerificationStatus): "neutral" | "success" | "warning" | "danger" =>
+  status === "verified" ? "success" : status === "rejected" || status === "expired" ? "danger" : status === "pending_verification" ? "warning" : "neutral";
+const verificationLabel = (status: VerificationStatus) => status.replaceAll("_", " ");
 
 /**
- * The patient's insurance, including how much of a bill each policy takes. That
- * percentage is what lets a claim be proposed instead of worked out by hand on
- * every invoice.
+ * The patient's insurance: providers, coverage split, verification and the
+ * card photos, all from the patient record so staff never re-enter what a
+ * policy already says. A claim's split is proposed from a policy's coverage
+ * percentage instead of being worked out by hand on every invoice.
  */
 function PatientInsurance({ patientId }: { patientId: string }) {
   const { user } = useAuth();
+  const doctor = user?.role === "doctor";
   const policies = useLoad(() => api.get<{ items: PatientPolicy[] }>(`/insurance/policies?patientId=${encodeURIComponent(patientId)}`), [patientId]);
   const [adding, setAdding] = React.useState(false);
-  const [form, setForm] = React.useState({ payerName: "", policyNumber: "", memberNumber: "", authorization: "", coveragePercent: 80, isPrimary: true });
+  const [selected, setSelected] = React.useState<PatientPolicy | null>(null);
+  const reload = () => policies.reload();
+  return <Card>
+    <CardHeader className="flex-row items-center justify-between"><CardTitle>Insurance</CardTitle>{doctor && <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" />Add policy</Button>}</CardHeader>
+    <CardContent className="grid gap-3">
+      {policies.loading ? <Skeleton className="h-20" /> : policies.data?.items.length ? policies.data.items.map((policy) => (
+        <button key={policy.id} className={`flex items-center justify-between gap-3 rounded-md border p-3 text-left text-sm hover:border-black ${!policy.isActive ? "opacity-50" : ""}`} onClick={() => setSelected(policy)}>
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><strong>{policy.payerName}</strong>{policy.isPrimary && <Badge>Primary</Badge>}{!policy.isActive && <Badge tone="neutral">Inactive</Badge>}<Badge tone={verificationTone(policy.verificationStatus)}>{verificationLabel(policy.verificationStatus)}</Badge></div>
+            <div className="mt-1 text-xs text-zinc-500">{[policy.policyNumber, policy.memberNumber].filter(Boolean).join(" · ") || "No policy number"}{policy.expirationDate && ` · Expires ${policy.expirationDate}`}</div>
+          </div>
+          <span className="font-mono font-bold">{policy.coveragePercent}%</span>
+        </button>
+      )) : <p className="text-sm text-zinc-500">No insurance on file. Without a policy, a claim's split has to be entered by hand.</p>}
+    </CardContent>
+    <Dialog open={adding} onOpenChange={setAdding}><PolicyForm patientId={patientId} onSaved={() => { setAdding(false); reload(); }} /></Dialog>
+    <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>{selected && <PolicyDetail policy={selected} patientId={patientId} doctor={doctor} onChanged={(updated) => { reload(); setSelected(updated); }} onClose={() => setSelected(null)} />}</Dialog>
+  </Card>;
+}
+
+function PayerSelect({ value, onChange }: { value: string; onChange(payerId: string): void }) {
+  const payers = useLoad(() => api.get<{ items: Payer[] }>("/insurance/payers"));
+  return <Select required value={value} onChange={(event) => onChange(event.target.value)}>
+    <option value="">Select an insurer…</option>
+    {payers.data?.items.filter((payer) => payer.active).map((payer) => <option key={payer.id} value={payer.id}>{payer.name}</option>)}
+  </Select>;
+}
+
+/** A short, focused first form — the rest of a policy's detail (subscriber,
+ *  dates, notes, card, verification) is completed afterward from its own
+ *  detail dialog rather than in one long form up front. */
+function PolicyForm({ patientId, onSaved }: { patientId: string; onSaved(): void }) {
+  const payers = useLoad(() => api.get<{ items: Payer[] }>("/insurance/payers"));
+  const [form, setForm] = React.useState({ payerId: "", policyNumber: "", memberNumber: "", coveragePercent: 80, isPrimary: true });
   const [saving, setSaving] = React.useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const payer = payers.data?.items.find((candidate) => candidate.id === form.payerId);
     setSaving(true);
-    try { await api.post(`/patients/${patientId}/insurance`, form); toast.success("Policy recorded"); setAdding(false); policies.reload(); }
+    try { await api.post(`/patients/${patientId}/insurance`, { ...form, payerName: payer?.name ?? "", coveragePercent: payer && !form.coveragePercent ? payer.defaultCoveragePercent : form.coveragePercent }); toast.success("Policy recorded"); onSaved(); }
     catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not record the policy"); }
     finally { setSaving(false); }
   };
-  return <Card>
-    <CardHeader><CardTitle>Insurance</CardTitle></CardHeader>
-    <CardContent className="grid gap-3">
-      {policies.loading ? <Skeleton className="h-20" /> : policies.data?.items.length ? policies.data.items.map((policy) => (
-        <div key={policy.id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
-          <div><strong>{policy.payerName}</strong>{policy.isPrimary && <Badge className="ml-2">Primary</Badge>}<div className="text-xs text-zinc-500">{[policy.policyNumber, policy.memberNumber].filter(Boolean).join(" · ") || "No policy number"}</div></div>
-          <span className="font-mono font-bold">{policy.coveragePercent}%</span>
-        </div>
-      )) : <p className="text-sm text-zinc-500">No insurance on file. Without a policy, a claim's split has to be entered by hand.</p>}
-      {user?.role === "doctor" && (adding ? (
-        <form className="grid gap-3 rounded-md border p-3" onSubmit={submit}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Insurer"><Input required value={form.payerName} onChange={(event) => setForm({ ...form, payerName: event.target.value })} /></Field>
-            <Field label="Coverage (%)"><Input type="number" min={0} max={100} value={form.coveragePercent} onChange={(event) => setForm({ ...form, coveragePercent: Number(event.target.value) })} /></Field>
-            <Field label="Policy number"><Input value={form.policyNumber} onChange={(event) => setForm({ ...form, policyNumber: event.target.value })} /></Field>
-            <Field label="Member number"><Input value={form.memberNumber} onChange={(event) => setForm({ ...form, memberNumber: event.target.value })} /></Field>
-          </div>
-          <div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Record policy"}</Button></div>
-        </form>
-      ) : <div><Button size="sm" variant="outline" onClick={() => setAdding(true)}>Add a policy</Button></div>)}
-    </CardContent>
-  </Card>;
+  return <DialogContent><DialogHeader><DialogTitle>Add insurance policy</DialogTitle><DialogDescription>Card photos, verification and other details can be added once the policy is created.</DialogDescription></DialogHeader>
+    <form className="grid gap-4" onSubmit={submit}>
+      <Field label="Insurer"><PayerSelect value={form.payerId} onChange={(payerId) => setForm({ ...form, payerId, coveragePercent: payers.data?.items.find((p) => p.id === payerId)?.defaultCoveragePercent ?? form.coveragePercent })} /></Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Coverage (%)"><Input type="number" min={0} max={100} value={form.coveragePercent} onChange={(event) => setForm({ ...form, coveragePercent: Number(event.target.value) })} /></Field>
+        <Field label="Policy number"><Input value={form.policyNumber} onChange={(event) => setForm({ ...form, policyNumber: event.target.value })} /></Field>
+        <Field label="Member number"><Input value={form.memberNumber} onChange={(event) => setForm({ ...form, memberNumber: event.target.value })} /></Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.isPrimary} onChange={(event) => setForm({ ...form, isPrimary: event.target.checked })} />Primary insurance</label>
+      <DialogFooter><Button type="submit" disabled={saving || !form.payerId}>{saving ? "Saving…" : "Record policy"}</Button></DialogFooter>
+    </form>
+  </DialogContent>;
+}
+
+type PolicyTab = "coverage" | "card" | "verification";
+
+function PolicyDetail({ policy, patientId, doctor, onChanged, onClose }: { policy: PatientPolicy; patientId: string; doctor: boolean; onChanged(policy: PatientPolicy): void; onClose(): void }) {
+  const [tab, setTab] = React.useState<PolicyTab>("coverage");
+  const detail = useLoad(() => api.get<{ items: PatientPolicy[] }>(`/insurance/policies?patientId=${encodeURIComponent(patientId)}`), [patientId, policy.id]);
+  const current = detail.data?.items.find((item) => item.id === policy.id) ?? policy;
+  const refresh = () => detail.reload();
+  React.useEffect(() => { if (detail.data) { const found = detail.data.items.find((item) => item.id === policy.id); if (found) onChanged(found); } }, [detail.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <DialogContent className="max-w-2xl">
+    <DialogHeader><DialogTitle className="flex flex-wrap items-center gap-2">{current.payerName}{current.isPrimary && <Badge>Primary</Badge>}{!current.isActive && <Badge tone="neutral">Inactive</Badge>}</DialogTitle><DialogDescription>{[current.policyNumber, current.memberNumber].filter(Boolean).join(" · ") || "No policy number on file"}</DialogDescription></DialogHeader>
+    <div className="flex gap-1 border-b pb-2">
+      <Tab active={tab === "coverage"} onClick={() => setTab("coverage")}>Coverage</Tab>
+      <Tab active={tab === "card"} onClick={() => setTab("card")}>Insurance card</Tab>
+      <Tab active={tab === "verification"} onClick={() => setTab("verification")}>Verification</Tab>
+    </div>
+    {tab === "coverage" && <CoverageTab policy={current} patientId={patientId} doctor={doctor} onChanged={refresh} onClose={onClose} />}
+    {tab === "card" && <CardTab policy={current} doctor={doctor} />}
+    {tab === "verification" && <VerificationTab policy={current} patientId={patientId} doctor={doctor} onChanged={refresh} />}
+  </DialogContent>;
+}
+
+function Tab({ active, onClick, children }: { active: boolean; onClick(): void; children: React.ReactNode }) {
+  return <button type="button" onClick={onClick} className={`rounded-md px-3 py-1.5 text-sm font-semibold ${active ? "bg-black text-white" : "text-zinc-500 hover:bg-zinc-100"}`}>{children}</button>;
+}
+
+function CoverageTab({ policy, patientId, doctor, onChanged, onClose }: { policy: PatientPolicy; patientId: string; doctor: boolean; onChanged(): void; onClose(): void }) {
+  const [form, setForm] = React.useState({
+    payerId: policy.payerId, payerName: policy.payerName, policyNumber: policy.policyNumber, memberNumber: policy.memberNumber,
+    groupNumber: policy.groupNumber, subscriberName: policy.subscriberName, relationshipToSubscriber: policy.relationshipToSubscriber,
+    authorization: policy.authorization, coveragePercent: policy.coveragePercent, effectiveDate: policy.effectiveDate, expirationDate: policy.expirationDate,
+    coverageNotes: policy.coverageNotes, notes: policy.notes,
+  });
+  const [saving, setSaving] = React.useState(false);
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true);
+    try { await api.put(`/patients/${patientId}/insurance/${policy.id}`, { ...form, version: policy.version }); toast.success("Policy updated"); onChanged(); }
+    catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not update the policy"); }
+    finally { setSaving(false); }
+  };
+  const setPrimary = async () => { try { await api.post(`/patients/${patientId}/insurance/${policy.id}/set-primary`, { version: policy.version }); toast.success("Marked as primary insurance"); onChanged(); } catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not set as primary"); } };
+  const toggleActive = async () => {
+    const action = policy.isActive ? "deactivate" : "reactivate";
+    try { await api.post(`/patients/${patientId}/insurance/${policy.id}/${action}`, { version: policy.version }); toast.success(policy.isActive ? "Policy deactivated" : "Policy reactivated"); onChanged(); }
+    catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not update the policy"); }
+  };
+  const remove = async () => {
+    if (!window.confirm(`Remove this ${policy.payerName} policy? This cannot be undone.`)) return;
+    try { await api.delete(`/patients/${patientId}/insurance/${policy.id}?version=${policy.version}`); toast.success("Policy removed"); onClose(); }
+    catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Remove the insurance card and any documents first, or deactivate this policy instead."); }
+  };
+  return <form className="grid gap-4 pt-4" onSubmit={save}>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label="Coverage (%)"><Input type="number" min={0} max={100} value={form.coveragePercent} onChange={(e) => setForm({ ...form, coveragePercent: Number(e.target.value) })} disabled={!doctor} /></Field>
+      <Field label="Authorization / reference"><Input value={form.authorization} onChange={(e) => setForm({ ...form, authorization: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Policy number"><Input value={form.policyNumber} onChange={(e) => setForm({ ...form, policyNumber: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Member number"><Input value={form.memberNumber} onChange={(e) => setForm({ ...form, memberNumber: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Group number"><Input value={form.groupNumber} onChange={(e) => setForm({ ...form, groupNumber: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Subscriber name"><Input value={form.subscriberName} onChange={(e) => setForm({ ...form, subscriberName: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Relationship to subscriber"><Select value={form.relationshipToSubscriber} onChange={(e) => setForm({ ...form, relationshipToSubscriber: e.target.value })} disabled={!doctor}><option value="">Not specified</option><option value="self">Self</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="other">Other</option></Select></Field>
+      <Field label="Effective date"><Input type="date" value={form.effectiveDate} onChange={(e) => setForm({ ...form, effectiveDate: e.target.value })} disabled={!doctor} /></Field>
+      <Field label="Expiration date"><Input type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} disabled={!doctor} /></Field>
+    </div>
+    <Field label="Coverage notes" hint="What this policy covers, exclusions, contract specifics."><Textarea value={form.coverageNotes} onChange={(e) => setForm({ ...form, coverageNotes: e.target.value })} disabled={!doctor} /></Field>
+    <Field label="Notes"><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} disabled={!doctor} /></Field>
+    {doctor && <div className="flex flex-wrap gap-2 border-t pt-4">
+      {!policy.isPrimary && policy.isActive && <Button type="button" variant="outline" size="sm" onClick={setPrimary}><ShieldCheck className="h-3.5 w-3.5" />Make primary</Button>}
+      <Button type="button" variant="outline" size="sm" onClick={toggleActive}>{policy.isActive ? "Deactivate" : "Reactivate"}</Button>
+      <Button type="button" variant="ghost" size="sm" className="ml-auto text-red-700 hover:text-red-700" onClick={remove}><Trash2 className="h-3.5 w-3.5" />Remove</Button>
+    </div>}
+    <DialogFooter><Button type="submit" disabled={saving || !doctor}>{saving ? "Saving…" : "Save changes"}</Button></DialogFooter>
+  </form>;
+}
+
+function VerificationTab({ policy, patientId, doctor, onChanged }: { policy: PatientPolicy; patientId: string; doctor: boolean; onChanged(): void }) {
+  const [status, setStatus] = React.useState<VerificationStatus>(policy.verificationStatus);
+  const [reference, setReference] = React.useState(policy.verificationReference);
+  const [contact, setContact] = React.useState(policy.verificationContact);
+  const [notes, setNotes] = React.useState(policy.verificationNotes);
+  const [saving, setSaving] = React.useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true);
+    try { await api.post(`/patients/${patientId}/insurance/${policy.id}/verify`, { status, reference, contact, notes, version: policy.version }); toast.success("Verification recorded"); onChanged(); }
+    catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not record verification"); }
+    finally { setSaving(false); }
+  };
+  return <form className="grid gap-4 pt-4" onSubmit={submit}>
+    <div className="rounded-md border p-3 text-sm text-zinc-600">Verification is recorded manually by staff — this clinic has no electronic eligibility check. {policy.verifiedBy && <>Last verified by {policy.verifiedBy}{policy.verifiedAt && ` on ${dateTime(policy.verifiedAt)}`}.</>}</div>
+    <Field label="Status"><Select value={status} onChange={(e) => setStatus(e.target.value as VerificationStatus)} disabled={!doctor}><option value="not_verified">Not verified</option><option value="pending_verification">Pending verification</option><option value="verified">Verified</option><option value="rejected">Rejected</option><option value="expired">Expired</option></Select></Field>
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label="Authorization / reference number"><Input value={reference} onChange={(e) => setReference(e.target.value)} disabled={!doctor} /></Field>
+      <Field label="Contact person"><Input value={contact} onChange={(e) => setContact(e.target.value)} disabled={!doctor} /></Field>
+    </div>
+    <Field label="Notes"><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={!doctor} /></Field>
+    <DialogFooter><Button type="submit" disabled={saving || !doctor}>{saving ? "Saving…" : "Record verification"}</Button></DialogFooter>
+  </form>;
+}
+
+function CardTab({ policy, doctor }: { policy: PatientPolicy; doctor: boolean }) {
+  return <div className="grid gap-4 pt-4 sm:grid-cols-2">
+    <CardSide policy={policy} side="front" doctor={doctor} />
+    <CardSide policy={policy} side="back" doctor={doctor} />
+  </div>;
+}
+
+function CardSide({ policy, side, doctor }: { policy: PatientPolicy; side: "front" | "back"; doctor: boolean }) {
+  const [revision, setRevision] = React.useState(0);
+  const cards = useLoad(() => api.get<{ items: { id: string; side: string }[] }>(`/patient-insurance/${policy.id}/cards`), [policy.id, revision]);
+  const present = cards.data?.items.some((card) => card.side === side) ?? false;
+  const [preview, setPreview] = React.useState("");
+  const [uploading, setUploading] = React.useState(false);
+  const [fullscreen, setFullscreen] = React.useState(false);
+  React.useEffect(() => {
+    if (!present) { setPreview(""); return; }
+    let active = true; let url = "";
+    api.blob(`/patient-insurance/${policy.id}/cards/${side}/content`).then(({ blob }) => { if (!active) return; url = URL.createObjectURL(blob); setPreview(url); }).catch(() => undefined);
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [present, policy.id, side, revision]);
+  const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; if (!file) return; setUploading(true);
+    try { const body = new FormData(); body.set("file", file); await api.post(`/patient-insurance/${policy.id}/cards/${side}`, body); toast.success(`${side === "front" ? "Front" : "Back"} of card saved`); setRevision((v) => v + 1); }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not save the image"); }
+    finally { setUploading(false); event.target.value = ""; }
+  };
+  const download = async () => {
+    try { const { blob } = await api.blob(`/patient-insurance/${policy.id}/cards/${side}/content?download=true`); await saveBlob(blob, `insurance-card-${side}.jpg`); }
+    catch (reason) { toast.error(reason instanceof Error ? reason.message : "Could not download the image"); }
+  };
+  const remove = async () => {
+    if (!window.confirm(`Delete the ${side} of this insurance card?`)) return;
+    try { await api.delete(`/patient-insurance/${policy.id}/cards/${side}`); toast.success("Card image removed"); setRevision((v) => v + 1); }
+    catch (reason) { toast.error(reason instanceof APIError ? reason.body.message : "Could not delete the image"); }
+  };
+  return <div className="grid gap-2">
+    <div className="text-xs font-bold uppercase text-zinc-500">{side}</div>
+    <div className="grid aspect-[16/10] place-items-center overflow-hidden rounded-lg border bg-zinc-50">
+      {present && preview ? <img src={preview} alt={`Insurance card ${side}`} className="h-full w-full cursor-zoom-in object-contain" onClick={() => setFullscreen(true)} /> : <div className="grid place-items-center gap-1 text-zinc-400"><ImageOff className="h-6 w-6" /><span className="text-xs">Not uploaded</span></div>}
+    </div>
+    <div className="flex flex-wrap gap-2">
+      <label className="flex min-h-9 flex-1 cursor-pointer items-center justify-center gap-1 rounded-md border px-2 text-xs font-semibold hover:bg-zinc-50"><Camera className="h-3.5 w-3.5" />{uploading ? "Saving…" : present ? "Replace" : "Take photo / upload"}<input className="sr-only" type="file" accept="image/*" capture="environment" onChange={upload} disabled={uploading} /></label>
+      {present && <Button size="sm" variant="outline" onClick={download}><Download className="h-3.5 w-3.5" /></Button>}
+      {present && doctor && <Button size="sm" variant="outline" onClick={remove}><Trash2 className="h-3.5 w-3.5" /></Button>}
+    </div>
+    {fullscreen && preview && <div className="fixed inset-0 z-[60] grid place-items-center bg-black/80 p-4" onClick={() => setFullscreen(false)}><img src={preview} alt={`Insurance card ${side}, full screen`} className="max-h-full max-w-full object-contain" /></div>}
+  </div>;
 }

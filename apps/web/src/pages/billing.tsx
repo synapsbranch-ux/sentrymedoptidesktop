@@ -43,8 +43,9 @@ import {
 } from "../components/ui/data";
 import { Field, Input, Select, Textarea } from "../components/ui/input";
 import { MoneyInput } from "../components/ui/money-input";
+import type { InvoiceInsurance } from "../types";
 
-interface InvoiceDetail extends Invoice {
+interface InvoiceDetail extends Invoice, InvoiceInsurance {
   notes: string;
   items: {
     id: string;
@@ -396,6 +397,39 @@ function InvoiceView({ id, onChanged }: { id: string; onChanged(): void }) {
             </strong>
           </div>
         </div>
+        {invoice.insuranceClaims.length > 0 && (
+          <div className="mt-4 grid gap-3 rounded-lg border bg-zinc-50 p-4 sm:grid-cols-2">
+            <div>
+              <div className="text-xs font-bold uppercase text-zinc-500">
+                Patient responsibility
+              </div>
+              <div className="mt-1 font-mono text-lg font-bold">
+                {money(invoice.patientResponsibilityMinor, invoice.currency)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase text-zinc-500">
+                Insurance
+              </div>
+              <div className="mt-1 flex items-baseline gap-2 font-mono text-lg font-bold">
+                {money(invoice.insuranceReceivedMinor, invoice.currency)}
+                <span className="text-xs font-normal text-zinc-500">
+                  received of {money(invoice.insuranceExpectedMinor, invoice.currency)} expected
+                </span>
+              </div>
+            </div>
+            <div className="sm:col-span-2 space-y-1">
+              {invoice.insuranceClaims.map((claim) => (
+                <div key={claim.id} className="flex items-center justify-between text-xs text-zinc-600">
+                  <span>{claim.payerName} · {claim.status.replaceAll("_", " ")}</span>
+                  <span className="font-mono">
+                    {money(claim.paidMinor, invoice.currency)} / {money(claim.payerPortionMinor, invoice.currency)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {invoice.payments.length > 0 && (
         <Card className="mt-4 no-print">

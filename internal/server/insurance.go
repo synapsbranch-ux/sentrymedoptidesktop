@@ -147,15 +147,16 @@ func (s *Server) handleClaimsSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleClaimsList(w http.ResponseWriter, r *http.Request) {
-	q := `SELECT c.id,p.medical_record_number,p.first_name||' '||p.last_name,c.patient_id,py.name,c.payer_id,COALESCE(i.invoice_number,''),COALESCE(c.invoice_id,''),COALESCE(c.authorization,''),COALESCE(c.member_number,''),COALESCE(c.policy_number,''),c.currency,c.exchange_rate,c.claim_amount_minor,c.patient_portion_minor,c.payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=c.id),0),c.status,COALESCE(c.submitted_at,''),c.version,c.created_at,c.updated_at FROM insurance_claims c JOIN patients p ON p.id=c.patient_id JOIN payers py ON py.id=c.payer_id LEFT JOIN invoices i ON i.id=c.invoice_id WHERE (?='' OR c.status=?) ORDER BY c.updated_at DESC LIMIT ? OFFSET ?`
+	q := `SELECT c.id,p.medical_record_number,p.first_name||' '||p.last_name,c.patient_id,py.name,c.payer_id,COALESCE(i.invoice_number,''),COALESCE(c.invoice_id,''),COALESCE(c.authorization,''),COALESCE(c.member_number,''),COALESCE(c.policy_number,''),c.currency,c.exchange_rate,c.claim_amount_minor,c.patient_portion_minor,c.payer_portion_minor,COALESCE((SELECT SUM(amount_minor) FROM insurance_claim_payments WHERE claim_id=c.id),0),c.status,COALESCE(c.submitted_at,''),c.version,c.created_at,c.updated_at FROM insurance_claims c JOIN patients p ON p.id=c.patient_id JOIN payers py ON py.id=c.payer_id LEFT JOIN invoices i ON i.id=c.invoice_id WHERE (?='' OR c.status=?) AND (?='' OR c.patient_id=?) ORDER BY c.updated_at DESC LIMIT ? OFFSET ?`
 	status := r.URL.Query().Get("status")
+	patientID := r.URL.Query().Get("patientId")
 	paging := paginationFrom(r, 50, 200)
-	claimCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM insurance_claims c WHERE (?='' OR c.status=?)", status, status)
+	claimCount, err := s.countRows(r.Context(), "SELECT COUNT(*) FROM insurance_claims c WHERE (?='' OR c.status=?) AND (?='' OR c.patient_id=?)", status, status, patientID, patientID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "CLAIMS_FAILED", "Could not load insurance claims.")
 		return
 	}
-	rows, err := s.db.QueryContext(r.Context(), q, paging.Args(status, status)...)
+	rows, err := s.db.QueryContext(r.Context(), q, paging.Args(status, status, patientID, patientID)...)
 	if err != nil {
 		writeError(w, 500, "CLAIMS_FAILED", "Could not load insurance claims.")
 		return

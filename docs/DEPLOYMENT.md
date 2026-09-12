@@ -22,9 +22,106 @@ export SENTRYMED_TLS_KEY=/secure/path/sentrymed.key
 export SENTRYMED_PUBLIC_URL=https://sentrymed.clinic.local:8787
 ```
 
-The certificate must cover the chosen name/IP and be trusted by the clients. `SENTRYMED_PUBLIC_URL` must be an HTTPS origin with no credentials, path, query or fragment. Direct TLS is the simplest deployment. For a local TLS reverse proxy, bind the backend to `127.0.0.1:8787`, set `SENTRYMED_AUTO_TLS=false`, configure the exact public HTTPS origin, and preserve the public `Host` header. The app recognizes that origin only from an actual loopback peer; `X-Forwarded-*` headers alone confer no trust. Block `/api/v1/setup/complete` at the proxy and finish setup locally first. Do not place the HTTP backend on another network host.
+The certificate must cover the chosen name/IP and be trusted by the clients. `SENTRYMED_PUBLIC_URL` must be an HTTPS origin with no credentials, path, query or fragment; never include an explicit `:443` — the app compares `Host` with no port normalization, and a mismatch silently drops the `Secure` cookie flag and HSTS even though the connection is genuinely TLS. Direct TLS is the simplest deployment. For a local TLS reverse proxy, bind the backend to `127.0.0.1:8787`, set `SENTRYMED_AUTO_TLS=false`, configure the exact public HTTPS origin, and preserve the public `Host` header. The app recognizes that origin only from an actual loopback peer; `X-Forwarded-*` headers alone confer no trust. The backend also attributes rate-limiting and audit logging to `X-Forwarded-For`, but only when the peer is loopback — so the proxy must **overwrite** that header with the client it actually observed, never append to whatever the client already sent, or a device could pick its own attribution. Block `/api/v1/setup/complete` at the proxy and finish setup locally first. Do not place the HTTP backend on another network host.
 
 Verify HTTPS, certificate trust, Secure/HttpOnly/SameSite cookies, login/logout, uploads and live updates from a clinic phone before use. Public display should use ticket codes; initials/first names are explicit clinic privacy choices.
+
+## Publicly trusted HTTPS on the clinic LAN (Caddy + Let's Encrypt + DuckDNS)
+
+The self-signed clinic CA above requires installing and trusting it on every
+phone by hand. To remove that certificate warning entirely — a normal green
+padlock, no per-device trust step — put [Caddy](https://caddyserver.com) in
+front of the backend as the local TLS reverse proxy described above, and let
+it obtain a real certificate from Let's Encrypt. `deploy/caddy/Caddyfile` is a
+ready-to-edit template for this.
+
+Because the clinic server must never be reachable from the Internet, the only
+usable ACME challenge is **DNS-01**: Caddy proves domain ownership by writing
+a DNS TXT record via a provider API, with no inbound connectivity required at
+all. This needs a real public domain name, which is where a free
+[DuckDNS](https://www.duckdns.org) subdomain comes in — its public DNS record
+is pointed at the server's **private LAN IP** (e.g. `192.168.1.50`). That is a
+harmless, unroutable answer from the public Internet, but resolves correctly
+for any device physically on the clinic Wi-Fi. Only the DNS-01 challenge
+itself ever reaches the Internet; clinic traffic never leaves the LAN.
+
+Runbook, in order:
+
+1. Create a free DuckDNS subdomain (e.g. `sentrymedclinic.duckdns.org`) and
+   copy the account token. Use a dedicated DuckDNS account for the clinic —
+   the token is account-wide, not scoped to one subdomain, so treat it like a
+   password.
+2. Give the server a static LAN IP via a router DHCP reservation (e.g.
+   `192.168.1.50`); confirm with `ipconfig` after a reboot.
+3. On duckdns.org, point the subdomain at that private IP. Verify from
+   another Internet-connected machine: `nslookup sentrymedclinic.duckdns.org
+   1.1.1.1` must answer with the private IP.
+4. **Verify the same lookup resolves correctly from a phone on clinic Wi-Fi**
+   (not `NXDOMAIN`). Many routers (Fritz!Box, OpenWRT/dnsmasq,
+   pfSense/OPNsense, some ISP routers) filter out a public name that resolves
+   to a private address by default ("DNS rebinding protection"). If it fails,
+   whitelist the domain in the router's rebind-protection exception list, add
+   a router-side DNS override for the name, or point the clinic's
+   DHCP-advertised DNS at a resolver that doesn't filter private answers
+   (e.g. `1.1.1.1`). Everything below is wasted until this check passes.
+5. Get Caddy for Windows with the DuckDNS plugin built in — the prebuilt
+   download from caddyserver.com/download (add package "duckdns") needs no Go
+   toolchain, or build it yourself with `xcaddy build --with
+   github.com/caddy-dns/duckdns`.
+6. Confirm nothing already owns ports 80/443 (`netsh http show servicestate`,
+   `netstat -ano | findstr ":443 :80"`) — IIS, WinRM, BranchCache and some
+   antivirus consoles reserve them via `http.sys`.
+7. Place `Caddyfile` (edited with the real subdomain, email and subnet),
+   `deploy/caddy/start-caddy.ps1` and `deploy/duckdns/update-duckdns-ip.ps1`
+   under `C:\ProgramData\SentryMed\`. Write the DuckDNS token to
+   `C:\ProgramData\SentryMed\duckdns-token.txt` and restrict it to the
+   account that will run the service (`icacls ... /inheritance:r /grant
+   "SYSTEM:(R)"`).
+8. Dry-run Caddy interactively against the Let's Encrypt **staging** CA first
+   (a commented toggle in the Caddyfile) to prove the DNS-01 flow and token
+   without spending production issuance attempts; switch to production
+   afterward and clear the staging certificate from local storage.
+9. Set these before the backend next starts (machine-level environment
+   variables, or the equivalent for however the service is launched):
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable("SENTRYMED_ADDRESS",    "127.0.0.1:8787",                      "Machine")
+   [Environment]::SetEnvironmentVariable("SENTRYMED_AUTO_TLS",   "false",                                "Machine")
+   [Environment]::SetEnvironmentVariable("SENTRYMED_PUBLIC_URL", "https://sentrymedclinic.duckdns.org",  "Machine")
+   ```
+
+   Leave `SENTRYMED_TLS_CERT`/`SENTRYMED_TLS_KEY` unset — Caddy holds the
+   certificate, the backend must never see it.
+10. Complete first-run setup locally (desktop app or `http://127.0.0.1:8787`)
+    before the proxy is reachable — both the backend and the Caddyfile above
+    require this.
+11. Run `scripts/install-caddy-task.ps1` elevated to register the Scheduled
+    Tasks and firewall rules, then `Start-ScheduledTask -TaskName "SentryMed
+    Caddy"`.
+12. Remove any existing Windows Firewall rule for the SentryMed executable or
+    port 8787 — the backend is loopback-only now, and a stale LAN-facing rule
+    would bypass the TLS Caddy provides.
+13. Verify from the server (`curl.exe -sS https://sentrymedclinic.duckdns.org
+    /health` returns 200 with no `-k`, and a `POST` to
+    `/api/v1/setup/complete` returns 403), then from an actual phone on
+    clinic Wi-Fi: no certificate warning; the padlock's issuer reads Let's
+    Encrypt; sign in and confirm the newest `sessions`/`audit_logs` row shows
+    the phone's real LAN address, not `127.0.0.1`; live queue updates still
+    arrive promptly; a document/audio upload still works; **System → Mobile &
+    network** shows a green HTTPS badge with no CA-download panel.
+14. Re-onboard every device: the origin changed, so cookies, the installed
+    PWA and the session all need to be redone once per device. Only then
+    remove the old clinic CA from each device's trust store.
+
+This trades the self-signed CA's ability to work fully offline forever for a
+dependency on Internet reachability roughly every 60 days, when Caddy renews
+the certificate (it needs to reach both Let's Encrypt and the DuckDNS API).
+Keep the self-signed path above as the rollback: unset `SENTRYMED_PUBLIC_URL`,
+remove `SENTRYMED_AUTO_TLS=false`, restore `SENTRYMED_ADDRESS=:8787`, and stop
+Caddy. Also note that the LAN server today is the Wails desktop process
+itself — after an unattended reboot, Caddy comes up but the backend does not
+respond until someone signs into the clinic desktop; the Caddyfile's
+`handle_errors` block says so.
 
 ## Thermal receipt printer
 

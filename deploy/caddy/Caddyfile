@@ -1,0 +1,89 @@
+# Terminates a real, publicly-trusted Let's Encrypt certificate for the clinic
+# LAN in front of the loopback-bound SentryMed Opti backend, so phones stop
+# showing a certificate warning without installing the clinic's self-signed CA.
+#
+# See docs/DEPLOYMENT.md, "Publicly trusted HTTPS on the clinic LAN (Caddy +
+# Let's Encrypt + DuckDNS)" for the full runbook. Copy this file to
+# C:\ProgramData\SentryMed\Caddyfile and replace CLINIC.duckdns.org, the
+# admin email, and the clinic subnet below before use.
+#
+# Requires a Caddy build with the DuckDNS DNS provider plugin, e.g. from
+# https://caddyserver.com/download (add package "duckdns") or
+# `xcaddy build --with github.com/caddy-dns/duckdns`.
+
+{
+	# Pin ACME storage to a fixed path. Caddy's default (%AppData%\Caddy)
+	# differs between the account you test as and the SYSTEM account a
+	# Scheduled Task runs under -- a mismatch makes Caddy think it has no
+	# certificate yet and re-issue on every account switch, which burns
+	# Let's Encrypt's duplicate-certificate rate limit.
+	storage file_system {
+		root C:\ProgramData\SentryMed\caddy
+	}
+	email clinic-admin@example.org
+
+	# While testing the DNS-01 flow and DuckDNS token, uncomment this to use
+	# Let's Encrypt's staging environment: certificates it issues are NOT
+	# trusted by browsers, but issuance has no meaningful rate limit, so this
+	# is the safe way to prove the setup before spending production attempts.
+	# After switching back to production, delete the "caddy" storage
+	# directory above once so the untrusted staging certificate isn't reused.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+CLINIC.duckdns.org {
+	tls {
+		dns duckdns {env.DUCKDNS_API_TOKEN}
+		# Ask public resolvers directly for the DNS-01 challenge lookup: the
+		# clinic router's own resolver may filter out this record's answer
+		# (it deliberately points at a private LAN address) as "DNS rebinding
+		# protection", which would make Caddy unable to see its own challenge.
+		resolvers 1.1.1.1 9.9.9.9
+		propagation_delay 30s
+		propagation_timeout 5m
+	}
+
+	# docs/DEPLOYMENT.md requires first-run setup to be completed locally on
+	# the server before the proxy is reachable. The backend enforces this too
+	# (setupRequestAllowed needs a loopback peer AND a loopback Host), so this
+	# is defence in depth, not the only control -- but it fails closed.
+	@setup path /api/v1/setup/complete
+	respond @setup 403
+
+	reverse_proxy 127.0.0.1:8787 {
+		# Overwrite, never append. Caddy's default reverse_proxy appends the
+		# observed peer to any X-Forwarded-For the client already sent, so a
+		# LAN client could otherwise pre-seed a forged first hop and pick its
+		# own rate-limit/audit identity. The backend (clientAttributionIP in
+		# internal/server/context.go) reads this header only when its own
+		# peer is loopback, trusting it as coming from this proxy -- which is
+		# only safe if this proxy always supplies the real value itself.
+		header_up X-Forwarded-For {remote_host}
+		# /api/v1/events and /api/v1/public/events are long-lived SSE
+		# streams for live queue/appointment updates; without this Caddy may
+		# buffer them instead of flushing each update immediately.
+		flush_interval -1
+	}
+
+	handle_errors {
+		respond "SentryMed Opti is not running on the clinic server. Ask the front desk to sign in on the clinic computer." 503
+	}
+
+	# Contains request paths (e.g. /api/v1/patients/<id>/...) alongside other
+	# clinic data. Apply the same access restriction to this directory as the
+	# rest of the data directory (docs/DEPLOYMENT.md), or remove this block.
+	log {
+		output file C:\ProgramData\SentryMed\caddy\access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}
+
+# Optional convenience redirect for staff who type the bare LAN IP out of
+# habit -- that will always show a certificate warning, since the Let's
+# Encrypt certificate above only covers the DuckDNS name. Uncomment and set
+# the real LAN IP if you want the redirect; otherwise leave it out.
+# http://192.168.1.50 {
+# 	redir https://CLINIC.duckdns.org{uri} permanent
+# }

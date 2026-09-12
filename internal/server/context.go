@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// requestIP and its trust-decision callers (setupRequestAllowed below, and
+// secureRequest in network_security.go) intentionally use the raw TCP peer,
+// never clientAttributionIP's forwarded-header value: they are deciding
+// whether to trust a claim (loopback setup, a co-located proxy's public
+// origin), not who to blame an action on. Do not "fix" them to match
+// clientAttributionIP.
+
 type contextKey string
 
 const (
@@ -33,6 +40,67 @@ func requestIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// forwardedForHeader is written by the co-located reverse proxy documented in
+// docs/DEPLOYMENT.md (deploy/caddy/Caddyfile), which overwrites rather than
+// appends it so the value below always reflects the proxy's own observed peer.
+const forwardedForHeader = "X-Forwarded-For"
+
+// clientAttributionIP returns the address a request should be attributed to
+// for rate-limiting and audit logging. This is a different question from the
+// one requestIP answers for secureRequest and setupRequestAllowed: those need
+// the raw TCP peer to decide whether to TRUST a claimed public origin or a
+// loopback setup request, and must keep using requestIP directly.
+//
+// Once a reverse proxy fronts the backend (SENTRYMED_ADDRESS=127.0.0.1:8787),
+// every request's raw peer is loopback, which is correct for that trust
+// decision but wrong for attribution: it would collapse every LAN device into
+// one shared rate-limit bucket and erase per-device forensic value from the
+// audit log. The forwarded header is honored only when the peer is loopback,
+// because in this deployment shape only the trusted co-located proxy can ever
+// be that peer -- a device reaching the backend directly is never loopback,
+// so it cannot forge its own attribution by sending the header itself.
+func clientAttributionIP(r *http.Request) string {
+	peer := requestIP(r)
+	if ip := net.ParseIP(peer); ip == nil || !ip.IsLoopback() {
+		return peer
+	}
+	values := r.Header.Values(forwardedForHeader)
+	if len(values) == 0 {
+		return peer
+	}
+	// Read the LAST hop of the LAST header line: a well-behaved proxy appends
+	// (or, per our Caddyfile, overwrites with) the peer it observed, so the
+	// final element is the only one the proxy itself vouched for. Taking the
+	// first element instead would let a client that reaches the proxy pick its
+	// own attribution by pre-seeding the header.
+	hops := strings.Split(values[len(values)-1], ",")
+	if forwarded := parseForwardedIP(hops[len(hops)-1]); forwarded != "" {
+		return forwarded
+	}
+	return peer
+}
+
+// parseForwardedIP accepts a bare address, a bracketed IPv6 literal, or an
+// address:port pair, and returns "" for anything it cannot canonicalize (a
+// hostname, garbage text, or an empty value) so the caller falls back to the
+// raw peer instead of storing an unvalidated string in a rate-limit key or an
+// audit row.
+func parseForwardedIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if ip := net.ParseIP(strings.Trim(value, "[]")); ip != nil {
+		return ip.String()
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+			return ip.String()
+		}
+	}
+	return ""
 }
 
 // DesktopHandler marks requests that originate from Wails' in-process asset

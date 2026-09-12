@@ -36,6 +36,16 @@ func (c Config) Scheme() string {
 
 func (c Config) LoopbackURL() string { return c.Scheme() + "://127.0.0.1:" + c.Port() }
 
+// ClientTLS reports whether clients reach this server over TLS: either this
+// process terminates it directly, or a trusted co-located reverse proxy does
+// and the public HTTPS origin is configured (see server.secureRequest). This
+// is deliberately separate from Scheme(), which describes what THIS process's
+// own loopback listener speaks (still plain HTTP when a proxy holds the
+// certificate) and must keep driving LoopbackURL().
+func (c Config) ClientTLS() bool {
+	return c.TLSCert != "" || strings.HasPrefix(c.PublicURL, "https://")
+}
+
 func (c Config) MobileURL(host string) string {
 	if c.PublicURL != "" {
 		return c.PublicURL

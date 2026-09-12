@@ -35,6 +35,7 @@ SentryMed Opti is a modular-monolith clinic application built for a small optica
 - manual and scheduled SQLite-safe backups, retention and guarded restore;
 - installable, touch-first PWA with compact header, drawer and bottom navigation;
 - automatic local HTTPS with a persistent clinic CA and downloadable trust certificate;
+- optional publicly trusted HTTPS via a bundled Caddy reverse-proxy configuration (Let's Encrypt DNS-01 over a free DuckDNS name), for warning-free access from personal phones;
 - Wails desktop host with the built PWA embedded in the binary and a plug-and-play Windows installer workflow.
 - native Windows system-tray controls for the clinic server.
 - server-persisted shadcn base/accent themes with light, dark and device modes;
@@ -447,7 +448,7 @@ The Go process serves the production PWA from the same origin as `/api/v1`. In *
 
 Use **System → Themes** to select a shadcn base palette, accent, light/dark/device mode and corner radius. This setting is stored in SQLite and applied to authenticated desktop and LAN clients. Use **System → Public display** to enable the privacy-filtered waiting-room screen, choose queue-number/initials/first-name identification, and obtain the TV URL and QR code. Open `<clinic-server-url>/display` on a clinic-owned display device.
 
-Production startup automatically creates a persistent clinic CA and serves HTTPS with a certificate valid for the detected LAN addresses. Download the CA from **System → Mobile & network**, install it once on each authorized device, then scan the QR code. Set `SENTRYMED_AUTO_TLS=false` only for development, or supply `SENTRYMED_TLS_CERT` and `SENTRYMED_TLS_KEY` to use a managed certificate. See [Deployment](docs/DEPLOYMENT.md).
+Production startup automatically creates a persistent clinic CA and serves HTTPS with a certificate valid for the detected LAN addresses. Download the CA from **System → Mobile & network**, install it once on each authorized device, then scan the QR code. Set `SENTRYMED_AUTO_TLS=false` only for development, or supply `SENTRYMED_TLS_CERT` and `SENTRYMED_TLS_KEY` to use a managed certificate. To remove the certificate warning on devices where installing the clinic CA is impractical, see [Publicly trusted HTTPS on the clinic LAN](docs/DEPLOYMENT.md#publicly-trusted-https-on-the-clinic-lan-caddy--lets-encrypt--duckdns) — `deploy/caddy/Caddyfile` terminates TLS with a Let's Encrypt certificate for a free DuckDNS name and proxies to the loopback-bound backend. See [Deployment](docs/DEPLOYMENT.md).
 
 ## Tests
 

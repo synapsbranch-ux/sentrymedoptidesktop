@@ -35,7 +35,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "LOGIN_BUSY", "Sign-in is busy. Try again shortly.")
 		return
 	}
-	ip := requestIP(r)
+	ip := clientAttributionIP(r)
 	cutoff := time.Now().UTC().Add(-15 * time.Minute).Format(time.RFC3339Nano)
 	var failures int
 	err := s.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM login_attempts

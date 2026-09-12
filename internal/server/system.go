@@ -299,7 +299,7 @@ func (s *Server) handleNetwork(w http.ResponseWriter, r *http.Request) {
 	if host, _, err := net.SplitHostPort(s.config.Address); err == nil && host != "" && host != "0.0.0.0" && host != "::" {
 		primary = host
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"running": true, "addresses": addresses, "url": s.config.MobileURL(primary), "tls": s.config.TLSCert != "", "localCAAvailable": s.config.TLSCA != "", "connectedDevices": s.broker.Connected()})
+	writeJSON(w, http.StatusOK, map[string]any{"running": true, "addresses": addresses, "url": s.config.MobileURL(primary), "tls": s.config.ClientTLS(), "localCAAvailable": s.config.TLSCA != "", "connectedDevices": s.broker.Connected()})
 }
 
 func (s *Server) handleLocalCADownload(w http.ResponseWriter, r *http.Request) {

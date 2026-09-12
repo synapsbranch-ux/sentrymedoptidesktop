@@ -15,7 +15,7 @@ func (s *Server) audit(ctx context.Context, user *AuthUser, action, entityType, 
 	}
 	var ip, agent string
 	if request != nil {
-		ip = requestIP(request)
+		ip = clientAttributionIP(request)
 		agent = request.UserAgent()
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO audit_logs(id, user_id, action, entity_type, entity_id, summary, before_json, after_json, ip_address, user_agent, created_at)

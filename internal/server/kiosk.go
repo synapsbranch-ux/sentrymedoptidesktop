@@ -43,7 +43,7 @@ func (s *Server) registerKioskRoutes(api chi.Router) {
 }
 
 func (s *Server) kioskThrottled(r *http.Request) bool {
-	ip := requestIP(r)
+	ip := clientAttributionIP(r)
 	cutoff := time.Now().UTC().Add(-kioskLookupWindow).Format(time.RFC3339Nano)
 	var attempts int
 	_ = s.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM kiosk_lookup_attempts WHERE ip_address=? AND attempted_at>?", ip, cutoff).Scan(&attempts)
@@ -51,7 +51,7 @@ func (s *Server) kioskThrottled(r *http.Request) bool {
 }
 
 func (s *Server) recordKioskAttempt(r *http.Request) {
-	_, _ = s.db.ExecContext(r.Context(), "INSERT INTO kiosk_lookup_attempts(id,ip_address,attempted_at) VALUES(?,?,?)", uuid.NewString(), requestIP(r), time.Now().UTC().Format(time.RFC3339Nano))
+	_, _ = s.db.ExecContext(r.Context(), "INSERT INTO kiosk_lookup_attempts(id,ip_address,attempted_at) VALUES(?,?,?)", uuid.NewString(), clientAttributionIP(r), time.Now().UTC().Format(time.RFC3339Nano))
 }
 
 // findKioskPatient matches on last name (exact, case-insensitive) plus a digits-only

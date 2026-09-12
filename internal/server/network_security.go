@@ -58,6 +58,9 @@ func (s *Server) guardDatabase(next http.Handler) http.Handler {
 
 // Support a local TLS proxy only when the configured public HTTPS origin and
 // preserved Host match. Untrusted forwarding headers never grant this status.
+// This intentionally uses requestIP's raw peer, not clientAttributionIP's
+// forwarded-header value (context.go): this is a trust decision, not
+// attribution, and must not honor a header the peer itself could set.
 func (s *Server) secureRequest(r *http.Request) bool {
 	if r.TLS != nil {
 		return true

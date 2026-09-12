@@ -10,11 +10,13 @@ import { desktopBridge } from "../native";
 import { supportedLanguages, useI18n } from "../i18n";
 import { DEFAULT_CLINIC_NAME, usePublicBranding } from "../clinic";
 
-function Brand() {
+/** The clinic's mark and name. `stacked` puts the logo above the name, which is
+ * how the sign-in screen leads: the clinic is identified before anything else. */
+function Brand({ stacked = false }: { stacked?: boolean }) {
   const [logo, setLogo] = React.useState(true);
   const { t } = useI18n();
   const branding = usePublicBranding();
-  return <div className="flex items-center gap-3"><div className="grid h-12 w-16 place-items-center overflow-hidden rounded-[var(--radius)] bg-white text-[var(--primary)]">{logo ? <img className="h-full w-full object-contain" src={branding.logoUrl} alt={t("Clinic logo")} onError={() => setLogo(false)} /> : <Server className="h-5 w-5" />}</div><div><div className="font-bold tracking-tight" data-i18n-skip>{branding.name}</div><div className="text-xs text-zinc-500">{t("Optical Clinic Management System")}</div></div></div>;
+  return <div className={stacked ? "flex flex-col items-center gap-3 text-center" : "flex items-center gap-3"}><div className={`grid place-items-center overflow-hidden rounded-[var(--radius)] bg-white text-[var(--primary)] ${stacked ? "h-24 w-32" : "h-12 w-16"}`}>{logo ? <img className="h-full w-full object-contain" src={branding.logoUrl} alt={t("Clinic logo")} onError={() => setLogo(false)} /> : <Server className={stacked ? "h-8 w-8" : "h-5 w-5"} />}</div><div><div className={`font-bold tracking-tight ${stacked ? "text-xl" : ""}`} data-i18n-skip>{branding.name}</div><div className="text-xs text-zinc-500">{t("Optical Clinic Management System")}</div></div></div>;
 }
 
 export function LoginScreen() {
@@ -34,7 +36,7 @@ export function LoginScreen() {
   };
   return <main className="flex min-h-svh w-full flex-col items-center justify-center gap-6 overflow-x-hidden bg-zinc-50 p-4 sm:p-6 md:p-10">
     <div className="flex w-full max-w-sm flex-col gap-6">
-      <div className="self-center"><Brand /></div>
+      <div className="self-center"><Brand stacked /></div>
       <Card className="shadow-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Welcome back</CardTitle>
@@ -47,7 +49,6 @@ export function LoginScreen() {
         <Button className="w-full" type="submit" disabled={submitting || available === false}>{submitting ? "Signing in…" : "Sign in"}</Button>
         <div className="flex items-center justify-center gap-2 text-xs text-zinc-500">{available === true ? <Wifi className="h-4 w-4 text-emerald-700" /> : available === false ? <WifiOff className="h-4 w-4 text-red-700" /> : <span className="h-2 w-2 animate-pulse rounded-full bg-zinc-400" />}{t(available === true ? "Clinic server available" : available === false ? "Clinic server unavailable" : "Checking clinic server…")}</div>
       </form></CardContent></Card>
-      <p className="px-6 text-center text-xs leading-relaxed text-zinc-500">{t("Local-first clinic access. Your operational data remains on the SentryMed server.")}</p>
     </div>
   </main>;
 }

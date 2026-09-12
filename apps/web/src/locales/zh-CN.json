@@ -1168,7 +1168,6 @@
   "Local certificate authority file was not found.": "找不到本地证书颁发机构文件。",
   "Local defaults": "本地默认值",
   "Local file storage": "本地文件存储",
-  "Local-first clinic access. Your operational data remains on the SentryMed server.": "本地优先的诊所访问。您的操作数据保留在 SentryMed 服务器上。",
   "Local-first clinic workspace": "本地优先的诊所工作空间",
   "Logo file could not be read.": "无法读取徽标文件。",
   "Logo was not saved to clinic settings.": "徽标未保存到诊所设置中。",

@@ -44,7 +44,6 @@ const starterTranslations: Record<Exclude<LanguageCode, "en">, Messages> = {
     "Clinic server available": "Serveur de la clinique disponible",
     "Clinic server unavailable": "Serveur de la clinique indisponible",
     "Checking clinic server…": "Vérification du serveur…",
-    "Local-first clinic access. Your operational data remains on the SentryMed server.": "Accès local à la clinique. Vos données opérationnelles restent sur le serveur SentryMed.",
     "Connecting to clinic server…": "Connexion au serveur de la clinique…",
     Overview: "Aperçu", Dashboard: "Tableau de bord", Patients: "Patients", Appointments: "Rendez-vous", Consultations: "Consultations",
     Clinical: "Clinique", Prescriptions: "Ordonnances", "Optical / Lab": "Optique / Laboratoire", Documents: "Documents",

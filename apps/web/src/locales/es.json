@@ -1168,7 +1168,6 @@
   "Local certificate authority file was not found.": "No se encontró el archivo de autoridad de certificación local.",
   "Local defaults": "Valores predeterminados locales",
   "Local file storage": "Almacenamiento de archivos locales",
-  "Local-first clinic access. Your operational data remains on the SentryMed server.": "Acceso a clínica local primero. Sus datos operativos permanecen en el servidor SentryMed.",
   "Local-first clinic workspace": "Espacio de trabajo clínico local",
   "Logo file could not be read.": "No se pudo leer el archivo del logotipo.",
   "Logo was not saved to clinic settings.": "El logotipo no se guardó en la configuración de la clínica.",

@@ -190,7 +190,34 @@ func connectRFCOMM(ctx context.Context, fd int, target [6]uint8, channel int) er
 	return nil
 }
 
+// writeRFCOMMPayload sends the receipt at a pace the printer can keep up with.
+//
+// RFCOMM will accept the whole receipt as fast as the socket takes it, but a
+// portable printer holds only a few kilobytes and silently discards whatever
+// arrives once that is full: the head prints the beginning and the rest of the
+// receipt never exists. Feeding it in small pieces keeps the flow below what a
+// 58 mm head consumes, which costs milliseconds on a receipt and nothing a
+// cashier can notice.
 func writeRFCOMMPayload(ctx context.Context, fd int, payload []byte) error {
+	for len(payload) > 0 {
+		chunk := payload
+		if len(chunk) > printerChunkBytes {
+			chunk = chunk[:printerChunkBytes]
+		}
+		sent, err := writeRFCOMMChunk(ctx, fd, chunk)
+		payload = payload[sent:]
+		if err != nil {
+			return err
+		}
+		if len(payload) > 0 && !sleepContext(ctx, printerChunkPause) {
+			return &rfcommError{stage: "write", cause: ctx.Err()}
+		}
+	}
+	return nil
+}
+
+func writeRFCOMMChunk(ctx context.Context, fd int, payload []byte) (int, error) {
+	sent := 0
 	for len(payload) > 0 {
 		written, err := unix.Write(fd, payload)
 		switch {
@@ -198,17 +225,18 @@ func writeRFCOMMPayload(ctx context.Context, fd int, payload []byte) error {
 			continue
 		case errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EWOULDBLOCK):
 			if waitErr := waitForSocket(ctx, fd, unix.POLLOUT, rfcommWriteTimeout); waitErr != nil {
-				return &rfcommError{stage: "write", cause: waitErr}
+				return sent, &rfcommError{stage: "write", cause: waitErr}
 			}
 			continue
 		case err != nil:
-			return &rfcommError{stage: "write", cause: err}
+			return sent, &rfcommError{stage: "write", cause: err}
 		case written <= 0:
-			return &rfcommError{stage: "write", cause: unix.EPIPE}
+			return sent, &rfcommError{stage: "write", cause: unix.EPIPE}
 		}
 		payload = payload[written:]
+		sent += written
 	}
-	return nil
+	return sent, nil
 }
 
 // drainRFCOMM waits for the outgoing queue to empty. write() only queues bytes;

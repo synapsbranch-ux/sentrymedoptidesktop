@@ -1168,7 +1168,6 @@
   "Local certificate authority file was not found.": "로컬 인증 기관 파일을 찾을 수 없습니다.",
   "Local defaults": "로컬 기본값",
   "Local file storage": "로컬 파일 저장소",
-  "Local-first clinic access. Your operational data remains on the SentryMed server.": "지역 우선 진료소 이용. 귀하의 운영 데이터는 SentryMed 서버에 남아 있습니다.",
   "Local-first clinic workspace": "지역 우선 진료소 업무공간",
   "Logo file could not be read.": "로고 파일을 읽을 수 없습니다.",
   "Logo was not saved to clinic settings.": "로고가 병원 설정에 저장되지 않았습니다.",
